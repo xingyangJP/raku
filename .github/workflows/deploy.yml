@@ -31,18 +31,13 @@ jobs:
     - name: Build Frontend Assets
       run: npm run build
 
-    - name: Deploy Files with rsync
-      uses: appleboy/rsync-action@master
-      with:
-        host: xero.xsrv.jp
-        username: xero
-        key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
-        port: 10022
-        source: "./"
-        target: "/home/xero/raku"
-        exclude: |
-          .git
-          node_modules
+    - name: Deploy Files with Manual rsync
+      run: |
+        echo "${{ secrets.ACTIONS_DEPLOY_KEY }}" > private_key.pem
+        chmod 600 private_key.pem
+        rsync -avz -e "ssh -i private_key.pem -p 10022 -o StrictHostKeyChecking=no" \
+          --exclude='.git' --exclude='node_modules' \
+          ./ xero@xero.xsrv.jp:/home/xero/raku/
 
     - name: Run Post-Deploy Commands on Server
       uses: appleboy/ssh-action@v1.0.3
