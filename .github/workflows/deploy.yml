@@ -1,4 +1,3 @@
-
 name: Deploy to Xserver
 
 on:
@@ -32,14 +31,15 @@ jobs:
       - name: Build Frontend Assets
         run: npm run build
 
-      - name: Deploy to Server
-        uses: easing-themes/ssh-deploy@v2.2.11
+      - name: Deploy with rsync
+        uses: appleboy/rsync-action@master
         with:
-          SSH_PRIVATE_KEY: ${{ secrets.ACTIONS_DEPLOY_KEY }}
-          ARGS: "-rlgoDzvc -i --delete"
-          SOURCE: "./"
-          REMOTE_HOST: "xero.xsrv.jp"
-          REMOTE_USER: "xero"
-          REMOTE_PORT: "10022"
-          TARGET: "/home/xero/xerographix.co.jp/public_html/sales"
-          EXCLUDE: "/.git/, /node_modules/"
+          host: xero.xsrv.jp
+          username: xero
+          key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
+          port: 10022
+          source: "./"
+          target: "/home/xero/xerographix.co.jp/public_html/sales"
+          exclude: |
+            .git
+            node_modules
