@@ -12,7 +12,7 @@ export default function AuthenticatedLayout({ header, children }) {
 
     const menuItems = [
         { name: 'ダッシュボード', href: route('dashboard'), icon: Home, current: route().current('dashboard') },
-        { name: '売上管理', href: '#', icon: ShoppingCart, current: false },
+        { name: '売上管理', href: route('sales.index'), icon: ShoppingCart, current: route().current('sales.index') },
         { name: '入金管理', href: '#', icon: Landmark, current: false },
         { name: '請求・売掛管理', href: '#', icon: FileText, current: false },
         { name: '在庫管理', href: '#', icon: Boxes, current: false },
