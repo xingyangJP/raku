@@ -23,6 +23,26 @@ Route::middleware('auth')->group(function () {
     Route::get('/sales', function () {
         return Inertia::render('Sales/Index');
     })->name('sales.index');
+
+    Route::get('/deposits', function () {
+        return Inertia::render('Deposits/Index');
+    })->name('deposits.index');
+
+    Route::get('/billing', function () {
+        return Inertia::render('Billing/Index');
+    })->name('billing.index');
+
+    Route::get('/inventory', function () {
+        return Inertia::render('Inventory/Index');
+    })->name('inventory.index');
+
+    Route::get('/products', function () {
+        return Inertia::render('Products/Index');
+    })->name('products.index');
+
+    Route::get('/quotes', function () {
+        return Inertia::render('Quotes/Index');
+    })->name('quotes.index');
 });
 
 require __DIR__.'/auth.php';

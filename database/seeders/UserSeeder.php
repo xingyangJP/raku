@@ -16,10 +16,10 @@ class UserSeeder extends Seeder
     public function run(): void
     {
         // Check if user already exists
-        if (!User::where('email', 'xero_online@me.com')->exists()) {
+        if (!User::where('email', 'test@test.com')->exists()) {
             User::create([
                 'name' => 'Xero Online',
-                'email' => 'xero_online@me.com',
+                'email' => 'test@test.com',
                 'password' => Hash::make('00000000'),
             ]);
         }
