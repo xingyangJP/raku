@@ -49,13 +49,11 @@ jobs:
         script: |
           set -e
           cd /home/xero/raku
-          echo "${{ secrets.DOT_ENV_PRODUCTION }}" > .env
-          if ! grep -q "^APP_KEY=" .env; then
-            echo "" >> .env
-            echo "APP_KEY=" >> .env
-          fi
+
+          # .env file is now managed manually on the server.
+          # This script will no longer create or modify .env or APP_KEY.
+
           chmod -R 777 storage bootstrap/cache
-          /opt/php-8.2.28-2/bin/php artisan key:generate --force
           /opt/php-8.2.28-2/bin/php artisan config:clear
           /opt/php-8.2.28-2/bin/php artisan migrate --force --seed
           /opt/php-8.2.28-2/bin/php artisan route:cache
