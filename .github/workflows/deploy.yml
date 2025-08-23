@@ -47,24 +47,20 @@ jobs:
         key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
         port: 10022
         script: |
-          set -e # Exit immediately if a command exits with a non-zero status.
-          echo "✅ Deployment script started."
+          set -e
           cd /home/xero/raku
-          echo "✅ Creating .env file..."
           echo "${{ secrets.DOT_ENV_PRODUCTION }}" > .env
-          echo "✅ Setting permissions..."
+          if ! grep -q "^APP_KEY=" .env; then
+            echo "" >> .env
+            echo "APP_KEY=" >> .env
+          fi
           chmod -R 777 storage bootstrap/cache
-          echo "✅ Generating app key..."
           /opt/php-8.2.28-2/bin/php artisan key:generate --force
-          echo "✅ Clearing config cache..."
           /opt/php-8.2.28-2/bin/php artisan config:clear
-          echo "✅ Running database migrations..."
-          /opt/php-8.2.28-2/bin/php artisan migrate --force
-          echo "✅ Caching configuration..."
+          /opt/php-8.2.28-2/bin/php artisan migrate --force --seed
           /opt/php-8.2.28-2/bin/php artisan route:cache
           /opt/php-8.2.28-2/bin/php artisan view:cache
           /opt/php-8.2.28-2/bin/php artisan config:cache
-          echo "✅ Creating symlink..."
           rm -rf /home/xero/xerographix.co.jp/public_html/sales
           ln -s /home/xero/raku/public /home/xero/xerographix.co.jp/public_html/sales
           echo "🚀 Deployment finished successfully."
