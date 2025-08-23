@@ -48,21 +48,21 @@ jobs:
         port: 10022
         script: |
           cd /home/xero/raku
-          if [ ! -f ".env" ]; then
-            cp .env.example .env
-            /opt/php-8.2.28-2/bin/php artisan key:generate --force
-          fi
+          # Create .env file from GitHub Secret
+          echo "${{ secrets.DOT_ENV_PRODUCTION }}" > .env
+          # Generate app key (it will not overwrite if already set in the secret)
+          /opt/php-8.2.28-2/bin/php artisan key:generate --force
+          # Run migrations AFTER .env is configured
           /opt/php-8.2.28-2/bin/php artisan migrate --force
-          # Clear caches before creating new ones
+          # Clear and create caches
           /opt/php-8.2.28-2/bin/php artisan config:clear
           /opt/php-8.2.28-2/bin/php artisan route:clear
           /opt/php-8.2.28-2/bin/php artisan view:clear
           /opt/php-8.2.28-2/bin/php artisan cache:clear
-          # Create new caches
           /opt/php-8.2.28-2/bin/php artisan config:cache
           /opt/php-8.2.28-2/bin/php artisan route:cache
           /opt/php-8.2.28-2/bin/php artisan view:cache
-          # Fix symlink and path
+          # Symlink
           rm -rf /home/xero/xerographix.co.jp/public_html/sales
           ln -s /home/xero/raku/public /home/xero/xerographix.co.jp/public_html/sales
           echo "🚀 Deployment finished successfully."
