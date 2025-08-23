@@ -36,7 +36,7 @@ jobs:
         echo "${{ secrets.ACTIONS_DEPLOY_KEY }}" > private_key.pem
         chmod 600 private_key.pem
         rsync -avz -e "ssh -i private_key.pem -p 10022 -o StrictHostKeyChecking=no" \
-          --exclude='.git' --exclude='node_modules' \
+          --exclude='.git' --exclude='node_modules' --exclude='.env' \
           ./ xero@xero.xsrv.jp:/home/xero/raku/
 
     - name: Run Post-Deploy Commands on Server
