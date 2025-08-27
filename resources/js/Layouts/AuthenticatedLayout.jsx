@@ -16,7 +16,7 @@ export default function AuthenticatedLayout({ header, children }) {
         { name: '売上管理', href: route('sales.index'), icon: ShoppingCart, current: route().current('sales.index') },
         { name: '入金管理', href: route('deposits.index'), icon: Landmark, current: route().current('deposits.index') },
         { name: '請求・売掛管理', href: route('billing.index'), icon: FileText, current: route().current('billing.index') },
-        { name: '在庫管理', href: route('inventory.index'), icon: Boxes, current: route().current('inventory.index') },
+        // { name: '在庫管理', href: route('inventory.index'), icon: Boxes, current: route().current('inventory.index') },
         { name: '商品管理', href: route('products.index'), icon: Package, current: route().current('products.index') },
         { name: '各種設定', href: '#', icon: Settings, current: false },
     ];
