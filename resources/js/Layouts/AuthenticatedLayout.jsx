@@ -28,7 +28,7 @@ export default function AuthenticatedLayout({ header, children }) {
                     <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
                         <Link href="/" className="flex items-center gap-2 font-semibold">
                             <Package2 className="h-6 w-6" />
-                            <span className="">ラクシル</span>
+                            <span className="">ラクシルcloud</span>
                         </Link>
                     </div>
                     <div className="flex-1">
@@ -69,7 +69,7 @@ export default function AuthenticatedLayout({ header, children }) {
                                     className="flex items-center gap-2 text-lg font-semibold"
                                 >
                                     <Package2 className="h-6 w-6" />
-                                    <span className="sr-only">ラクシル</span>
+                                    <span className="sr-only">ラクシルcloud</span>
                                 </Link>
                                 {menuItems.map((item) => (
                                     <Link
