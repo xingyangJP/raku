@@ -1,10 +1,11 @@
-
 <?php
 
 use App\Http\Controllers\ProfileController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 
 Route::get('/', function () {
     // Redirect root to the login page
@@ -43,6 +44,34 @@ Route::middleware('auth')->group(function () {
     Route::get('/quotes', function () {
         return Inertia::render('Quotes/Index');
     })->name('quotes.index');
+
+    Route::get('/estimates/create', [App\Http\Controllers\EstimateController::class, 'create'])->name('estimates.create');
+
+    Route::post('/estimates/preview-pdf', [App\Http\Controllers\EstimateController::class, 'previewPdf'])->name('estimates.previewPdf');
+
+    Route::get('/api/customers', function (Request $request) {
+        $search = $request->input('search');
+        $response = Http::get('https://api.xerographix.co.jp/api/customers', [
+            'search' => $search,
+        ]);
+
+        // APIからのレスポンスをそのまま返す
+        return response()->json($response->json());
+    });
+
+    Route::get('/api/users', function (Request $request) {
+        $search = $request->input('search');
+        $response = Http::get('https://api.xerographix.co.jp/api/users', [
+            'search' => $search,
+        ]);
+
+        // APIからのレスポンスをそのまま返す
+        return response()->json($response->json());
+    });
+
+    Route::get('/admin', function () {
+        return Inertia::render('Admin/Index');
+    })->name('admin.index');
 });
 
 require __DIR__.'/auth.php';

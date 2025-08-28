@@ -1,6 +1,6 @@
 
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { Badge } from "@/Components/ui/badge";
@@ -70,7 +70,11 @@ export default function QuoteIndex({ auth }) {
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between">
                         <div><CardTitle>見積一覧</CardTitle><CardDescription>全 {quotes.length} 件</CardDescription></div>
-                        <div className="flex gap-2"><Button><PlusCircle className="h-4 w-4 mr-2"/>新規見積</Button></div>
+                        <div className="flex gap-2">
+                            <Link href={route('estimates.create')}>
+                                <Button><PlusCircle className="h-4 w-4 mr-2"/>新規見積</Button>
+                            </Link>
+                        </div>
                     </CardHeader>
                     <CardContent>
                         <Table>
