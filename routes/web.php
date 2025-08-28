@@ -49,25 +49,8 @@ Route::middleware('auth')->group(function () {
 
     Route::post('/estimates/preview-pdf', [App\Http\Controllers\EstimateController::class, 'previewPdf'])->name('estimates.previewPdf');
 
-    Route::get('/api/customers', function (Request $request) {
-        $search = $request->input('search');
-        $response = Http::get('https://api.xerographix.co.jp/api/customers', [
-            'search' => $search,
-        ]);
-
-        // APIからのレスポンスをそのまま返す
-        return response()->json($response->json());
-    });
-
-    Route::get('/api/users', function (Request $request) {
-        $search = $request->input('search');
-        $response = Http::get('https://api.xerographix.co.jp/api/users', [
-            'search' => $search,
-        ]);
-
-        // APIからのレスポンスをそのまま返す
-        return response()->json($response->json());
-    });
+    Route::get('/api/customers', [App\Http\Controllers\ApiController::class, 'getCustomers']);
+    Route::get('/api/users', [App\Http\Controllers\ApiController::class, 'getUsers']);
 
     Route::get('/admin', function () {
         return Inertia::render('Admin/Index');
