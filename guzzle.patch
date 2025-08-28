@@ -1,0 +1,16 @@
+--- a/vendor/guzzlehttp/guzzle/src/Handler/CurlFactory.php
++++ b/vendor/guzzlehttp/guzzle/src/Handler/CurlFactory.php
+@@ -85,11 +85,7 @@
+     private static function supportsTls12(): bool
+     {
+         static $supportsTls12 = null;
+-
+-        if (null === $supportsTls12) {
+-            $supportsTls12 = \CURL_SSLVERSION_TLSv1_2 & \curl_version()['features'];
+-        }
++        if (null === $supportsTls12) {
++            $supportsTls12 = defined('CURL_SSLVERSION_TLSv1_2') && (\CURL_SSLVERSION_TLSv1_2 & \curl_version()['features']);
++        }
+ 
+         return $supportsTls12;
+     }
