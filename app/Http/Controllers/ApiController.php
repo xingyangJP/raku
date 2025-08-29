@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Throwable;
 
 class ApiController extends Controller
@@ -12,23 +11,26 @@ class ApiController extends Controller
     {
         $search = $request->input('search');
         try {
-            $response = Http::withOptions([
-                'verify' => env('SSL_VERIFY', true),
-                'curl' => [
-                    // Workaround for old cURL versions (like 7.29.0) lacking TLSv1.2 constants
-                    // CURLOPT_SSLVERSION => 0 (CURL_SSLVERSION_DEFAULT) tells cURL to negotiate the version
-                    CURLOPT_SSLVERSION => 0,
-                ],
-            ])->get('https://api.xerographix.co.jp/api/customers', [
-                'search' => $search,
-            ]);
+            $url = 'https://api.xerographix.co.jp/api/customers?search=' . urlencode($search);
 
-            if ($response->successful()) {
-                return response()->json($response->json());
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, env('SSL_VERIFY', true));
+            // Workaround for old cURL versions
+            curl_setopt($ch, CURLOPT_SSLVERSION, 0); // 0 is CURL_SSLVERSION_DEFAULT
+
+            $response = curl_exec($ch);
+            $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            if ($httpcode >= 200 && $httpcode < 300) {
+                return response($response)->header('Content-Type', 'application/json');
             }
 
-            \Log::error('External API error (customers): ' . $response->body());
-            return response()->json(['message' => 'Failed to fetch customers from external API. Status: ' . $response->status()], $response->status());
+            \Log::error('External API error (customers): ' . $response);
+            return response()->json(['message' => 'Failed to fetch customers from external API. Status: ' . $httpcode . ' Error: ' . $error], $httpcode);
         } catch (Throwable $e) {
             \Log::error($e);
             return response()->json(['message' => 'An unexpected error occurred: ' . $e->getMessage()], 500);
@@ -39,23 +41,26 @@ class ApiController extends Controller
     {
         $search = $request->input('search');
         try {
-            $response = Http::withOptions([
-                'verify' => env('SSL_VERIFY', true),
-                'curl' => [
-                    // Workaround for old cURL versions (like 7.29.0) lacking TLSv1.2 constants
-                    // CURLOPT_SSLVERSION => 0 (CURL_SSLVERSION_DEFAULT) tells cURL to negotiate the version
-                    CURLOPT_SSLVERSION => 0,
-                ],
-            ])->get('https://api.xerographix.co.jp/api/users', [
-                'search' => $search,
-            ]);
+            $url = 'https://api.xerographix.co.jp/api/users?search=' . urlencode($search);
 
-            if ($response->successful()) {
-                return response()->json($response->json());
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, env('SSL_VERIFY', true));
+            // Workaround for old cURL versions
+            curl_setopt($ch, CURLOPT_SSLVERSION, 0); // 0 is CURL_SSLVERSION_DEFAULT
+
+            $response = curl_exec($ch);
+            $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            if ($httpcode >= 200 && $httpcode < 300) {
+                return response($response)->header('Content-Type', 'application/json');
             }
 
-            \Log::error('External API error (users): ' . $response->body());
-            return response()->json(['message' => 'Failed to fetch users from external API. Status: ' . $response->status()], $response->status());
+            \Log::error('External API error (users): ' . $response);
+            return response()->json(['message' => 'Failed to fetch users from external API. Status: ' . $httpcode . ' Error: ' . $error], $httpcode);
         } catch (Throwable $e) {
             \Log::error($e);
             return response()->json(['message' => 'An unexpected error occurred: ' . $e->getMessage()], 500);

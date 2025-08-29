@@ -20,9 +20,6 @@ jobs:
     - name: Install Composer Dependencies
       run: composer install --no-dev --optimize-autoloader
 
-    - name: Patch Guzzle for old cURL
-      run: patch -p1 < guzzle.patch
-
     - name: Setup Node.js
       uses: actions/setup-node@v3
       with:
@@ -52,6 +49,9 @@ jobs:
         script: |
           set -e
           cd /home/xero/raku
+
+          # Remove opcache_reset.php file for security
+          rm -f public/opcache_reset.php
 
           # .env file is now managed manually on the server.
           # This script will no longer create or modify .env or APP_KEY.
