@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>見積書</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        @page {
+            size: A4;
+            margin: 15mm;
+        }
+        
+        .teal { color: #00A693; }
+        .teal-bg { background-color: #00A693; }
+        .orange { color: #FF8C42; }
+        .orange-bg { background-color: #FF8C42; }
+        .dark-gray { color: #2C3E50; }
+        .light-gray { color: #ECF0F1; }
+        
+        body {
+            font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic Medium', 'Meiryo', sans-serif;
+        }
+        
+        .border-teal { border-color: #00A693; }
+        .border-light-gray { border-color: #ECF0F1; }
+        
+        table {
+            border-collapse: collapse;
+        }
+        
+        .quotation-table td,
+        .quotation-table th {
+            border: 1px solid #ECF0F1;
+            padding: 8px;
+        }
+        
+        .quotation-table th {
+            border-color: #00A693;
+            border-width: 2px 1px 2px 1px;
+        }
+        
+        .total-table {
+            border: 2px solid #00A693;
+        }
+        
+        .total-table td {
+            border: 1px solid #ECF0F1;
+            padding: 12px;
+        }
+    </style>
+</head>
+<body class="bg-white">
+    <div class="max-w-4xl mx-auto bg-white">
+        <div class="border-2 border-light-gray shadow-sm">
+            <!-- ヘッダー -->
+            <div class="p-6 border-b-4 border-teal">
+                <div class="flex justify-between items-start">
+                    <!-- 左側：顧客情報 -->
+                    <div class="flex-1 space-y-4">
+                        <div>
+                            <div class="text-2xl font-bold mb-2 dark-gray">
+                                株式会社クライアント 御中
+                            </div>
+                            <div class="text-sm teal">
+                                ご担当者様：田中 太郎 様
+                            </div>
+                        </div>
+                        
+                        <!-- 発行日・有効期限 -->
+                        <div class="flex items-center space-x-6 text-xs">
+                            <div class="flex items-center">
+                                <span class="font-medium mr-2 teal">発行日：</span>
+                                <span class="dark-gray">2025年8月23日</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span class="font-medium mr-2 teal">有効期限：</span>
+                                <span class="font-bold orange">2025年9月23日</span>
+                            </div>
+                        </div>
+                        
+                        <!-- 件名 -->
+                        <div class="flex items-center">
+                            <span class="font-medium mr-3 teal">件名：</span>
+                            <span class="text-lg dark-gray">Webサイト制作に関するお見積り</span>
+                        </div>
+                    </div>
+
+                    <!-- 右側：見積番号＋自社情報 -->
+                    <div class="text-right text-sm max-w-xs ml-8">
+                        <!-- 見積番号 - 社名の上に1行で -->
+                        <div class="text-xs teal mb-1">見積番号：EST-2025-001</div>
+                        
+                        <!-- 自社情報 -->
+                        <div class="space-y-1 dark-gray">
+                            <div class="font-bold text-base teal">
+                                株式会社テックソリューション
+                            </div>
+                            <div>〒100-0001 東京都千代田区千代田1-1-1</div>
+                            <div>TEL: 03-1234-5678</div>
+                            <div>FAX: 03-1234-5679</div>
+                            <div class="orange">info@techsolution.co.jp</div>
+                            <div class="orange">https://www.techsolution.co.jp</div>
+                            <div class="mt-2 pt-2 border-t border-light-gray">
+                                <span class="teal">担当者：</span>
+                                営業部 山田 太郎
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 見積書タイトル -->
+            <div class="text-center py-6 border-b border-light-gray">
+                <h1 class="text-3xl font-bold mb-2 dark-gray">
+                    見 積 書
+                </h1>
+                <div class="w-32 h-1 mx-auto rounded orange-bg"></div>
+            </div>
+
+            <!-- 明細 -->
+            <div class="p-6 border-b border-light-gray">
+                <h2 class="text-lg font-bold mb-4 flex items-center dark-gray">
+                    <div class="w-1 h-6 mr-3 rounded teal-bg"></div>
+                    明細
+                </h2>
+                <table class="w-full quotation-table">
+                    <thead>
+                        <tr class="bg-gray-50">
+                            <th class="text-center w-8 font-bold dark-gray">No.</th>
+                            <th class="min-w-48 font-bold dark-gray text-left">品目名・詳細</th>
+                            <th class="text-center w-16 font-bold dark-gray">数量</th>
+                            <th class="text-center w-16 font-bold dark-gray">単位</th>
+                            <th class="text-right w-24 font-bold dark-gray">単価</th>
+                            <th class="text-right w-24 font-bold dark-gray">金額</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="text-center teal">1</td>
+                            <td>
+                                <div class="font-medium dark-gray">Webサイト設計・デザイン</div>
+                                <div class="text-sm teal">レスポンシブデザイン、UI/UX設計含む</div>
+                            </td>
+                            <td class="text-center dark-gray">1</td>
+                            <td class="text-center dark-gray">式</td>
+                            <td class="text-right dark-gray">¥800,000</td>
+                            <td class="text-right font-bold orange">¥800,000</td>
+                        </tr>
+                        <tr>
+                            <td class="text-center teal">2</td>
+                            <td>
+                                <div class="font-medium dark-gray">フロントエンド開発</div>
+                                <div class="text-sm teal">React.js、TypeScript使用</div>
+                            </td>
+                            <td class="text-center dark-gray">3</td>
+                            <td class="text-center dark-gray">週間</td>
+                            <td class="text-right dark-gray">¥300,000</td>
+                            <td class="text-right font-bold orange">¥900,000</td>
+                        </tr>
+                        <tr>
+                            <td class="text-center teal">3</td>
+                            <td>
+                                <div class="font-medium dark-gray">バックエンド開発</div>
+                                <div class="text-sm teal">Laravel、MySQL、API開発</div>
+                            </td>
+                            <td class="text-center dark-gray">4</td>
+                            <td class="text-center dark-gray">週間</td>
+                            <td class="text-right dark-gray">¥350,000</td>
+                            <td class="text-right font-bold orange">¥1,400,000</td>
+                        </tr>
+                        <tr>
+                            <td class="text-center teal">4</td>
+                            <td>
+                                <div class="font-medium dark-gray">テスト・品質保証</div>
+                                <div class="text-sm teal">単体テスト、統合テスト実施</div>
+                            </td>
+                            <td class="text-center dark-gray">1</td>
+                            <td class="text-center dark-gray">式</td>
+                            <td class="text-right dark-gray">¥200,000</td>
+                            <td class="text-right font-bold orange">¥200,000</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 合計 -->
+            <div class="p-6 border-b border-light-gray">
+                <div class="flex justify-end">
+                    <table class="w-80 total-table">
+                        <tbody>
+                            <tr>
+                                <td class="bg-gray-50 font-medium dark-gray">小計（税抜）</td>
+                                <td class="text-right font-bold dark-gray">¥3,300,000</td>
+                            </tr>
+                            <tr>
+                                <td class="bg-gray-50 font-medium dark-gray">消費税（10%）</td>
+                                <td class="text-right font-bold dark-gray">¥330,000</td>
+                            </tr>
+                            <tr>
+                                <td class="teal-bg text-white font-bold">合計金額</td>
+                                <td class="text-right font-bold text-xl orange">¥3,630,000</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- フッタ -->
+            <div class="p-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm mb-6">
+                    <div>
+                        <h3 class="font-bold mb-2 pb-1 flex items-center dark-gray border-b-2 border-teal">
+                            <div class="w-1 h-4 mr-2 rounded orange-bg"></div>
+                            支払条件
+                        </h3>
+                        <div class="space-y-1 dark-gray">
+                            <div>契約締結時に50%、納品時に50%のお支払い</div>
+                            <div>お支払期限：請求書発行日より30日以内</div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="font-bold mb-2 pb-1 flex items-center dark-gray border-b-2 border-teal">
+                            <div class="w-1 h-4 mr-2 rounded orange-bg"></div>
+                            納入場所
+                        </h3>
+                        <div class="dark-gray">貴社指定場所</div>
+                    </div>
+                </div>
+                
+                <!-- 備考 - 全幅 -->
+                <div>
+                    <h3 class="font-bold mb-2 pb-1 flex items-center dark-gray border-b-2 border-teal">
+                        <div class="w-1 h-4 mr-2 rounded orange-bg"></div>
+                        備考
+                    </h3>
+                    <div class="whitespace-pre-line dark-gray">
+仕様変更がある場合は、別途お見積りいたします。
+ご質問等ございましたら、お気軽にお問い合わせください。
+                    </div>
+                </div>
+
+                <!-- 装飾的なライン -->
+                <div class="mt-8 flex justify-center">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-12 h-0.5 rounded teal-bg"></div>
+                        <div class="w-6 h-0.5 rounded orange-bg"></div>
+                        <div class="w-12 h-0.5 rounded teal-bg"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

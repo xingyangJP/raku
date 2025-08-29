@@ -1,6 +1,6 @@
-
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, useForm } from '@inertiajs/react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { Badge } from "@/Components/ui/badge";
@@ -11,111 +11,763 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/Components/ui/dropdown-menu";
 import { DotsHorizontalIcon } from "@radix-ui/react-icons";
-import { FileText, PlusCircle, Search } from 'lucide-react';
+import { 
+    FileText, 
+    PlusCircle, 
+    Search, 
+    Filter,
+    Users,
+    TrendingUp,
+    Calendar,
+    DollarSign,
+    Eye,
+    Edit,
+    Copy,
+    CheckCircle,
+    Clock,
+    AlertCircle,
+    Target
+} from 'lucide-react';
+import { Checkbox } from '@/Components/ui/checkbox';
+import axios from 'axios';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { cn } from "@/lib/utils";
 
-export default function QuoteIndex({ auth }) {
-    const quotes = [
-        {
-            id: 'QT-001', title: 'Webサイトリニューアル', customer: '株式会社A', total: 1320000, cost: 950000, margin: 370000, marginRate: 28.0,
-            status: '承認済', expiryDate: '2025-09-30', rep: '山田 太郎', updated: '2025-08-20'
-        },
-        {
-            id: 'QT-002', title: '基幹システム保守', customer: '株式会社B', total: 660000, cost: 240000, margin: 420000, marginRate: 63.6,
-            status: '受注化済', expiryDate: '2025-09-15', rep: '鈴木 花子', updated: '2025-08-22'
-        },
-        {
-            id: 'QT-003', title: 'マーケティング支援', customer: '株式会社C', total: 550000, cost: 450000, margin: 100000, marginRate: 18.2,
-            status: '承認待ち', expiryDate: '2025-10-10', rep: '山田 太郎', updated: '2025-08-23'
-        },
-        {
-            id: 'QT-004', title: 'ハードウェア購入', customer: '株式会社D', total: 2200000, cost: 1980000, margin: 220000, marginRate: 10.0,
-            status: '失注', expiryDate: '2025-08-31', rep: '佐藤 次郎', updated: '2025-08-15'
-        },
-        {
-            id: 'QT-005', title: 'デザイン制作', customer: '株式会社E', total: 198000, cost: 150000, margin: 48000, marginRate: 24.2,
-            status: 'ドラフト', expiryDate: '2025-09-25', rep: '山田 太郎', updated: '2025-08-24'
-        },
-    ];
+export default function QuoteIndex({ auth, estimates }) {
+    const [selectedEstimates, setSelectedEstimates] = useState([]);
 
-    const getStatusBadge = (status) => {
-        switch (status) {
-            case '受注化済': return <Badge className="bg-green-500 text-white">受注化済</Badge>;
-            case '承認済': return <Badge className="bg-blue-500 text-white">承認済</Badge>;
-            case '承認待ち': return <Badge className="bg-yellow-500 text-white">承認待ち</Badge>;
-            case 'ドラフト': return <Badge variant="secondary">ドラフト</Badge>;
-            case '失注': return <Badge variant="outline">失注</Badge>;
-            default: return <Badge>{status}</Badge>;
+    const handleSelectAll = (checked) => {
+        if (checked) {
+            setSelectedEstimates(estimates.map(estimate => estimate.id));
+        } else {
+            setSelectedEstimates([]);
         }
     };
 
+    const handleSelectItem = (id, checked) => {
+        if (checked) {
+            setSelectedEstimates(prev => [...prev, id]);
+        } else {
+            setSelectedEstimates(prev => prev.filter(item => item !== id));
+        }
+    };
+
+    const getStatusBadge = (status) => {
+        const configs = {
+            'sent': { 
+                variant: 'default', 
+                className: 'bg-blue-500 hover:bg-blue-600 text-white', 
+                icon: CheckCircle,
+                label: '承認済' 
+            },
+            'draft': { 
+                variant: 'secondary', 
+                className: 'bg-slate-100 hover:bg-slate-200 text-slate-700', 
+                icon: Edit,
+                label: 'ドラフト' 
+            },
+            'pending': { 
+                variant: 'default', 
+                className: 'bg-amber-500 hover:bg-amber-600 text-white', 
+                icon: Clock,
+                label: '承認待ち' 
+            },
+            'rejected': { 
+                variant: 'destructive', 
+                className: 'bg-red-500 hover:bg-red-600 text-white', 
+                icon: AlertCircle,
+                label: '却下' 
+            }
+        };
+        
+        const config = configs[status] || configs['draft'];
+        const Icon = config.icon;
+        
+        return (
+            <Badge className={`flex items-center gap-1 ${config.className}`}>
+                <Icon className="h-3 w-3" />
+                {config.label}
+            </Badge>
+        );
+    };
+
+    const { post } = useForm();
+
+    const handleBulkApprove = () => {
+        if (selectedEstimates.length === 0) return;
+        if (confirm(`選択された ${selectedEstimates.length} 件の見積書を承認申請しますか？`)) {
+            post(route('estimates.bulkApprove'), { ids: selectedEstimates });
+        }
+    };
+
+    const handleBulkReassign = () => {
+        if (selectedEstimates.length === 0) return;
+        alert(`選択された ${selectedEstimates.length} 件の見積書の担当者を変更します。`);
+    };
+
+    const handleDuplicate = (id) => {
+        if (confirm('この見積書を複製しますか？')) {
+            post(route('estimates.duplicate', id));
+        }
+    };
+
+    const handlePdfPreview = (estimate) => {
+        const estimateData = {
+            customer_name: estimate.customer_name,
+            title: estimate.title,
+            issue_date: estimate.issue_date,
+            due_date: estimate.due_date,
+            estimate_number: estimate.estimate_number,
+            lineItems: estimate.items,
+            subtotal: estimate.total_amount - estimate.tax_amount,
+            tax: estimate.tax_amount,
+            total: estimate.total_amount,
+            notes: estimate.notes,
+        };
+
+        axios.post('/estimates/preview-pdf', estimateData)
+            .then(response => {
+                const previewHtml = response.data;
+                const newWindow = window.open("", "_blank");
+                if (newWindow) {
+                    newWindow.document.write(previewHtml);
+                    newWindow.document.close();
+                } else {
+                    alert("ポップアップがブロックされました。プレビューを表示するには、ポップアップを許可してください。");
+                }
+            })
+            .catch(error => {
+                console.error('Error generating web preview:', error);
+                alert('プレビューの生成中にエラーが発生しました。');
+            });
+    };
+
+    const calculateAmount = (item) => item.qty * item.price;
+    const calculateCostAmount = (item) => item.qty * item.cost;
+    const calculateGrossProfit = (item) => calculateAmount(item) - calculateCostAmount(item);
+    const calculateGrossMargin = (item) => {
+        const amount = calculateAmount(item);
+        return amount !== 0 ? (calculateGrossProfit(item) / amount) * 100 : 0;
+    };
+
+    const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
+
+    const mockApprovalHistory = [
+        { name: '守部', status: '未承認', date: '2025-08-29', role: '部長', avatar: '守' },
+        { name: '園田', status: '未承認', date: '2025-08-29', role: '課長', avatar: '園' },
+    ];
+
+    // 統計計算
+    const totalAmount = estimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
+    const draftCount = estimates.filter(est => est.status === 'draft').length;
+    const approvedCount = estimates.filter(est => est.status === 'sent').length;
+
     return (
-        <AuthenticatedLayout user={auth.user} header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">見積管理</h2>}>
+        <AuthenticatedLayout 
+            user={auth.user} 
+            header={
+                <div className="flex items-center justify-between">
+                    <h2 className="font-semibold text-xl text-gray-800 leading-tight flex items-center gap-2">
+                        <FileText className="h-6 w-6" />
+                        見積管理
+                    </h2>
+                    <div className="text-sm text-gray-600">
+                        最終更新: {new Date().toLocaleString('ja-JP')}
+                    </div>
+                </div>
+            }
+        >
             <Head title="Quote Management" />
-            <div className="space-y-6">
+            
+            <div className="space-y-8">
+                {/* 統計ダッシュボード */}
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-blue-50 to-blue-100 shadow-lg">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-blue-700">
+                                総見積金額
+                            </CardTitle>
+                            <div className="rounded-full bg-blue-500 p-2">
+                                <DollarSign className="h-4 w-4 text-white" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-blue-900">
+                                ¥{totalAmount.toLocaleString()}
+                            </div>
+                            <p className="text-xs text-blue-600 flex items-center mt-1">
+                                <TrendingUp className="h-3 w-3 mr-1" />
+                                今月の合計
+                            </p>
+                        </CardContent>
+                        <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-blue-200 opacity-20" />
+                    </Card>
+
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-green-50 to-green-100 shadow-lg">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-green-700">
+                                承認済み
+                            </CardTitle>
+                            <div className="rounded-full bg-green-500 p-2">
+                                <CheckCircle className="h-4 w-4 text-white" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-green-900">
+                                {approvedCount}件
+                            </div>
+                            <p className="text-xs text-green-600">
+                                全体の {Math.round((approvedCount / estimates.length) * 100)}%
+                            </p>
+                        </CardContent>
+                        <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-green-200 opacity-20" />
+                    </Card>
+
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-amber-50 to-amber-100 shadow-lg">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-amber-700">
+                                ドラフト
+                            </CardTitle>
+                            <div className="rounded-full bg-amber-500 p-2">
+                                <Edit className="h-4 w-4 text-white" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-amber-900">
+                                {draftCount}件
+                            </div>
+                            <p className="text-xs text-amber-600">
+                                要対応案件
+                            </p>
+                        </CardContent>
+                        <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-amber-200 opacity-20" />
+                    </Card>
+
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-purple-50 to-purple-100 shadow-lg">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-purple-700">
+                                総件数
+                            </CardTitle>
+                            <div className="rounded-full bg-purple-500 p-2">
+                                <Target className="h-4 w-4 text-white" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-purple-900">
+                                {estimates.length}件
+                            </div>
+                            <p className="text-xs text-purple-600">
+                                管理中の見積書
+                            </p>
+                        </CardContent>
+                        <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-purple-200 opacity-20" />
+                    </Card>
+                </div>
+
+                {/* 検索・フィルタ */}
                 <Accordion type="single" collapsible defaultValue="filters">
-                    <AccordionItem value="filters">
-                        <AccordionTrigger></AccordionTrigger>
+                    <AccordionItem value="filters" className="border rounded-lg shadow-sm bg-white">
+                        <AccordionTrigger className="px-6 py-4 hover:no-underline">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-slate-50 rounded-lg">
+                                    <Filter className="h-5 w-5 text-slate-600" />
+                                </div>
+                                <div className="text-left">
+                                    <CardTitle className="text-lg">検索・フィルタ</CardTitle>
+                                    <CardDescription>見積書の検索と絞り込み</CardDescription>
+                                </div>
+                            </div>
+                        </AccordionTrigger>
                         <AccordionContent>
                             <CardContent className="pt-4">
                                 <div className="flex gap-4 items-start">
-                                    <Input placeholder="見積番号, 件名, 顧客名..." className="max-w-xs" />
-                                    <Button variant="outline">詳細フィルタ</Button>
-                                    <Button className="flex items-center gap-2"><Search className="h-4 w-4"/>検索</Button>
+                                    <Input 
+                                        placeholder="見積番号, 件名, 顧客名..." 
+                                        className="max-w-xs border-slate-300 focus:border-blue-500" 
+                                    />
+                                    
+                                    <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
+                                        <Search className="h-4 w-4"/>
+                                        検索
+                                    </Button>
                                 </div>
                             </CardContent>
                         </AccordionContent>
                     </AccordionItem>
                 </Accordion>
 
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <div><CardTitle>見積一覧</CardTitle><CardDescription>全 {quotes.length} 件</CardDescription></div>
-                        <div className="flex gap-2">
-                            <Link href={route('estimates.create')}>
-                                <Button><PlusCircle className="h-4 w-4 mr-2"/>新規見積</Button>
-                            </Link>
+                {/* メインテーブル */}
+                <Card className="shadow-xl border-0">
+                    <CardHeader className="bg-gradient-to-r from-slate-50 to-slate-100 rounded-t-lg">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                            <div>
+                                <CardTitle className="text-xl flex items-center gap-2">
+                                    <FileText className="h-5 w-5" />
+                                    見積一覧
+                                </CardTitle>
+                                <CardDescription className="mt-1">
+                                    全 {estimates.length} 件 | 選択中: {selectedEstimates.length} 件
+                                </CardDescription>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant="outline"
+                                    onClick={handleBulkApprove}
+                                    disabled={selectedEstimates.length === 0}
+                                    className={cn(
+                                        "flex items-center gap-2",
+                                        selectedEstimates.length > 0 
+                                            ? "border-green-500 text-green-600 hover:bg-green-50" 
+                                            : "border-slate-300"
+                                    )}
+                                >
+                                    <CheckCircle className="h-4 w-4" />
+                                    承認申請 ({selectedEstimates.length})
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    onClick={handleBulkReassign}
+                                    disabled={selectedEstimates.length === 0}
+                                    className={cn(
+                                        "flex items-center gap-2",
+                                        selectedEstimates.length > 0 
+                                            ? "border-blue-500 text-blue-600 hover:bg-blue-50" 
+                                            : "border-slate-300"
+                                    )}
+                                >
+                                    <Users className="h-4 w-4" />
+                                    担当者付替
+                                </Button>
+                                <Link href={route('estimates.create')}>
+                                    <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
+                                        <PlusCircle className="h-4 w-4"/>
+                                        新規見積
+                                    </Button>
+                                </Link>
+                            </div>
                         </div>
                     </CardHeader>
-                    <CardContent>
-                        <Table>
-                            <TableHeader><TableRow><TableHead>見積番号</TableHead><TableHead>件名</TableHead><TableHead>顧客名</TableHead><TableHead>税込合計</TableHead><TableHead>粗利率</TableHead><TableHead>ステータス</TableHead><TableHead>有効期限</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
-                            <TableBody>
-                                {quotes.map((quote) => (
-                                    <Sheet key={quote.id}>
-                                        <TableRow>
-                                            <TableCell className="font-medium">{quote.id}</TableCell>
-                                            <TableCell>{quote.title}</TableCell>
-                                            <TableCell>{quote.customer}</TableCell>
-                                            <TableCell>¥{quote.total.toLocaleString()}</TableCell>
-                                            <TableCell className={`${quote.marginRate < 20 ? 'text-red-600' : ''}`}>{quote.marginRate.toFixed(1)}%</TableCell>
-                                            <TableCell>{getStatusBadge(quote.status)}</TableCell>
-                                            <TableCell>{quote.expiryDate}</TableCell>
-                                            <TableCell>
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><DotsHorizontalIcon className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end">
-                                                        <SheetTrigger asChild><DropdownMenuItem>詳細を見る</DropdownMenuItem></SheetTrigger>
-                                                        <DropdownMenuItem>編集</DropdownMenuItem>
-                                                        <DropdownMenuItem>複製</DropdownMenuItem>
-                                                        <DropdownMenuItem>PDFプレビュー</DropdownMenuItem>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            </TableCell>
-                                        </TableRow>
-                                        <SheetContent className="w-[640px] sm:max-w-none">
-                                            <SheetHeader><SheetTitle>{quote.title}</SheetTitle><SheetDescription>{quote.id} / {quote.customer}</SheetDescription></SheetHeader>
-                                            <Tabs defaultValue="overview" className="mt-4">
-                                                <TabsList><TabsTrigger value="overview">概要</TabsTrigger><TabsTrigger value="items">明細</TabsTrigger><TabsTrigger value="profit">内訳</TabsTrigger><TabsTrigger value="approval">承認履歴</TabsTrigger></TabsList>
-                                                <TabsContent value="overview" className="py-4">ここに基本情報を表示します。</TabsContent>
-                                                <TabsContent value="items" className="py-4">ここに見積明細を表示します。</TabsContent>
-                                                <TabsContent value="profit" className="py-4">ここに原価・粗利情報を表示します。</TabsContent>
-                                                <TabsContent value="approval" className="py-4">ここに承認履歴を表示します。</TabsContent>
-                                            </Tabs>
-                                        </SheetContent>
-                                    </Sheet>
-                                ))}
-                            </TableBody>
-                        </Table>
+                    <CardContent className="p-0">
+                        <div className="overflow-x-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="bg-slate-50 hover:bg-slate-50">
+                                        <TableHead className="w-12 text-center font-semibold">
+                                            <Checkbox
+                                                checked={selectedEstimates.length === estimates.length && estimates.length > 0}
+                                                onCheckedChange={handleSelectAll}
+                                            />
+                                        </TableHead>
+                                        <TableHead className="font-semibold">見積番号</TableHead>
+                                        <TableHead className="font-semibold">件名</TableHead>
+                                        <TableHead className="font-semibold">顧客名</TableHead>
+                                        <TableHead className="font-semibold">税込合計</TableHead>
+                                        <TableHead className="font-semibold">ステータス</TableHead>
+                                        <TableHead className="font-semibold">有効期限</TableHead>
+                                        <TableHead className="w-[50px] font-semibold text-center">操作</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {estimates.map((estimate) => {
+                                        const subtotal = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateAmount(item), 0) : 0;
+                                        const totalCost = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateCostAmount(item), 0) : 0;
+                                        const totalGrossProfit = subtotal - totalCost;
+                                        const totalGrossMargin = subtotal !== 0 ? (totalGrossProfit / subtotal) * 100 : 0;
+
+                                        const grossProfitChartData = estimate.items ? Object.entries(estimate.items.reduce((acc, item) => {
+                                            const itemName = item.name;
+                                            if (!acc[itemName]) {
+                                                acc[itemName] = { grossProfit: 0 };
+                                            }
+                                            acc[itemName].grossProfit += calculateGrossProfit(item);
+                                            return acc;
+                                        }, {})).map(([itemName, data]) => ({ name: itemName, value: data.grossProfit })) : [];
+
+                                        const costChartData = estimate.items ? Object.entries(estimate.items.reduce((acc, item) => {
+                                            const itemName = item.name;
+                                            if (!acc[itemName]) {
+                                                acc[itemName] = { cost: 0 };
+                                            }
+                                            acc[itemName].cost += calculateCostAmount(item);
+                                            return acc;
+                                        }, {})).map(([itemName, data]) => ({ name: itemName, value: data.cost })) : [];
+
+                                        return (
+                                            <Sheet key={estimate.id}>
+                                                <TableRow className="hover:bg-slate-50 transition-colors group">
+                                                    <TableCell className="w-12 text-center">
+                                                        <Checkbox
+                                                            checked={selectedEstimates.includes(estimate.id)}
+                                                            onCheckedChange={(checked) => handleSelectItem(estimate.id, checked)}
+                                                        />
+                                                    </TableCell>
+                                                    <TableCell className="font-medium text-blue-700">
+                                                        {estimate.estimate_number}
+                                                    </TableCell>
+                                                    <TableCell className="max-w-[200px] truncate">
+                                                        {estimate.title}
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">
+                                                        {estimate.customer_name}
+                                                    </TableCell>
+                                                    <TableCell className="font-bold text-green-700">
+                                                        ¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {getStatusBadge(estimate.status)}
+                                                    </TableCell>
+                                                    <TableCell className="flex items-center gap-1">
+                                                        <Calendar className="h-4 w-4 text-slate-400" />
+                                                        {estimate.due_date}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <DropdownMenu>
+                                                            <DropdownMenuTrigger asChild>
+                                                                <Button variant="ghost" className="h-8 w-8 p-0 hover:bg-slate-100">
+                                                                    <DotsHorizontalIcon className="h-4 w-4" />
+                                                                </Button>
+                                                            </DropdownMenuTrigger>
+                                                            <DropdownMenuContent align="end" className="w-48">
+                                                                <SheetTrigger asChild>
+                                                                    <DropdownMenuItem className="flex items-center gap-2">
+                                                                        <Eye className="h-4 w-4" />
+                                                                        詳細を見る
+                                                                    </DropdownMenuItem>
+                                                                </SheetTrigger>
+                                                                <Link href={route('estimates.edit', estimate.id)}>
+                                                                    <DropdownMenuItem className="flex items-center gap-2">
+                                                                        <Edit className="h-4 w-4" />
+                                                                        編集
+                                                                    </DropdownMenuItem>
+                                                                </Link>
+                                                                <DropdownMenuItem 
+                                                                    onClick={() => handleDuplicate(estimate.id)}
+                                                                    className="flex items-center gap-2"
+                                                                >
+                                                                    <Copy className="h-4 w-4" />
+                                                                    複製
+                                                                </DropdownMenuItem>
+                                                                <DropdownMenuItem 
+                                                                    onClick={() => handlePdfPreview(estimate)}
+                                                                    className="flex items-center gap-2"
+                                                                >
+                                                                    <FileText className="h-4 w-4" />
+                                                                    プレビュー
+                                                                </DropdownMenuItem>
+                                                            </DropdownMenuContent>
+                                                        </DropdownMenu>
+                                                    </TableCell>
+                                                </TableRow>
+                                                
+                                                {/* 詳細シート */}
+                                                <SheetContent className="w-[800px] sm:max-w-none overflow-y-auto">
+                                                    <SheetHeader className="space-y-4">
+                                                        <div className="flex items-start justify-between">
+                                                            <div>
+                                                                <SheetTitle className="text-2xl flex items-center gap-2">
+                                                                    <FileText className="h-6 w-6" />
+                                                                    {estimate.title}
+                                                                </SheetTitle>
+                                                                <SheetDescription className="text-base mt-2">
+                                                                    {estimate.estimate_number} / {estimate.customer_name}
+                                                                </SheetDescription>
+                                                            </div>
+                                                            {getStatusBadge(estimate.status)}
+                                                        </div>
+                                                    </SheetHeader>
+                                                    
+                                                    <Tabs defaultValue="overview" className="mt-6">
+                                                        <TabsList className="grid w-full grid-cols-3">
+                                                            <TabsTrigger value="overview" className="flex items-center gap-2">
+                                                                <Target className="h-4 w-4" />
+                                                                概要
+                                                            </TabsTrigger>
+                                                            <TabsTrigger value="items" className="flex items-center gap-2">
+                                                                <FileText className="h-4 w-4" />
+                                                                明細
+                                                            </TabsTrigger>
+                                                            <TabsTrigger value="approval" className="flex items-center gap-2">
+                                                                <CheckCircle className="h-4 w-4" />
+                                                                承認履歴
+                                                            </TabsTrigger>
+                                                        </TabsList>
+                                                        
+                                                        <TabsContent value="overview" className="py-6 space-y-6">
+                                                            {/* 基本情報カード */}
+                                                            <Card>
+                                                                <CardHeader>
+                                                                    <CardTitle className="flex items-center gap-2">
+                                                                        <FileText className="h-5 w-5" />
+                                                                        基本情報
+                                                                    </CardTitle>
+                                                                </CardHeader>
+                                                                <CardContent>
+                                                                    <div className="grid grid-cols-2 gap-4">
+                                                                        <div>
+                                                                            <p className="text-sm text-slate-500">顧客名</p>
+                                                                            <p className="font-semibold">{estimate.customer_name}</p>
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="text-sm text-slate-500">件名</p>
+                                                                            <p className="font-semibold">{estimate.title}</p>
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="text-sm text-slate-500">見積番号</p>
+                                                                            <p className="font-semibold text-blue-600">{estimate.estimate_number}</p>
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="text-sm text-slate-500">発行日</p>
+                                                                            <p className="font-semibold">{estimate.issue_date}</p>
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="text-sm text-slate-500">有効期限</p>
+                                                                            <p className="font-semibold">{estimate.due_date}</p>
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="text-sm text-slate-500">合計金額 (税込)</p>
+                                                                            <p className="font-bold text-xl text-green-600">
+                                                                                ¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                    {estimate.notes && (
+                                                                        <div className="mt-4 pt-4 border-t">
+                                                                            <p className="text-sm text-slate-500">備考</p>
+                                                                            <p className="mt-1">{estimate.notes}</p>
+                                                                        </div>
+                                                                    )}
+                                                                </CardContent>
+                                                            </Card>
+
+                                                            {/* 原価・粗利分析カード */}
+                                                            <Card>
+                                                                <CardHeader>
+                                                                    <CardTitle className="flex items-center gap-2">
+                                                                        <TrendingUp className="h-5 w-5" />
+                                                                        原価・粗利分析
+                                                                    </CardTitle>
+                                                                </CardHeader>
+                                                                <CardContent>
+                                                                    <div className="flex flex-col lg:flex-row justify-between items-center gap-6">
+                                                                        <div className="w-full lg:w-1/2 flex justify-center items-center relative h-48">
+                                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                                <PieChart>
+                                                                                    <Pie
+                                                                                        data={grossProfitChartData}
+                                                                                        cx="50%"
+                                                                                        cy="50%"
+                                                                                        innerRadius={60}
+                                                                                        outerRadius={80}
+                                                                                        paddingAngle={5}
+                                                                                        dataKey="value"
+                                                                                    >
+                                                                                        {grossProfitChartData.map((entry, index) => (
+                                                                                            <Cell key={`cell-gross-profit-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                                                        ))}
+                                                                                    </Pie>
+                                                                                </PieChart>
+                                                                            </ResponsiveContainer>
+                                                                            <div className="absolute inset-0 flex items-center justify-center text-lg font-bold">粗利</div>
+                                                                        </div>
+                                                                        <div className="w-full lg:w-1/2 flex justify-center items-center relative h-48">
+                                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                                <PieChart>
+                                                                                    <Pie
+                                                                                        data={costChartData}
+                                                                                        cx="50%"
+                                                                                        cy="50%"
+                                                                                        innerRadius={60}
+                                                                                        outerRadius={80}
+                                                                                        paddingAngle={5}
+                                                                                        dataKey="value"
+                                                                                    >
+                                                                                        {costChartData.map((entry, index) => (
+                                                                                            <Cell key={`cell-cost-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                                                        ))}
+                                                                                    </Pie>
+                                                                                </PieChart>
+                                                                            </ResponsiveContainer>
+                                                                            <div className="absolute inset-0 flex items-center justify-center text-lg font-bold">原価</div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="mt-6 space-y-2">
+                                                                        <p className="font-bold mb-4">品目別 粗利・原価分析</p>
+                                                                        {Object.entries(estimate.items ? estimate.items.reduce((acc, item) => {
+                                                                            const itemName = item.name;
+                                                                            if (!acc[itemName]) {
+                                                                                acc[itemName] = { grossProfit: 0, cost: 0 };
+                                                                            }
+                                                                            acc[itemName].grossProfit += calculateGrossProfit(item);
+                                                                            acc[itemName].cost += calculateCostAmount(item);
+                                                                            return acc;
+                                                                        }, {}) : {}).map(([itemName, data]) => (
+                                                                            <div key={itemName} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
+                                                                                <span className="font-medium">{itemName}</span>
+                                                                                <div className="text-right">
+                                                                                    <div className="font-bold text-green-600">
+                                                                                        粗利: ¥{data.grossProfit.toLocaleString()}
+                                                                                    </div>
+                                                                                    <div className="text-sm text-slate-500">
+                                                                                        原価: ¥{data.cost.toLocaleString()}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        ))}
+                                                                        <div className="border-t pt-4 mt-4">
+                                                                            <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg">
+                                                                                <span className="font-bold text-lg">合計</span>
+                                                                                <div className="text-right">
+                                                                                    <div className="font-bold text-xl text-green-600">
+                                                                                        粗利: ¥{totalGrossProfit.toLocaleString()}
+                                                                                    </div>
+                                                                                    <div className="text-sm text-slate-600">
+                                                                                        原価: ¥{totalCost.toLocaleString()}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        </TabsContent>
+                                                        
+                                                        <TabsContent value="items" className="py-6">
+                                                            <Card>
+                                                                <CardHeader>
+                                                                    <CardTitle className="flex items-center gap-2">
+                                                                        <FileText className="h-5 w-5" />
+                                                                        見積明細
+                                                                    </CardTitle>
+                                                                </CardHeader>
+                                                                <CardContent>
+                                                                    <Table>
+                                                                        <TableHeader>
+                                                                            <TableRow>
+                                                                                <TableHead>品目名</TableHead>
+                                                                                <TableHead>詳細</TableHead>
+                                                                                <TableHead className="text-right">数量</TableHead>
+                                                                                <TableHead>単位</TableHead>
+                                                                                <TableHead className="text-right">単価</TableHead>
+                                                                                <TableHead className="text-right">金額</TableHead>
+                                                                            </TableRow>
+                                                                        </TableHeader>
+                                                                        <TableBody>
+                                                                            {estimate.items && estimate.items.map((item, index) => (
+                                                                                <TableRow key={index}>
+                                                                                    <TableCell className="font-medium">{item.name}</TableCell>
+                                                                                    <TableCell>{item.description}</TableCell>
+                                                                                    <TableCell className="text-right">{item.qty}</TableCell>
+                                                                                    <TableCell>{item.unit}</TableCell>
+                                                                                    <TableCell className="text-right">¥{item.price ? item.price.toLocaleString() : 'N/A'}</TableCell>
+                                                                                    <TableCell className="text-right font-bold">¥{(item.qty * item.price).toLocaleString()}</TableCell>
+                                                                                </TableRow>
+                                                                            ))}
+                                                                        </TableBody>
+                                                                    </Table>
+                                                                    <div className="mt-6 flex justify-end">
+                                                                        <Card className="w-full md:w-96">
+                                                                            <CardContent className="p-4 space-y-2">
+                                                                                <div className="flex justify-between">
+                                                                                    <span>小計（税抜）</span>
+                                                                                    <span>¥{subtotal.toLocaleString()}</span>
+                                                                                </div>
+                                                                                <div className="flex justify-between">
+                                                                                    <span>消費税</span>
+                                                                                    <span>¥{estimate.tax_amount ? estimate.tax_amount.toLocaleString() : 'N/A'}</span>
+                                                                                </div>
+                                                                                <div className="border-t pt-2">
+                                                                                    <div className="flex justify-between font-bold text-lg">
+                                                                                        <span>合計金額 (税込)</span>
+                                                                                        <span className="text-green-600">¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}</span>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </CardContent>
+                                                                        </Card>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        </TabsContent>
+                                                        
+                                                        <TabsContent value="approval" className="py-6">
+                                                            <Card>
+                                                                <CardHeader>
+                                                                    <CardTitle className="flex items-center gap-2">
+                                                                        <CheckCircle className="h-5 w-5" />
+                                                                        承認フロー
+                                                                    </CardTitle>
+                                                                    <CardDescription>
+                                                                        この見積書の承認プロセスと履歴
+                                                                    </CardDescription>
+                                                                </CardHeader>
+                                                                <CardContent>
+                                                                    <div className="relative">
+                                                                        {/* Timeline line */}
+                                                                        <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-slate-200"></div>
+                                                                        
+                                                                        <div className="space-y-8">
+                                                                            {mockApprovalHistory.map((step, index) => (
+                                                                                <div key={index} className="flex items-start gap-4 relative">
+                                                                                    {/* Avatar circle */}
+                                                                                    <div className="flex-shrink-0 w-16 h-16 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-lg z-10 shadow-lg">
+                                                                                        {step.avatar}
+                                                                                    </div>
+                                                                                    
+                                                                                    {/* Content card */}
+                                                                                    <div className="flex-1 min-w-0">
+                                                                                        <Card className="shadow-sm">
+                                                                                            <CardContent className="p-4">
+                                                                                                <div className="flex items-center justify-between mb-2">
+                                                                                                    <div>
+                                                                                                        <h4 className="font-semibold text-lg">{step.name}</h4>
+                                                                                                        <p className="text-sm text-slate-500">{step.role}</p>
+                                                                                                    </div>
+                                                                                                    <div className="text-right">
+                                                                                                        <Badge 
+                                                                                                            variant={step.status === '未承認' ? 'secondary' : 'default'}
+                                                                                                            className={cn(
+                                                                                                                "flex items-center gap-1",
+                                                                                                                step.status === '未承認' 
+                                                                                                                    ? 'bg-amber-100 text-amber-800' 
+                                                                                                                    : 'bg-green-100 text-green-800'
+                                                                                                            )}
+                                                                                                        >
+                                                                                                            {step.status === '未承認' 
+                                                                                                                ? <Clock className="h-3 w-3" />
+                                                                                                                : <CheckCircle className="h-3 w-3" />
+                                                                                                            }
+                                                                                                            {step.status}
+                                                                                                        </Badge>
+                                                                                                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                                                                                            <Calendar className="h-3 w-3" />
+                                                                                                            {step.date}
+                                                                                                        </p>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                                
+                                                                                                <div className="text-sm text-slate-600">
+                                                                                                    {step.status === '未承認' 
+                                                                                                        ? '承認待ちです。承認者にリマインドを送信することができます。'
+                                                                                                        : '承認が完了しました。'
+                                                                                                    }
+                                                                                                </div>
+                                                                                            </CardContent>
+                                                                                        </Card>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                </CardContent>
+                                                            </Card>
+                                                        </TabsContent>
+                                                    </Tabs>
+                                                </SheetContent>
+                                            </Sheet>
+                                        );
+                                    })}
+                                </TableBody>
+                            </Table>
+                        </div>
                     </CardContent>
                 </Card>
             </div>

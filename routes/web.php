@@ -41,11 +41,17 @@ Route::middleware('auth')->group(function () {
         return Inertia::render('Products/Index');
     })->name('products.index');
 
-    Route::get('/quotes', function () {
-        return Inertia::render('Quotes/Index');
-    })->name('quotes.index');
+    Route::get('/quotes', [App\Http\Controllers\EstimateController::class, 'index'])->name('quotes.index');
 
     Route::get('/estimates/create', [App\Http\Controllers\EstimateController::class, 'create'])->name('estimates.create');
+    Route::post('/estimates', [App\Http\Controllers\EstimateController::class, 'store'])->name('estimates.store');
+    Route::post('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'update'])->name('estimates.update');
+    Route::post('/estimates/draft', [App\Http\Controllers\EstimateController::class, 'saveDraft'])->name('estimates.saveDraft');
+    Route::post('/estimates/bulk-approve', [App\Http\Controllers\EstimateController::class, 'bulkApprove'])->name('estimates.bulkApprove');
+    Route::post('/estimates/bulk-reassign', [App\Http\Controllers\EstimateController::class, 'bulkReassign'])->name('estimates.bulkReassign');
+
+    Route::get('/estimates/{estimate}/edit', [App\Http\Controllers\EstimateController::class, 'edit'])->name('estimates.edit');
+    Route::post('/estimates/{estimate}/duplicate', [App\Http\Controllers\EstimateController::class, 'duplicate'])->name('estimates.duplicate');
 
     Route::post('/estimates/preview-pdf', [App\Http\Controllers\EstimateController::class, 'previewPdf'])->name('estimates.previewPdf');
 

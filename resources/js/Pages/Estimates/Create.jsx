@@ -1,6 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
-import { useState, useEffect, useRef } from 'react';
+import { Head, useForm } from '@inertiajs/react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Textarea } from '@/Components/ui/textarea';
@@ -16,309 +16,180 @@ import { cn } from "@/lib/utils"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/Components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover"
 import axios from 'axios';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
 
-export default function EstimateCreate({ auth, products }) { // products を props に追加
-    const [isInternalView, setIsInternalView] = useState(true);
-    const [lineItems, setLineItems] = useState([]); // lineItems を useState で管理
-    const [selectedStaffId, setSelectedStaffId] = useState(null);
-    const [estimateNumber, setEstimateNumber] = useState('');
+// --- Components defined outside EstimateCreate to prevent state loss on re-render ---
+
+function CustomerCombobox({ selectedCustomer, onCustomerChange }) {
+    const [open, setOpen] = useState(false);
+    const [customers, setCustomers] = useState([]);
+    const [search, setSearch] = useState("");
 
     useEffect(() => {
-        if (selectedStaffId) {
+        const fetchCustomers = async () => {
+            try {
+                const response = await axios.get(`/api/customers?search=${search}`);
+                setCustomers(response.data);
+            } catch (error) {
+                console.error("Failed to fetch customers:", error);
+            }
+        };
+        fetchCustomers();
+    }, [search]);
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    className="w-full justify-between"
+                >
+                    {selectedCustomer
+                        ? selectedCustomer.customer_name
+                        : "顧客を選択..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0">
+                <Command>
+                    <CommandInput placeholder="顧客を検索..." onValueChange={setSearch} />
+                    <CommandEmpty>顧客が見つかりません。</CommandEmpty>
+                    <CommandGroup>
+                        {customers.map((customer) => (
+                            <CommandItem
+                                key={customer.id}
+                                value={customer.id}
+                                onSelect={() => {
+                                    onCustomerChange(customer);
+                                    setOpen(false);
+                                }}
+                            >
+                                <Check
+                                    className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedCustomer?.id === customer.id ? "opacity-100" : "opacity-0"
+                                    )}
+                                />
+                                {customer.customer_name}
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    )
+}
+
+function StaffCombobox({ selectedStaff, onStaffChange }) {
+    const [open, setOpen] = useState(false);
+    const [staff, setStaff] = useState([]);
+    const [search, setSearch] = useState("");
+
+    useEffect(() => {
+        const fetchStaff = async () => {
+            try {
+                const response = await axios.get(`/api/users?search=${search}`);
+                setStaff(response.data);
+            } catch (error) {
+                console.error("Failed to fetch staff:", error);
+            }
+        };
+        fetchStaff();
+    }, [search]);
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    className="w-full justify-between"
+                >
+                    {selectedStaff
+                        ? selectedStaff.name
+                        : "担当者を選択..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0">
+                <Command>
+                    <CommandInput placeholder="担当者を検索..." onValueChange={setSearch} />
+                    <CommandEmpty>担当者が見つかりません。</CommandEmpty>
+                    <CommandGroup>
+                        {staff.map((s) => (
+                            <CommandItem
+                                key={s.id}
+                                value={s.id}
+                                onSelect={() => {
+                                    onStaffChange(s);
+                                    setOpen(false);
+                                }}
+                            >
+                                <Check
+                                    className={cn(
+                                        "mr-2 h-4 w-4",
+                                        selectedStaff?.id === s.id ? "opacity-100" : "opacity-0"
+                                    )}
+                                />
+                                {s.name}
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    )
+}
+
+// --- Main Component ---
+
+export default function EstimateCreate({ auth, products, estimate = null }) {
+    const isEditMode = estimate !== null;
+
+    const [isInternalView, setIsInternalView] = useState(true);
+    const [lineItems, setLineItems] = useState(estimate?.items || []);
+    const [selectedStaff, setSelectedStaff] = useState(null); // In edit mode, you might need to fetch the staff member based on estimate.staff_id
+    const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: null } : null); // Simplified for now
+    const [estimateNumber, setEstimateNumber] = useState(estimate?.estimate_number || '');
+
+    const { data, setData, post, patch, processing, errors, reset } = useForm({
+        customer_name: estimate?.customer_name || '',
+        title: estimate?.title || '',
+        issue_date: estimate?.issue_date || '',
+        due_date: estimate?.due_date || '',
+        total_amount: estimate?.total_amount || 0,
+        tax_amount: estimate?.tax_amount || 0,
+        notes: estimate?.notes || '',
+        items: estimate?.items || [],
+        estimate_number: estimate?.estimate_number || '',
+    });
+
+    useEffect(() => {
+        if (!isEditMode && selectedStaff) {
             const today = new Date();
             const dd = String(today.getDate()).padStart(2, '0');
-            const mm = String(today.getMonth() + 1).padStart(2, '0'); // January is 0!
+            const mm = String(today.getMonth() + 1).padStart(2, '0');
             const yy = String(today.getFullYear()).slice(-2);
-            setEstimateNumber(`EST-${selectedStaffId}-${dd}${mm}${yy}`);
-        } else {
-            setEstimateNumber(''); // Clear if no staff selected
+            setEstimateNumber(`EST-${selectedStaff.id}-${dd}${mm}${yy}`);
+        } else if (!selectedStaff) {
+            setEstimateNumber(estimate?.estimate_number || '');
         }
-    }, [selectedStaffId]);
+    }, [selectedStaff, isEditMode, estimate]);
 
-    const estimateContentRef = useRef(null);
+    useEffect(() => {
+        setData('items', lineItems);
+    }, [lineItems]);
 
-    const companyInfo = {
-        name: '熊本コンピュータソフト株式会社',
-        address: '〒862-0976 熊本県熊本市中央区九品寺５丁目８−９',
-        website: 'www.k-cs.co.jp',
-        tel: '096-371-1400',
-        fax: '096-371-1404',
-    };
+    useEffect(() => {
+        setData('customer_name', selectedCustomer?.customer_name || '');
+    }, [selectedCustomer]);
 
-    const handlePdfPreview = async () => {
-        if (!estimateContentRef.current) return;
+    // These useEffects cause issues in edit mode by overwriting data. 
+    // It's better to manage form state directly with setData in onChange handlers.
+    // For simplicity, we will bind the inputs directly to useForm's data object.
 
-        const canvas = await html2canvas(estimateContentRef.current, { scale: 2 });
-        const imgData = canvas.toDataURL('image/png');
-        const pdf = new jsPDF('p', 'mm', 'a4');
-        const imgWidth = 210; // A4 width in mm
-        const pageHeight = 297; // A4 height in mm
-        const imgHeight = canvas.height * imgWidth / canvas.width;
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-
-        while (heightLeft >= 0) {
-            position = heightLeft - imgHeight;
-            pdf.addPage();
-            pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-            heightLeft -= pageHeight;
-        }
-
-        // Add company info
-        pdf.setFontSize(10);
-        pdf.text(companyInfo.name, 10, 10);
-        pdf.text(companyInfo.address, 10, 15);
-        pdf.text(`Tel: ${companyInfo.tel} Fax: ${companyInfo.fax}`, 10, 20);
-        pdf.text(companyInfo.website, 10, 25);
-
-        // Add inkan.gif
-        const inkanImg = new Image();
-        inkanImg.src = '/inkan.gif'; // Assuming inkan.gif is in the public directory or accessible path
-        inkanImg.onload = () => {
-            // Adjust position and size as needed
-            pdf.addImage(inkanImg, 'GIF', 150, 20, 30, 30); // x, y, width, height
-            pdf.save('estimate-preview.pdf');
-        };
-        inkanImg.onerror = (err) => {
-            console.error("Failed to load inkan.gif", err);
-            pdf.save('estimate-preview.pdf'); // Save even if image fails
-        };
-    };
-
-    // 明細行を追加する関数
-    const addLineItem = () => {
-        setLineItems(prevItems => [
-            ...prevItems,
-            {
-                id: Date.now(), // ユニークなIDを生成
-                product_id: null, // 選択された商品ID
-                name: '', // 品目名（マスターから、または自由入力）
-                description: '', // 自由入力
-                qty: 1,
-                unit: '式', // デフォルト単位
-                price: 0,
-                cost: 0, // 原価
-            }
-        ]);
-    };
-
-    // 明細行を削除する関数
-    const removeLineItem = (id) => {
-        setLineItems(prevItems => prevItems.filter(item => item.id !== id));
-    };
-
-    // 明細行の値を更新する関数
-    const handleItemChange = (id, field, value) => {
-        setLineItems(prevItems =>
-            prevItems.map(item =>
-                item.id === id ? { ...item, [field]: value } : item
-            )
-        );
-    };
-
-    // 品目選択時の処理
-    const handleProductSelect = (itemId, productId) => {
-        const selectedProduct = products.find(p => p.id === parseInt(productId));
-        if (selectedProduct) {
-            handleItemChange(itemId, 'product_id', selectedProduct.id);
-            handleItemChange(itemId, 'name', selectedProduct.name);
-            handleItemChange(itemId, 'price', selectedProduct.price);
-            handleItemChange(itemId, 'cost', selectedProduct.cost);
-            // 必要に応じてtypeやunitも設定
-            // handleItemChange(itemId, 'type', '製品'); // 例: マスター品目は製品とする
-        } else {
-            // マスターから選択解除された場合、または自由入力の場合
-            handleItemChange(itemId, 'product_id', null);
-            handleItemChange(itemId, 'name', ''); // 品目名をクリア
-            handleItemChange(itemId, 'price', 0);
-            handleItemChange(itemId, 'cost', 0);
-            // handleItemChange(itemId, 'type', 'その他'); // Removed as per user request
-        }
-    };
-
-
-    function CustomerCombobox() {
-        const [open, setOpen] = useState(false)
-        const [selectedCustomerId, setSelectedCustomerId] = useState("")
-        const [selectedCustomer, setSelectedCustomer] = useState(null);
-        const [customers, setCustomers] = useState([]);
-        const [search, setSearch] = useState("");
-
-        useEffect(() => {
-            const fetchCustomers = async () => {
-                try {
-                    console.log("Fetching customers with search:", search);
-                    const response = await axios.get(`/api/customers?search=${search}`);
-                    console.log("API Response:", response.data);
-                    setCustomers(response.data);
-                } catch (error) {
-                    console.error("Failed to fetch customers:", error);
-                    if (error.response) {
-                        console.error("Error response data:", error.response.data);
-                        console.error("Error response status:", error.response.status);
-                        console.error("Error response headers:", error.response.headers);
-                    } else if (error.request) {
-                        console.error("Error request:", error.request);
-                    } else {
-                        console.error("Error message:", error.message);
-                    }
-                }
-            };
-            fetchCustomers();
-        }, [search]);
-
-        useEffect(() => {
-            if (selectedCustomerId) {
-                const foundCustomer = customers.find(customer => customer.id === selectedCustomerId);
-                console.log("useEffect for selectedCustomer. selectedCustomerId:", selectedCustomerId, "foundCustomer:", foundCustomer);
-                setSelectedCustomer(foundCustomer);
-            } else {
-                setSelectedCustomer(null);
-            }
-        }, [selectedCustomerId, customers]);
-
-
-        return (
-            <Popover open={open} onOpenChange={setOpen}>
-                <PopoverTrigger asChild>
-                    <Button
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={open}
-                        className="w-full justify-between"
-                    >
-                        {console.log("PopoverTrigger rendering. selectedCustomer:", selectedCustomer)}
-                        {selectedCustomer
-                            ? selectedCustomer.customer_name
-                            : "顧客を選択..."}
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-full p-0">
-                    <Command>
-                        <CommandInput placeholder="顧客を検索..." onValueChange={setSearch} />
-                        <CommandEmpty>顧客が見つかりません。</CommandEmpty>
-                        <CommandGroup>
-                            {customers.map((customer) => (
-                                <CommandItem
-                                    key={customer.id}
-                                    value={customer.id}
-                                    onSelect={() => {
-                                        console.log("onSelect called for customer.id:", customer.id);
-                                        setSelectedCustomerId(customer.id);
-                                        console.log("Setting selectedCustomerId to:", customer.id);
-                                        setOpen(false);
-                                    }}
-                                >
-                                    <Check
-                                        className={cn(
-                                            "mr-2 h-4 w-4",
-                                            selectedCustomerId === customer.id ? "opacity-100" : "opacity-0"
-                                        )}
-                                    />
-                                    {customer.customer_name}
-                                </CommandItem>
-                            ))}
-                        </CommandGroup>
-                    </Command>
-                </PopoverContent>
-            </Popover>
-        )
-    }
-
-    function StaffCombobox({ selectedStaffId, setSelectedStaffId }) {
-        const [open, setOpen] = useState(false)
-        const [selectedStaff, setSelectedStaff] = useState(null);
-        const [staff, setStaff] = useState([]);
-        const [search, setSearch] = useState("");
-
-        useEffect(() => {
-            const fetchStaff = async () => {
-                try {
-                    console.log("Fetching staff with search:", search);
-                    const response = await axios.get(`/api/users?search=${search}`);
-                    console.log("API Response (Staff):", response.data);
-                    setStaff(response.data);
-                } catch (error) {
-                    console.error("Failed to fetch staff:", error);
-                    if (error.response) {
-                        console.error("Error response data:", error.response.data);
-                        console.error("Error response status:", error.response.status);
-                        console.error("Error response headers:", error.response.headers);
-                    } else if (error.request) {
-                        console.error("Error request:", error.request);
-                    } else {
-                        console.error("Error message:", error.message);
-                    }
-                }
-            };
-            fetchStaff();
-        }, [search]);
-
-        useEffect(() => {
-            if (selectedStaffId) {
-                const foundStaff = staff.find(s => s.id === selectedStaffId);
-                console.log("useEffect for selectedStaff. selectedStaffId:", selectedStaffId, "foundStaff:", foundStaff);
-                setSelectedStaff(foundStaff);
-            } else {
-                setSelectedStaff(null);
-            }
-        }, [selectedStaffId, staff]);
-
-        return (
-            <Popover open={open} onOpenChange={setOpen}>
-                <PopoverTrigger asChild>
-                    <Button
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={open}
-                        className="w-full justify-between"
-                    >
-                        {console.log("PopoverTrigger rendering. selectedStaff:", selectedStaff)}
-                        {selectedStaff
-                            ? selectedStaff.name
-                            : "担当者を選択..."}
-                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-full p-0">
-                    <Command>
-                        <CommandInput placeholder="担当者を検索..." onValueChange={setSearch} />
-                        <CommandEmpty>担当者が見つかりません。</CommandEmpty>
-                        <CommandGroup>
-                            {staff.map((s) => (
-                                <CommandItem
-                                    key={s.id}
-                                    value={s.id}
-                                    onSelect={() => {
-                                        console.log("onSelect called for staff.id:", s.id);
-                                        setSelectedStaffId(s.id);
-                                        console.log("Setting selectedStaffId to:", s.id);
-                                        setOpen(false);
-                                    }}
-                                >
-                                    <Check
-                                        className={cn(
-                                            "mr-2 h-4 w-4",
-                                            selectedStaffId === s.id ? "opacity-100" : "opacity-0"
-                                        )}
-                                    />
-                                    {s.name}
-                                </CommandItem>
-                            ))}
-                        </CommandGroup>
-                    </Command>
-                </PopoverContent>
-            </Popover>
-        )
-    }
-
-    // 計算ロジックはlineItemsの状態に基づいて動的に計算されるように変更
     const calculateAmount = (item) => item.qty * item.price;
     const calculateCostAmount = (item) => item.qty * item.cost;
     const calculateGrossProfit = (item) => calculateAmount(item) - calculateCostAmount(item);
@@ -327,17 +198,82 @@ export default function EstimateCreate({ auth, products }) { // products を pro
         return amount !== 0 ? (calculateGrossProfit(item) / amount) * 100 : 0;
     };
 
-    
-
     const subtotal = lineItems.reduce((acc, item) => acc + calculateAmount(item), 0);
     const totalCost = lineItems.reduce((acc, item) => acc + calculateCostAmount(item), 0);
     const totalGrossProfit = subtotal - totalCost;
     const totalGrossMargin = subtotal !== 0 ? (totalGrossProfit / subtotal) * 100 : 0;
-    const tax = subtotal * 0.1; // Assuming 10% tax
+    const tax = subtotal * 0.1;
     const total = subtotal + tax;
 
+    useEffect(() => {
+        setData(prevData => ({ ...prevData, items: lineItems, total_amount: total, tax_amount: tax, estimate_number: estimateNumber }));
+    }, [lineItems, total, tax, estimateNumber]);
+
+
+    const handlePdfPreview = () => {
+        // This function needs to be adapted to use `data` from useForm
+        const estimateData = {
+            ...data,
+            lineItems: lineItems, // ensure lineItems are from state
+            // ... other fields from the form that are not in useForm
+        };
+
+        axios.post('/estimates/preview-pdf', estimateData)
+            .then(response => {
+                const previewHtml = response.data;
+                const newWindow = window.open("", "_blank");
+                if (newWindow) {
+                    newWindow.document.write(previewHtml);
+                    newWindow.document.close();
+                } else {
+                    alert("ポップアップがブロックされました。プレビューを表示するには、ポップアップを許可してください。");
+                }
+            })
+            .catch(error => {
+                console.error('Error generating web preview:', error);
+                alert('プレビューの生成中にエラーが発生しました。');
+            });
+    };
+
+    const addLineItem = () => {
+        setLineItems(prevItems => [
+            ...prevItems,
+            {
+                id: Date.now(), // Use temporary ID for new items
+                product_id: null,
+                name: '',
+                description: '',
+                qty: 1,
+                unit: '式',
+                price: 0,
+                cost: 0,
+            }
+        ]);
+    };
+
+    const removeLineItem = (id) => {
+        setLineItems(prevItems => prevItems.filter(item => item.id !== id));
+    };
+
+    const handleItemChange = (id, field, value) => {
+        setLineItems(prevItems =>
+            prevItems.map(item =>
+                item.id === id ? { ...item, [field]: value } : item
+            )
+        );
+    };
+
+    const handleProductSelect = (itemId, productId) => {
+        const selectedProduct = products.find(p => p.id === parseInt(productId));
+        if (selectedProduct) {
+            setLineItems(prevItems => prevItems.map(item => 
+                item.id === itemId ? { ...item, name: selectedProduct.name, price: selectedProduct.price, cost: selectedProduct.cost, product_id: selectedProduct.id } : item
+            ));
+        }
+    };
+
     const groupedAnalysisData = lineItems.reduce((acc, item) => {
-        const itemName = item.name; // Use item name directly
+        const itemName = item.name;
         if (!acc[itemName]) {
             acc[itemName] = {
                 grossProfit: 0,
@@ -359,28 +295,53 @@ export default function EstimateCreate({ auth, products }) { // products を pro
         value: data.cost,
     }));
 
-    const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff']; // Expanded Colors for the pie chart segments
+    const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
+    const saveDraft = () => {
+        // The saveDraft controller endpoint can handle both creation and update based on estimate_number
+        post(route('estimates.saveDraft'), {
+            ...data, // Send all form data
+            status: 'draft',
+            onSuccess: () => alert('下書きが保存されました。'),
+            onError: (e) => console.error('下書き保存エラー:', e),
+        });
+    };
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (isEditMode) {
+            patch(route('estimates.update', estimate.id), {
+                ...data,
+                onSuccess: () => alert('見積書が更新されました。'),
+                onError: (e) => console.error('更新エラー:', e),
+            });
+        } else {
+            post(route('estimates.store'), {
+                ...data,
+                onSuccess: () => alert('見積書が承認申請されました。'),
+                onError: (e) => console.error('承認申請エラー:', e),
+            });
+        }
+    };
 
     return (
         <AuthenticatedLayout
             user={auth.user}
-            header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">見積書作成</h2>}
+            header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">{isEditMode ? '見積書編集' : '見積書作成'}</h2>}
         >
-            <Head title="見積書作成" />
+            <Head title={isEditMode ? '見積書編集' : '見積書作成'} />
 
             <div className="py-12">
                 <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
-                    <div ref={estimateContentRef} className="space-y-6 bg-white p-4 sm:p-8 shadow sm:rounded-lg">
+                    <form onSubmit={handleSubmit} className="space-y-6 bg-white p-4 sm:p-8 shadow sm:rounded-lg">
                         <div className="flex justify-between items-center">
-                            <h1 className="text-2xl font-bold">見積書</h1>
+                            <h1 className="text-2xl font-bold">{isEditMode ? '見積書編集' : '見積書'}</h1>
                             <div className="flex items-center space-x-2">
                                 <Switch id="view-mode" checked={isInternalView} onCheckedChange={setIsInternalView} />
                                 <Label htmlFor="view-mode">{isInternalView ? '社内ビュー' : '社外ビュー'}</Label>
                             </div>
                         </div>
 
-                        {/* Header */}
                         <Card>
                             <CardHeader>
                                 <CardTitle>基本情報</CardTitle>
@@ -388,27 +349,27 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                             <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                 <div className="space-y-2">
                                     <Label htmlFor="customer">顧客名</Label>
-                                    <CustomerCombobox />
+                                    <CustomerCombobox selectedCustomer={selectedCustomer} onCustomerChange={setSelectedCustomer} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="staff">自社担当者</Label>
-                                    <StaffCombobox selectedStaffId={selectedStaffId} setSelectedStaffId={setSelectedStaffId} />
+                                    <StaffCombobox selectedStaff={selectedStaff} onStaffChange={setSelectedStaff} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="project-name">件名</Label>
-                                    <Input id="project-name" placeholder="新会計システム導入" />
+                                    <Input id="project-name" value={data.title} onChange={(e) => setData('title', e.target.value)} placeholder="新会計システム導入" />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="estimate-number">見積番号</Label>
-                                    <Input id="estimate-number" value={estimateNumber} readOnly />
+                                    <Input id="estimate-number" value={data.estimate_number} onChange={(e) => setData('estimate_number', e.target.value)} readOnly={!isEditMode && selectedStaff} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="issue-date">発行日</Label>
-                                    <Input type="date" id="issue-date" defaultValue="2025-08-27" />
+                                    <Input type="date" id="issue-date" value={data.issue_date} onChange={(e) => setData('issue_date', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="expiry-date">有効期限</Label>
-                                    <Input type="date" id="expiry-date" />
+                                    <Input type="date" id="expiry-date" value={data.due_date} onChange={(e) => setData('due_date', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="payment-terms">支払条件</Label>
@@ -420,7 +381,7 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                 </div>
                                 <div className="lg:col-span-2 space-y-2">
                                     <Label htmlFor="external-remarks">備考（対外）</Label>
-                                    <Textarea id="external-remarks" placeholder="お見積りの有効期限は発行後1ヶ月です。" />
+                                    <Textarea id="external-remarks" value={data.notes} onChange={(e) => setData('notes', e.target.value)} placeholder="お見積りの有効期限は発行後1ヶ月です。" />
                                 </div>
                                 {isInternalView && (
                                     <div className="lg:col-span-2 space-y-2">
@@ -431,7 +392,6 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                             </CardContent>
                         </Card>
 
-                        {/* Line Items */}
                         <Card>
                             <CardHeader>
                                 <CardTitle>明細</CardTitle>
@@ -442,7 +402,7 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                         <TableRow>
                                             <TableHead className="w-12"></TableHead>
                                             <TableHead>品目名</TableHead>
-                                            <TableHead>詳細</TableHead> {/* 新しく追加 */}
+                                            <TableHead>詳細</TableHead>
                                             <TableHead className="text-right">数量</TableHead>
                                             <TableHead>単位</TableHead>
                                             <TableHead className="text-right">単価</TableHead>
@@ -458,7 +418,7 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                         {lineItems.map(item => (
                                             <TableRow key={item.id}>
                                                 <TableCell><Checkbox /></TableCell>
-                                                <TableCell> {/* 品目名 */}
+                                                <TableCell>
                                                     <Select
                                                         value={item.product_id ? String(item.product_id) : ''}
                                                         onValueChange={(value) => handleProductSelect(item.id, value)}
@@ -475,7 +435,7 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                                         </SelectContent>
                                                     </Select>
                                                 </TableCell>
-                                                <TableCell> {/* 詳細 */}
+                                                <TableCell>
                                                     <Textarea
                                                         className="mt-2 w-full min-w-[500px]"
                                                         placeholder="詳細（項目）"
@@ -483,7 +443,7 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                                         onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
                                                     />
                                                 </TableCell>
-                                                <TableCell className="text-right"> {/* 数量 */}
+                                                <TableCell className="text-right">
                                                     <Input
                                                         type="number"
                                                         value={item.qty}
@@ -497,7 +457,7 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                                         max="999"
                                                     />
                                                 </TableCell>
-                                                <TableCell> {/* 単位 */}
+                                                <TableCell>
                                                     <Input
                                                         value={item.unit}
                                                         onChange={(e) => {
@@ -508,7 +468,7 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                                         maxLength="3"
                                                     />
                                                 </TableCell>
-                                                <TableCell className="text-right"> {/* 単価 */}
+                                                <TableCell className="text-right">
                                                     <Input
                                                         type="number"
                                                         value={item.price}
@@ -516,11 +476,11 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                                         className="w-24 text-right"
                                                     />
                                                 </TableCell>
-                                                <TableCell className="text-right font-medium"> {/* 金額 */}
+                                                <TableCell className="text-right font-medium">
                                                     {calculateAmount(item).toLocaleString()}
                                                 </TableCell>
                                                 {isInternalView && (
-                                                    <TableCell className="text-right text-gray-500"> {/* 原価 */}
+                                                    <TableCell className="text-right text-gray-500">
                                                         <Input
                                                             type="number"
                                                             value={item.cost}
@@ -529,9 +489,9 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                                         />
                                                     </TableCell>
                                                 )}
-                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateCostAmount(item).toLocaleString()}</TableCell>} {/* 原価金額 */}
-                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossProfit(item).toLocaleString()}</TableCell>} {/* 粗利 */} 
-                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossMargin(item).toFixed(1)}%</TableCell>} {/* 粗利率 */}
+                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateCostAmount(item).toLocaleString()}</TableCell>}
+                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossProfit(item).toLocaleString()}</TableCell>}
+                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossMargin(item).toFixed(1)}%</TableCell>}
                                                 <TableCell className="flex items-center justify-center space-x-1">
                                                     <Button variant="ghost" size="icon"><ArrowUp className="h-4 w-4" /></Button>
                                                     <Button variant="ghost" size="icon"><ArrowDown className="h-4 w-4" /></Button>
@@ -542,13 +502,12 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                     </TableBody>
                                 </Table>
                                 <div className="mt-4 flex items-center space-x-2">
-                                    <Button variant="outline" size="sm" onClick={addLineItem}><PlusCircle className="mr-2 h-4 w-4" />行を追加</Button>
-                                    <Button variant="outline" size="sm"><Copy className="mr-2 h-4 w-4" />選択行を複製</Button>
+                                    <Button type="button" variant="outline" size="sm" onClick={addLineItem}><PlusCircle className="mr-2 h-4 w-4" />行を追加</Button>
+                                    <Button type="button" variant="outline" size="sm"><Copy className="mr-2 h-4 w-4" />選択行を複製</Button>
                                 </div>
                             </CardContent>
                         </Card>
 
-                        {/* Summary */}
                         <div className="space-y-6">
                             <div className="flex justify-end">
                                 <div className="w-full lg:w-1/3">
@@ -642,9 +601,8 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                 )}
                             </div>
                         </div>
-                    </div>
+                    </form>
 
-                    {/* Bottom Action Bar */}
                     <div className="mt-6">
                         <Card>
                             <CardFooter className="flex justify-between items-center py-4">
@@ -652,12 +610,8 @@ export default function EstimateCreate({ auth, products }) { // products を pro
                                     <Button variant="outline"><History className="mr-2 h-4 w-4" />変更履歴</Button>
                                 </div>
                                 <div className="space-x-2">
-                                    <Button variant="secondary">下書き保存</Button>
-                                    <Button variant="outline" onClick={handlePdfPreview}>
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        PDFプレビュー
-                                    </Button>
-                                    <Button>承認申請</Button>
+                                    <Button variant="secondary" onClick={saveDraft}>下書き保存</Button>
+                                    <Button onClick={handleSubmit}>{isEditMode ? '更新して申請' : '承認申請'}</Button>
                                 </div>
                             </CardFooter>
                         </Card>
