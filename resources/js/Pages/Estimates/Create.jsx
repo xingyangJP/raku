@@ -231,7 +231,12 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const totalCost = lineItems.reduce((acc, item) => acc + calculateCostAmount(item), 0);
     const totalGrossProfit = subtotal - totalCost;
     const totalGrossMargin = subtotal !== 0 ? (totalGrossProfit / subtotal) * 100 : 0;
-    const tax = subtotal * 0.1;
+    // 税区分ごとの税率（必要なら拡張）
+    const taxRates = { standard: 0.1, reduced: 0.08 };
+    const tax = lineItems.reduce((acc, item) => {
+        const rate = taxRates[item.tax_category || 'standard'] || 0;
+        return acc + (item.qty * item.price * rate);
+    }, 0);
     const total = subtotal + tax;
 
     useEffect(() => {
@@ -458,6 +463,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                             <TableHead>単位</TableHead>
                                             <TableHead className="text-right">単価</TableHead>
                                             <TableHead className="text-right">金額</TableHead>
+                                            <TableHead>税区分</TableHead>
                                             {isInternalView && <TableHead className="text-right">原価</TableHead>}
                                             {isInternalView && <TableHead className="text-right">原価金額</TableHead>}
                                             {isInternalView && <TableHead className="text-right">粗利</TableHead>}
@@ -529,6 +535,21 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                                 </TableCell>
                                                 <TableCell className="text-right font-medium">
                                                     {calculateAmount(item).toLocaleString()}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Select
+                                                        value={item.tax_category || 'standard'}
+                                                        onValueChange={(value) => handleItemChange(item.id, 'tax_category', value)}
+                                                    >
+                                                        <SelectTrigger className="w-[120px]">
+                                                            <SelectValue placeholder="税区分" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="standard">標準</SelectItem>
+                                                            <SelectItem value="reduced">軽減</SelectItem>
+                                                            <SelectItem value="exempt">非課税</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
                                                 </TableCell>
                                                 {isInternalView && (
                                                     <TableCell className="text-right text-gray-500">

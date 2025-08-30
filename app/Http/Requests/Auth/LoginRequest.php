@@ -27,8 +27,10 @@ class LoginRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['required', 'string', 'email'],
+            'external_user_id' => ['required', 'string'],
+            'external_email' => ['nullable', 'string', 'email'],
             'password' => ['required', 'string'],
+            'remember' => ['nullable', 'boolean'],
         ];
     }
 
@@ -41,14 +43,26 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
-            RateLimiter::hit($this->throttleKey());
+        $externalId = (string) $this->string('external_user_id');
+        $externalEmail = (string) $this->string('external_email');
+        $password = (string) $this->string('password');
 
+        $user = \App\Models\User::where('external_user_id', $externalId)->first();
+        if (! $user && $externalEmail) {
+            $user = \App\Models\User::where('email', $externalEmail)->first();
+            if ($user) {
+                $user->external_user_id = $externalId;
+                $user->save();
+            }
+        }
+        if (! $user || ! \Illuminate\Support\Facades\Hash::check($password, $user->password)) {
+            RateLimiter::hit($this->throttleKey());
             throw ValidationException::withMessages([
-                'email' => trans('auth.failed'),
+                'external_user_id' => trans('auth.failed'),
             ]);
         }
 
+        \Illuminate\Support\Facades\Auth::login($user, $this->boolean('remember'));
         RateLimiter::clear($this->throttleKey());
     }
 
@@ -80,6 +94,6 @@ class LoginRequest extends FormRequest
      */
     public function throttleKey(): string
     {
-        return Str::transliterate(Str::lower($this->string('email')).'|'.$this->ip());
+        return Str::transliterate(Str::lower($this->string('external_user_id')).'|'.$this->ip());
     }
 }

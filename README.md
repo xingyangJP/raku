@@ -1,4 +1,15 @@
 # ラクシルcloud
+[xero@sv867 raku]$ curl --version
+curl 7.29.0 (x86_64-redhat-linux-gnu) libcurl/7.29.0 NSS/3.53.1 zlib/1.2.7 libidn/1.28 libssh2/1.8.0
+Protocols: dict file ftp ftps gopher http https imap imaps ldap ldaps pop3 pop3s rtsp scp sftp smtp smtps telnet tftp 
+Features: AsynchDNS GSS-Negotiate IDN IPv6 Largefile NTLM NTLM_WB SSL libz unix-sockets 
+[xero@sv867 raku]$ composer -V
+Composer version 1.9.1 2019-11-01 17:20:17
+[xero@sv867 raku]$ 
+
+
+PHP8.0.x(CGI)	/usr/bin/php8.0-cgi 又は /usr/bin/php-fcgi8.0
+PHP8.0.x(CLI)	/usr/bin/php8.0
 ## 外部API
 https://api.xerographix.co.jp/public/docs/#introduction
 ## 顧客情報

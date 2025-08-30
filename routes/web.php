@@ -12,6 +12,10 @@ Route::get('/dashboard', function () {
     return Inertia::render('Dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
+// Guest-accessible API endpoints for login page user/customer lookup
+Route::get('/api/customers', [App\Http\Controllers\ApiController::class, 'getCustomers']);
+Route::get('/api/users', [App\Http\Controllers\ApiController::class, 'getUsers']);
+
 Route::middleware('auth')->group(function () {
     // Static route first to avoid conflict with /estimates/{estimate}
     Route::post('/estimates/draft', [App\Http\Controllers\EstimateController::class, 'saveDraft'])->name('estimates.saveDraft');
@@ -40,8 +44,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/estimates/{estimate}/edit', [App\Http\Controllers\EstimateController::class, 'edit'])->whereNumber('estimate')->name('estimates.edit');
     Route::post('/estimates/{estimate}/duplicate', [App\Http\Controllers\EstimateController::class, 'duplicate'])->whereNumber('estimate')->name('estimates.duplicate');
 
-    Route::get('/api/customers', [App\Http\Controllers\ApiController::class, 'getCustomers']);
-    Route::get('/api/users', [App\Http\Controllers\ApiController::class, 'getUsers']);
+    // API routes moved outside auth for login page access
 
     Route::get('/admin', fn () => Inertia::render('Admin/Index'))->name('admin.index');
 });

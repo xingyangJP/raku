@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use App\Models\Estimate;
 use GuzzleHttp\Client;
-use Faker\Factory as Faker;
 
 class EstimateSeeder extends Seeder
 {
@@ -43,7 +42,11 @@ class EstimateSeeder extends Seeder
 
         $pickUsers = collect($users)->values();
         $pickCustomers = collect($customers)->values();
-        $faker = Faker::create('ja_JP');
+        // Faker は本番デプロイで --no-dev の場合に存在しないため、存在チェックしてフォールバック
+        $faker = null;
+        if (class_exists('Faker\\Factory')) {
+            $faker = \Faker\Factory::create('ja_JP');
+        }
 
         // 5種の明細テンプレート
         $catalog = [
@@ -54,6 +57,7 @@ class EstimateSeeder extends Seeder
             ['name' => '導入支援/教育', 'unit' => '時間', 'price' => 9000,   'cost' => 4500],
         ];
 
+        $created = 0;
         for ($i = 0; $i < 50; $i++) {
             $user = $pickUsers[$i % max(1, $pickUsers->count())];
             $customer = $pickCustomers[$i % max(1, $pickCustomers->count())];
@@ -90,11 +94,12 @@ class EstimateSeeder extends Seeder
                     'id' => now()->valueOf() + rand(1, 999),
                     'product_id' => null,
                     'name' => $tpl['name'],
-                    'description' => $faker->realText(rand(40, 80)),
+                    'description' => $faker ? $faker->realText(rand(40, 80)) : '自動生成の説明文（' . $tpl['name'] . '）',
                     'qty' => $qty,
                     'unit' => $tpl['unit'],
                     'price' => $price,
                     'cost' => $cost,
+                    'tax_category' => 'standard',
                 ];
             }
 
@@ -105,19 +110,20 @@ class EstimateSeeder extends Seeder
             Estimate::create([
                 'customer_name' => $customerName,
                 'client_id' => $clientId,
-                'title' => $faker->randomElement(['基幹システムリニューアル','ECサイト機能追加','営業支援ツール改修','在庫管理システム保守','クラウド移行支援']) . ' ' . ($i + 1),
+                'title' => ($faker ? $faker->randomElement(['基幹システムリニューアル','ECサイト機能追加','営業支援ツール改修','在庫管理システム保守','クラウド移行支援']) : '見積プロジェクト') . ' ' . ($i + 1),
                 'issue_date' => $issue,
                 'due_date' => $due,
                 'status' => 'draft',
                 'total_amount' => $total,
                 'tax_amount' => $tax,
-                'notes' => $faker->realText(rand(60, 120)),
+                'notes' => $faker ? $faker->realText(rand(60, 120)) : '自動生成の備考です。',
                 'items' => $items,
                 'estimate_number' => $number,
                 'staff_id' => $staffId,
                 'staff_name' => $staffName,
             ]);
+            $created++;
         }
+        $this->command?->info(sprintf('見積: %d件作成', $created));
     }
 }
-

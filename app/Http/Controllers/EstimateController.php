@@ -8,18 +8,31 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\Estimate;
 use App\Models\User;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 class EstimateController extends Controller
 {
+    private function loadProducts()
+    {
+        // Prefer DB-backed products if table exists; otherwise fallback to in-memory samples
+        if (Schema::hasTable('products')) {
+            return DB::table('products')
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'price', 'cost', 'unit', 'sku']);
+        }
+        return [
+            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000, 'unit' => '式'],
+            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000, 'unit' => '式'],
+            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000, 'unit' => '式'],
+            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000, 'unit' => '式'],
+            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000, 'unit' => '式'],
+        ];
+    }
+
     public function create()
     {
-        $products = [
-            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000],
-            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000],
-            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000],
-            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000],
-            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000],
-        ];
+        $products = $this->loadProducts();
 
         return Inertia::render('Estimates/Create', [
             'products' => $products,
@@ -76,13 +89,7 @@ class EstimateController extends Controller
         unset($validated['status']);
         $estimate = Estimate::create(array_merge($validated, ['status' => $status]));
 
-        $products = [
-            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000],
-            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000],
-            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000],
-            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000],
-            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000],
-        ];
+        $products = $this->loadProducts();
 
         // After creating, we render the edit page (Create component) with the new estimate data
         // This allows the UI to update without a full redirect, preserving modal state.
@@ -104,13 +111,7 @@ class EstimateController extends Controller
         $estimate->save();
 
         // Re-render the component to trigger onSuccess on the frontend
-        $products = [
-            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000],
-            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000],
-            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000],
-            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000],
-            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000],
-        ];
+        $products = $this->loadProducts();
 
         return Inertia::render('Estimates/Create', [
             'estimate' => $estimate->fresh(),
@@ -220,13 +221,7 @@ class EstimateController extends Controller
 
     public function edit(Estimate $estimate)
     {
-        $products = [
-            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000],
-            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000],
-            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000],
-            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000],
-            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000],
-        ];
+        $products = $this->loadProducts();
 
         return Inertia::render('Estimates/Create', [
             'estimate' => $estimate,
@@ -328,13 +323,7 @@ class EstimateController extends Controller
             $flash['success'] = 'Quote updated successfully.';
         }
 
-        $products = [
-            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000],
-            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000],
-            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000],
-            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000],
-            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000],
-        ];
+        $products = $this->loadProducts();
 
         return Inertia::render('Estimates/Create', [
             'estimate' => $estimate->fresh(),
