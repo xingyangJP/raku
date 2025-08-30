@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\Estimate;
+use App\Models\User;
+use Illuminate\Support\Facades\Schema;
 
 class EstimateController extends Controller
 {
@@ -21,33 +23,113 @@ class EstimateController extends Controller
 
         return Inertia::render('Estimates/Create', [
             'products' => $products,
+            // users fetched via external API on client
         ]);
     }
 
     public function store(Request $request)
     {
+        // Normalize client_id to string if numeric
+        $clientId = $request->input('client_id');
+        if (!is_null($clientId) && !is_string($clientId)) {
+            $request->merge(['client_id' => (string) $clientId]);
+        }
+
         $validated = $request->validate([
             'customer_name' => 'required|string|max:255',
+            'client_id' => 'nullable|string|max:255',
             'title' => 'required|string|max:255',
             'issue_date' => 'required|date',
-            'due_date' => 'required|date',
+            'due_date' => 'nullable|date',
             'total_amount' => 'required|integer',
             'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
             'items' => 'required|array',
-            'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number', // Added validation for estimate_number
+            'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
+            'staff_id' => 'nullable|integer',
+            'staff_name' => 'nullable|string|max:255',
+            'approval_flow' => 'nullable|array',
+            'status' => 'nullable|string|in:draft,pending,sent,rejected',
         ]);
 
-        $estimate = Estimate::create(array_merge($validated, ['status' => 'sent']));
+        // Normalize dates to Y-m-d
+        if (!empty($validated['issue_date'])) {
+            $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
+        }
+        if (!empty($validated['due_date'])) {
+            $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
+        }
 
-        return redirect()->route('estimates.show', $estimate->id)
-            ->with('success', 'Estimate created successfully.');
+        // Drop approval_flow safely if migration not yet applied
+        if (!Schema::hasColumn('estimates', 'approval_flow')) {
+            unset($validated['approval_flow']);
+        }
+
+        if (empty($validated['estimate_number'])) {
+            $validated['estimate_number'] = $this->generateReadableEstimateNumber(
+                $validated['staff_id'] ?? null,
+                $validated['client_id'] ?? null,
+                false
+            );
+        }
+        $status = $validated['status'] ?? 'sent';
+        unset($validated['status']);
+        $estimate = Estimate::create(array_merge($validated, ['status' => $status]));
+
+        $products = [
+            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000],
+            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000],
+            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000],
+            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000],
+            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000],
+        ];
+
+        // After creating, we render the edit page (Create component) with the new estimate data
+        // This allows the UI to update without a full redirect, preserving modal state.
+        return Inertia::render('Estimates/Create', [
+            'estimate' => $estimate->fresh(),
+            'products' => $products,
+            'approval_success_message' => '承認申請を開始しました。'
+        ]);
+    }
+
+    public function apply(Request $request, Estimate $estimate)
+    {
+        $validated = $request->validate([
+            'approval_flow' => 'required|array',
+        ]);
+
+        $estimate->status = 'pending';
+        $estimate->approval_flow = $validated['approval_flow'];
+        $estimate->save();
+
+        // Re-render the component to trigger onSuccess on the frontend
+        $products = [
+            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000],
+            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000],
+            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000],
+            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000],
+            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000],
+        ];
+
+        return Inertia::render('Estimates/Create', [
+            'estimate' => $estimate->fresh(),
+            'products' => $products,
+            'approval_success_message' => '承認申請を開始しました。'
+        ]);
     }
 
     public function saveDraft(Request $request)
     {
+        // Normalize client_id to string if numeric
+        $clientId = $request->input('client_id');
+        if (!is_null($clientId) && !is_string($clientId)) {
+            $request->merge(['client_id' => (string) $clientId]);
+        }
+
         $rules = [
             'customer_name' => 'nullable|string|max:255',
+            'client_id' => 'nullable|string|max:255',
             'title' => 'nullable|string|max:255',
             'issue_date' => 'nullable|date',
             'due_date' => 'nullable|date',
@@ -55,10 +137,24 @@ class EstimateController extends Controller
             'tax_amount' => 'nullable|integer',
             'notes' => 'nullable|string',
             'items' => 'nullable|array',
+            // For drafts, allow any integer; we normalized invalid IDs to a valid user or null above
+            'staff_id' => 'nullable|integer',
+            'staff_name' => 'nullable|string|max:255',
+            'approval_flow' => 'nullable|array',
         ];
 
         $estimateNumber = $request->input('estimate_number');
         $estimate = null;
+
+        // If estimate_number is missing, generate a draft number (column is NOT NULL)
+        if (!$estimateNumber) {
+            $estimateNumber = $this->generateReadableEstimateNumber(
+                $request->input('staff_id'),
+                $request->input('client_id'),
+                true
+            );
+            $request->merge(['estimate_number' => $estimateNumber]);
+        }
 
         if ($estimateNumber) {
             $estimate = Estimate::where('estimate_number', $estimateNumber)->first();
@@ -67,11 +163,21 @@ class EstimateController extends Controller
                 $estimateNumberRule .= ',' . $estimate->id;
             }
             $rules['estimate_number'] = $estimateNumberRule;
-        } else {
-            $rules['estimate_number'] = 'nullable|string|max:255';
         }
 
         $validated = $request->validate($rules);
+        // Normalize dates to Y-m-d if present
+        if (!empty($validated['issue_date'])) {
+            $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
+        }
+        if (!empty($validated['due_date'])) {
+            $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
+        }
+
+        // Drop approval_flow safely if migration not yet applied
+        if (!Schema::hasColumn('estimates', 'approval_flow')) {
+            unset($validated['approval_flow']);
+        }
 
         if ($estimate) {
             // Update existing estimate
@@ -82,6 +188,26 @@ class EstimateController extends Controller
         }
 
         return redirect()->back()->with('success', 'Draft saved successfully.');
+    }
+
+    private function generateReadableEstimateNumber($staffId, $clientId, bool $draft): string
+    {
+        // Format: EST-{staff}-{client}-{yyddmm}-{seq}  (PHP date: y=YY, d=DD, m=MM)
+        $date = now()->format('ydm');
+        $staff = $staffId ?: 'X';
+        $client = $clientId ?: 'X';
+        $kind = $draft ? 'EST-D' : 'EST';
+        $prefix = "$kind-$staff-$client-$date-";
+        $latest = Estimate::where('estimate_number', 'like', $prefix.'%')
+            ->orderBy('estimate_number', 'desc')
+            ->first();
+        $seq = 1;
+        if ($latest) {
+            $tail = substr($latest->estimate_number, strlen($prefix));
+            $num = (int) $tail;
+            $seq = $num + 1;
+        }
+        return $prefix . str_pad((string)$seq, 3, '0', STR_PAD_LEFT);
     }
 
     public function index()
@@ -111,24 +237,19 @@ class EstimateController extends Controller
     public function duplicate(Estimate $estimate)
     {
         $newEstimate = $estimate->replicate();
-        $newEstimate->estimate_number = $this->generateUniqueEstimateNumber($estimate->estimate_number);
-        $newEstimate->status = 'draft'; // Set status to draft for duplicated estimate
+        $newEstimate->estimate_number = $this->generateReadableEstimateNumber(
+            $estimate->staff_id ?? null,
+            $estimate->client_id ?? null,
+            true
+        );
+        $newEstimate->status = 'draft';
         $newEstimate->save();
 
         return redirect()->route('estimates.edit', $newEstimate->id)
             ->with('success', '見積書を複製しました。');
     }
 
-    private function generateUniqueEstimateNumber($originalNumber)
-    {
-        $i = 1;
-        $newNumber = $originalNumber . '-copy';
-        while (Estimate::where('estimate_number', $newNumber)->exists()) {
-            $newNumber = $originalNumber . '-copy-' . $i;
-            $i++;
-        }
-        return $newNumber;
-    }
+    // generateUniqueEstimateNumber obsolete; unified to generateReadableEstimateNumber
 
     public function bulkApprove(Request $request)
     {
@@ -158,21 +279,74 @@ class EstimateController extends Controller
 
     public function update(Request $request, Estimate $estimate)
     {
+        // Normalize client_id to string if numeric
+        $clientId = $request->input('client_id');
+        if (!is_null($clientId) && !is_string($clientId)) {
+            $request->merge(['client_id' => (string) $clientId]);
+        }
+
         $validated = $request->validate([
             'customer_name' => 'required|string|max:255',
+            'client_id' => 'nullable|string|max:255',
             'title' => 'required|string|max:255',
             'issue_date' => 'required|date',
-            'due_date' => 'required|date',
+            'due_date' => 'nullable|date',
             'total_amount' => 'required|integer',
             'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
             'items' => 'required|array',
             'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
+            'staff_id' => 'nullable|integer',
+            'staff_name' => 'nullable|string|max:255',
+            'approval_flow' => 'nullable|array',
+            'status' => 'nullable|string|in:draft,pending,sent,rejected',
         ]);
 
-        $estimate->update($validated);
+        // Normalize dates to Y-m-d
+        if (!empty($validated['issue_date'])) {
+            $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
+        }
+        if (!empty($validated['due_date'])) {
+            $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
+        }
 
-        return redirect()->route('quotes.index')->with('success', 'Quote updated successfully.');
+        $status = $validated['status'] ?? $estimate->status;
+        unset($validated['status']);
+        // Drop approval_flow safely if migration not yet applied
+        if (!Schema::hasColumn('estimates', 'approval_flow')) {
+            unset($validated['approval_flow']);
+        }
+        $estimate->update(array_merge($validated, ['status' => $status]));
+
+        $flash = [];
+        if ($status === 'pending') {
+            $flash['approval_started'] = true;
+            if (!empty($validated['approval_flow'])) {
+                $flash['approval_flow'] = $validated['approval_flow'];
+            }
+        } else {
+            $flash['success'] = 'Quote updated successfully.';
+        }
+
+        $products = [
+            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000],
+            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000],
+            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000],
+            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000],
+            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000],
+        ];
+
+        return Inertia::render('Estimates/Create', [
+            'estimate' => $estimate->fresh(),
+            'products' => $products,
+            'approval_success_message' => '承認申請を開始しました。'
+        ]);
+    }
+
+    public function destroy(Estimate $estimate)
+    {
+        $estimate->delete();
+        return redirect()->route('quotes.index')->with('success', '見積書を削除しました。');
     }
 
     public function previewPdf(Request $request)

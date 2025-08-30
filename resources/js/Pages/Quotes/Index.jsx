@@ -1,6 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, useForm } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, Link, useForm, router, usePage } from '@inertiajs/react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { Badge } from "@/Components/ui/badge";
@@ -22,6 +22,7 @@ import {
     DollarSign,
     Eye,
     Edit,
+    Trash2,
     Copy,
     CheckCircle,
     Clock,
@@ -32,9 +33,22 @@ import { Checkbox } from '@/Components/ui/checkbox';
 import axios from 'axios';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog';
 
 export default function QuoteIndex({ auth, estimates }) {
+    const { props } = usePage();
     const [selectedEstimates, setSelectedEstimates] = useState([]);
+    const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
+    const [approverNames, setApproverNames] = useState([]);
+
+    useEffect(() => {
+        const started = props.flash?.approval_started;
+        if (started) {
+            setOpenApprovalStarted(true);
+            const names = Array.isArray(props.flash?.approval_flow) ? props.flash.approval_flow.map(a => a.name) : [];
+            setApproverNames(names);
+        }
+    }, [props.flash]);
 
     const handleSelectAll = (checked) => {
         if (checked) {
@@ -96,7 +110,7 @@ export default function QuoteIndex({ auth, estimates }) {
     const handleBulkApprove = () => {
         if (selectedEstimates.length === 0) return;
         if (confirm(`選択された ${selectedEstimates.length} 件の見積書を承認申請しますか？`)) {
-            post(route('estimates.bulkApprove'), { ids: selectedEstimates });
+            router.post(route('estimates.bulkApprove'), { ids: selectedEstimates });
         }
     };
 
@@ -107,7 +121,13 @@ export default function QuoteIndex({ auth, estimates }) {
 
     const handleDuplicate = (id) => {
         if (confirm('この見積書を複製しますか？')) {
-            post(route('estimates.duplicate', id));
+            router.post(route('estimates.duplicate', id));
+        }
+    };
+
+    const handleDelete = (id) => {
+        if (confirm('この見積書を削除しますか？この操作は取り消せません。')) {
+            router.delete(route('estimates.destroy', id));
         }
     };
 
@@ -152,10 +172,7 @@ export default function QuoteIndex({ auth, estimates }) {
 
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
-    const mockApprovalHistory = [
-        { name: '守部', status: '未承認', date: '2025-08-29', role: '部長', avatar: '守' },
-        { name: '園田', status: '未承認', date: '2025-08-29', role: '課長', avatar: '園' },
-    ];
+    // approval history is rendered from estimate.approval_flow in the detail view
 
     // 統計計算
     const totalAmount = estimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
@@ -178,6 +195,28 @@ export default function QuoteIndex({ auth, estimates }) {
             }
         >
             <Head title="Quote Management" />
+            <Dialog open={openApprovalStarted} onOpenChange={setOpenApprovalStarted}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>承認申請を開始しました</DialogTitle>
+                        <DialogDescription>以下の承認フローで申請を受け付けました。</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2">
+                        {approverNames.length ? (
+                            <ol className="list-decimal list-inside text-slate-700">
+                                {approverNames.map((n, i) => (
+                                    <li key={`${n}-${i}`}>{n}</li>
+                                ))}
+                            </ol>
+                        ) : (
+                            <p className="text-slate-500 text-sm">承認者が設定されていません。</p>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button onClick={() => setOpenApprovalStarted(false)}>OK</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
             
             <div className="space-y-8">
                 {/* 統計ダッシュボード */}
@@ -363,7 +402,7 @@ export default function QuoteIndex({ auth, estimates }) {
                                         <TableHead className="font-semibold">顧客名</TableHead>
                                         <TableHead className="font-semibold">税込合計</TableHead>
                                         <TableHead className="font-semibold">ステータス</TableHead>
-                                        <TableHead className="font-semibold">有効期限</TableHead>
+                                        <TableHead className="font-semibold">自社担当者</TableHead>
                                         <TableHead className="w-[50px] font-semibold text-center">操作</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -416,10 +455,7 @@ export default function QuoteIndex({ auth, estimates }) {
                                                     <TableCell>
                                                         {getStatusBadge(estimate.status)}
                                                     </TableCell>
-                                                    <TableCell className="flex items-center gap-1">
-                                                        <Calendar className="h-4 w-4 text-slate-400" />
-                                                        {estimate.due_date}
-                                                    </TableCell>
+                                                    <TableCell className="text-slate-600">{estimate.staff_name || (estimate.staff ? estimate.staff.name : '-')}</TableCell>
                                                     <TableCell>
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild>
@@ -453,6 +489,13 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                 >
                                                                     <FileText className="h-4 w-4" />
                                                                     プレビュー
+                                                                </DropdownMenuItem>
+                                                                <DropdownMenuItem 
+                                                                    onClick={() => handleDelete(estimate.id)}
+                                                                    className="flex items-center gap-2 text-red-600 focus:text-red-600"
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                    削除
                                                                 </DropdownMenuItem>
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
@@ -520,14 +563,26 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                             <p className="font-semibold">{estimate.issue_date}</p>
                                                                         </div>
                                                                         <div>
-                                                                            <p className="text-sm text-slate-500">有効期限</p>
-                                                                            <p className="font-semibold">{estimate.due_date}</p>
+                                                                            <p className="text-sm text-slate-500">自社担当者</p>
+                                                                            <p className="font-semibold">{estimate.staff_name || (estimate.staff ? estimate.staff.name : '-')}</p>
                                                                         </div>
                                                                         <div>
                                                                             <p className="text-sm text-slate-500">合計金額 (税込)</p>
                                                                             <p className="font-bold text-xl text-green-600">
                                                                                 ¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}
                                                                             </p>
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="text-sm text-slate-500">承認フロー</p>
+                                                                            {Array.isArray(estimate.approval_flow) && estimate.approval_flow.length ? (
+                                                                                <ol className="text-sm text-slate-700 list-decimal list-inside space-y-1">
+                                                                                    {estimate.approval_flow.map((ap, i) => (
+                                                                                        <li key={`${ap.id}-${i}`}>{ap.name}</li>
+                                                                                    ))}
+                                                                                </ol>
+                                                                            ) : (
+                                                                                <p className="text-sm text-slate-400">未設定</p>
+                                                                            )}
                                                                         </div>
                                                                     </div>
                                                                     {estimate.notes && (
@@ -664,8 +719,27 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                             ))}
                                                                         </TableBody>
                                                                     </Table>
-                                                                    <div className="mt-6 flex justify-end">
+                                                                    <div className="mt-6 flex flex-col md:flex-row gap-4 md:gap-6 md:justify-between">
+                                                                        {/* 承認フロー（合計の左） */}
                                                                         <Card className="w-full md:w-96">
+                                                                            <CardHeader>
+                                                                                <CardTitle className="text-sm">承認フロー</CardTitle>
+                                                                            </CardHeader>
+                                                                            <CardContent className="p-4">
+                                                                                {Array.isArray(estimate.approval_flow) && estimate.approval_flow.length ? (
+                                                                                    <ol className="list-decimal list-inside space-y-1 text-sm text-slate-700">
+                                                                                        {estimate.approval_flow.map((ap, i) => (
+                                                                                            <li key={`${ap.id}-${i}`}>{ap.name}</li>
+                                                                                        ))}
+                                                                                    </ol>
+                                                                                ) : (
+                                                                                    <p className="text-sm text-slate-400">未設定</p>
+                                                                                )}
+                                                                            </CardContent>
+                                                                        </Card>
+
+                                                                        {/* 合計 */}
+                                                                        <Card className="w-full md:w-96 md:ml-auto">
                                                                             <CardContent className="p-4 space-y-2">
                                                                                 <div className="flex justify-between">
                                                                                     <span>小計（税抜）</span>
@@ -689,6 +763,19 @@ export default function QuoteIndex({ auth, estimates }) {
                                                         </TabsContent>
                                                         
                                                         <TabsContent value="approval" className="py-6">
+                                                            {(() => {
+                                                                const flow = Array.isArray(estimate.approval_flow) ? estimate.approval_flow : [];
+                                                                const steps = flow.length ? flow : [];
+                                                                const status = estimate.status;
+                                                                const now = new Date().toLocaleDateString('ja-JP');
+                                                                const derived = steps.map((s, idx) => ({
+                                                                    name: s.name,
+                                                                    avatar: s.name?.[0] || '承',
+                                                                    role: idx === 0 ? '第1承認者' : `第${idx+1}承認者`,
+                                                                    status: status === 'sent' ? '承認済' : (status === 'pending' ? (idx === 0 ? '未承認' : '待機中') : '未承認'),
+                                                                    date: status === 'sent' ? now : '',
+                                                                }));
+                                                                return (
                                                             <Card>
                                                                 <CardHeader>
                                                                     <CardTitle className="flex items-center gap-2">
@@ -705,7 +792,7 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                         <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-slate-200"></div>
                                                                         
                                                                         <div className="space-y-8">
-                                                                            {mockApprovalHistory.map((step, index) => (
+                                                                            {(derived.length ? derived : [{name:'承認者未設定', avatar:'ー', role:'', status:'未承認', date:''}]).map((step, index) => (
                                                                                 <div key={index} className="flex items-start gap-4 relative">
                                                                                     {/* Avatar circle */}
                                                                                     <div className="flex-shrink-0 w-16 h-16 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-lg z-10 shadow-lg">
@@ -723,17 +810,17 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                                                     </div>
                                                                                                     <div className="text-right">
                                                                                                         <Badge 
-                                                                                                            variant={step.status === '未承認' ? 'secondary' : 'default'}
+                                                                                                            variant={step.status === '承認済' ? 'default' : 'secondary'}
                                                                                                             className={cn(
                                                                                                                 "flex items-center gap-1",
-                                                                                                                step.status === '未承認' 
-                                                                                                                    ? 'bg-amber-100 text-amber-800' 
-                                                                                                                    : 'bg-green-100 text-green-800'
+                                                                                                                step.status === '承認済' 
+                                                                                                                    ? 'bg-green-100 text-green-800' 
+                                                                                                                    : 'bg-amber-100 text-amber-800'
                                                                                                             )}
                                                                                                         >
-                                                                                                            {step.status === '未承認' 
-                                                                                                                ? <Clock className="h-3 w-3" />
-                                                                                                                : <CheckCircle className="h-3 w-3" />
+                                                                                                            {step.status === '承認済' 
+                                                                                                                ? <CheckCircle className="h-3 w-3" />
+                                                                                                                : <Clock className="h-3 w-3" />
                                                                                                             }
                                                                                                             {step.status}
                                                                                                         </Badge>
@@ -745,10 +832,7 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                                                 </div>
                                                                                                 
                                                                                                 <div className="text-sm text-slate-600">
-                                                                                                    {step.status === '未承認' 
-                                                                                                        ? '承認待ちです。承認者にリマインドを送信することができます。'
-                                                                                                        : '承認が完了しました。'
-                                                                                                    }
+                                                                                                    {step.status === '承認済' ? '承認が完了しました。' : (index === 0 ? '承認待ちです。' : '前段の承認待ちです。')}
                                                                                                 </div>
                                                                                             </CardContent>
                                                                                         </Card>
@@ -759,6 +843,8 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                     </div>
                                                                 </CardContent>
                                                             </Card>
+                                                                );
+                                                            })()}
                                                         </TabsContent>
                                                     </Tabs>
                                                 </SheetContent>

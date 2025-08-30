@@ -1,5 +1,5 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, useForm, router } from '@inertiajs/react';
 import { useState, useEffect } from 'react';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
@@ -15,6 +15,7 @@ import { PlusCircle, MinusCircle, Trash2, ArrowUp, ArrowDown, Copy, FileText, Ey
 import { cn } from "@/lib/utils"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/Components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog'
 import axios from 'axios';
 
 // --- Components defined outside EstimateCreate to prevent state loss on re-render ---
@@ -89,15 +90,15 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
     useEffect(() => {
         const fetchStaff = async () => {
             try {
-                const response = await axios.get(`/api/users?search=${search}`);
-                setStaff(response.data);
-            } catch (error) {
-                console.error("Failed to fetch staff:", error);
+                const res = await axios.get(`/api/users?search=${encodeURIComponent(search)}`);
+                setStaff(Array.isArray(res.data) ? res.data : []);
+            } catch (e) {
+                console.error('Failed to fetch staff:', e);
+                setStaff([]);
             }
         };
         fetchStaff();
     }, [search]);
-
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
@@ -145,25 +146,46 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
 
 // --- Main Component ---
 
-export default function EstimateCreate({ auth, products, estimate = null }) {
+export default function EstimateCreate({ auth, products, users = [], estimate = null }) {
     const isEditMode = estimate !== null;
 
     const [isInternalView, setIsInternalView] = useState(true);
     const [lineItems, setLineItems] = useState(estimate?.items || []);
-    const [selectedStaff, setSelectedStaff] = useState(null); // In edit mode, you might need to fetch the staff member based on estimate.staff_id
-    const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: null } : null); // Simplified for now
+    const [selectedStaff, setSelectedStaff] = useState(() => (estimate?.staff_id && estimate?.staff_name)
+        ? { id: estimate.staff_id, name: estimate.staff_name }
+        : null
+    );
+    const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
     const [estimateNumber, setEstimateNumber] = useState(estimate?.estimate_number || '');
+    const [approvers, setApprovers] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
+    const [openApproval, setOpenApproval] = useState(false);
+    const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
+    const [approvalStatus, setApprovalStatus] = useState('');
+
+    const formatDate = (dateString) => {
+        if (!dateString) return '';
+        if (typeof dateString === 'string' && dateString.includes('T')) {
+            return dateString.split('T')[0];
+        }
+        // already YYYY-MM-DD
+        return dateString;
+    };
 
     const { data, setData, post, patch, processing, errors, reset } = useForm({
+        id: estimate?.id || null,
         customer_name: estimate?.customer_name || '',
+        client_id: estimate?.client_id || null,
         title: estimate?.title || '',
-        issue_date: estimate?.issue_date || '',
-        due_date: estimate?.due_date || '',
+        issue_date: isEditMode ? formatDate(estimate?.issue_date) : '',
+        due_date: isEditMode ? formatDate(estimate?.due_date) : '',
         total_amount: estimate?.total_amount || 0,
         tax_amount: estimate?.tax_amount || 0,
         notes: estimate?.notes || '',
         items: estimate?.items || [],
         estimate_number: estimate?.estimate_number || '',
+        staff_id: estimate?.staff_id || null,
+        staff_name: estimate?.staff_name || (estimate?.staff ? estimate.staff.name : null) || null,
+        approval_flow: Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : [],
     });
 
     useEffect(() => {
@@ -184,7 +206,14 @@ export default function EstimateCreate({ auth, products, estimate = null }) {
 
     useEffect(() => {
         setData('customer_name', selectedCustomer?.customer_name || '');
+        setData('client_id', selectedCustomer?.id || null);
     }, [selectedCustomer]);
+
+    // Keep staff_id/staff_name in sync when selected
+    useEffect(() => {
+        setData('staff_id', selectedStaff?.id || null);
+        setData('staff_name', selectedStaff?.name || null);
+    }, [selectedStaff]);
 
     // These useEffects cause issues in edit mode by overwriting data. 
     // It's better to manage form state directly with setData in onChange handlers.
@@ -208,6 +237,10 @@ export default function EstimateCreate({ auth, products, estimate = null }) {
     useEffect(() => {
         setData(prevData => ({ ...prevData, items: lineItems, total_amount: total, tax_amount: tax, estimate_number: estimateNumber }));
     }, [lineItems, total, tax, estimateNumber]);
+
+    useEffect(() => {
+        setData('approval_flow', approvers);
+    }, [approvers]);
 
 
     const handlePdfPreview = () => {
@@ -298,29 +331,45 @@ export default function EstimateCreate({ auth, products, estimate = null }) {
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
     const saveDraft = () => {
-        // The saveDraft controller endpoint can handle both creation and update based on estimate_number
         post(route('estimates.saveDraft'), {
-            ...data, // Send all form data
-            status: 'draft',
             onSuccess: () => alert('下書きが保存されました。'),
             onError: (e) => console.error('下書き保存エラー:', e),
+            preserveScroll: true,
         });
     };
 
     const handleSubmit = (e) => {
         e.preventDefault();
+        setOpenApproval(true);
+    };
+
+    const submitWithApprovers = () => {
+        setData('status', 'pending');
+        const options = {
+            onStart: () => setApprovalStatus('submitting'),
+            onSuccess: () => {
+                setApprovalStatus('success');
+            },
+            onError: (errors) => {
+                console.error('承認申請エラー:', errors);
+                setApprovalStatus('error');
+            },
+            preserveState: true,
+            preserveScroll: true,
+        };
+
         if (isEditMode) {
-            patch(route('estimates.update', estimate.id), {
-                ...data,
-                onSuccess: () => alert('見積書が更新されました。'),
-                onError: (e) => console.error('更新エラー:', e),
-            });
+            // Use patch for updates
+            patch(route('estimates.update', estimate.id), options);
         } else {
-            post(route('estimates.store'), {
-                ...data,
-                onSuccess: () => alert('見積書が承認申請されました。'),
-                onError: (e) => console.error('承認申請エラー:', e),
-            });
+            post(route('estimates.store'), options);
+        }
+    };
+
+    const handleDelete = () => {
+        if (!isEditMode) return;
+        if (confirm('この見積書を削除しますか？この操作は取り消せません。')) {
+            router.delete(route('estimates.destroy', estimate.id));
         }
     };
 
@@ -341,6 +390,8 @@ export default function EstimateCreate({ auth, products, estimate = null }) {
                                 <Label htmlFor="view-mode">{isInternalView ? '社内ビュー' : '社外ビュー'}</Label>
                             </div>
                         </div>
+
+                        {/* 承認フロー概要は明細下の合計の隣に移動 */}
 
                         <Card>
                             <CardHeader>
@@ -368,8 +419,8 @@ export default function EstimateCreate({ auth, products, estimate = null }) {
                                     <Input type="date" id="issue-date" value={data.issue_date} onChange={(e) => setData('issue_date', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="expiry-date">有効期限</Label>
-                                    <Input type="date" id="expiry-date" value={data.due_date} onChange={(e) => setData('due_date', e.target.value)} />
+                                    <Label htmlFor="due-date">有効期間</Label>
+                                    <Input type="date" id="due-date" value={data.due_date || ''} onChange={(e) => setData('due_date', e.target.value)} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="payment-terms">支払条件</Label>
@@ -509,9 +560,35 @@ export default function EstimateCreate({ auth, products, estimate = null }) {
                         </Card>
 
                         <div className="space-y-6">
-                            <div className="flex justify-end">
-                                <div className="w-full lg:w-1/3">
+                            <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
+                                {/* 承認フロー概要（左：社内ビューのみ表示） */}
+                                {isInternalView && (
+                                    <div className="w-full lg:w-2/3">
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle>承認フロー</CardTitle>
+                                            </CardHeader>
+                                            <CardContent>
+                                                {approvers.length === 0 ? (
+                                                    <p className="text-sm text-slate-500">承認者が設定されていません。「承認申請」で追加してください。</p>
+                                                ) : (
+                                                    <ol className="space-y-2 list-decimal list-inside">
+                                                        {approvers.map((ap, idx) => (
+                                                            <li key={`${ap.id}-${idx}`} className="flex items-center gap-2">
+                                                                <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">{idx+1}</span>
+                                                                <span className="font-medium">{ap.name}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ol>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+                                    </div>
+                                )}
+                                {/* 合計（右） */}
+                                <div className="w-full lg:w-1/3 lg:ml-auto">
                                     <Card>
+        
                                         <CardHeader>
                                             <CardTitle>合計</CardTitle>
                                         </CardHeader>
@@ -610,14 +687,129 @@ export default function EstimateCreate({ auth, products, estimate = null }) {
                                     <Button variant="outline"><History className="mr-2 h-4 w-4" />変更履歴</Button>
                                 </div>
                                 <div className="space-x-2">
-                                    <Button variant="secondary" onClick={saveDraft}>下書き保存</Button>
-                                    <Button onClick={handleSubmit}>{isEditMode ? '更新して申請' : '承認申請'}</Button>
+                                    {isEditMode && (
+                                        <Button type="button" variant="destructive" onClick={handleDelete}>削除</Button>
+                                    )}
+                                    <Button type="button" variant="secondary" onClick={saveDraft}>下書き保存</Button>
+                                    <Button type="button" onClick={handleSubmit}>{isEditMode ? '更新して申請' : '承認申請'}</Button>
                                 </div>
                             </CardFooter>
                         </Card>
                     </div>
+                    <Dialog open={openApproval} onOpenChange={setOpenApproval}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>承認申請</DialogTitle>
+                                <DialogDescription>承認者を追加し、順序を調整してください。上から順に承認されます。</DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-4">
+                                <ApproverPicker onAdd={(u) => setApprovers(prev => [...prev, { id: u.id, name: u.name }])} />
+                                <div className="space-y-2">
+                                    {approvers.length === 0 && (
+                                        <p className="text-sm text-slate-500">承認者が追加されていません。</p>
+                                    )}
+                                    {approvers.map((ap, idx) => (
+                                        <div key={`${ap.id}-${idx}`} className="flex items-center justify-between rounded border p-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-slate-500 text-sm">{idx + 1}</span>
+                                                <span className="font-medium">{ap.name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <Button type="button" variant="outline" size="icon" onClick={() => idx>0 && setApprovers(prev => {
+                                                    const a=[...prev]; const t=a[idx-1]; a[idx-1]=a[idx]; a[idx]=t; return a;})}>
+                                                    <ArrowUp className="h-4 w-4" />
+                                                </Button>
+                                                <Button type="button" variant="outline" size="icon" onClick={() => idx<approvers.length-1 && setApprovers(prev => {
+                                                    const a=[...prev]; const t=a[idx+1]; a[idx+1]=a[idx]; a[idx]=t; return a;})}>
+                                                    <ArrowDown className="h-4 w-4" />
+                                                </Button>
+                                                <Button type="button" variant="outline" size="icon" onClick={() => setApprovers(prev => prev.filter((_,i)=>i!==idx))}>
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <DialogFooter>
+                                {approvalStatus === 'success' && (
+                                    <span className="mr-auto inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-red-600 text-white">承認申請を開始しました</span>
+                                )}
+                                {approvalStatus === 'error' && (
+                                    <span className="mr-auto inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-red-600 text-white">エラーが発生しました。</span>
+                                )}
+                                <Button variant="secondary" type="button" onClick={() => { setOpenApproval(false); setApprovalStatus(''); }}>キャンセル</Button>
+                                <Button type="button" onClick={submitWithApprovers} disabled={approvalStatus === 'submitting' || approvalStatus === 'success'}>
+                                    {approvalStatus === 'submitting' || approvalStatus === 'success' ? '申請中..' : '申請する'}
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                    {/* 承認開始通知モーダル（ローカル表示） */}
+                    <Dialog open={openApprovalStarted} onOpenChange={setOpenApprovalStarted}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>承認申請を開始しました</DialogTitle>
+                                <DialogDescription>以下の承認フローで申請を受け付けました。</DialogDescription>
+                            </DialogHeader>
+                            <div className="space-y-2">
+                                {approvers.length ? (
+                                    <ol className="list-decimal list-inside text-slate-700">
+                                        {approvers.map((u, i) => (
+                                            <li key={`${u.id}-${i}`}>{u.name}</li>
+                                        ))}
+                                    </ol>
+                                ) : (
+                                    <p className="text-slate-500 text-sm">承認者が設定されていません。</p>
+                                )}
+                            </div>
+                            <DialogFooter>
+                                <Button onClick={() => setOpenApprovalStarted(false)}>OK</Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </div>
             </div>
         </AuthenticatedLayout>
+    );
+}
+
+function ApproverPicker({ onAdd }) {
+    const [open, setOpen] = useState(false);
+    const [staff, setStaff] = useState([]);
+    const [search, setSearch] = useState("");
+
+    useEffect(() => {
+        const fetchStaff = async () => {
+            try {
+                const res = await axios.get(`/api/users?search=${encodeURIComponent(search)}`);
+                setStaff(Array.isArray(res.data) ? res.data : []);
+            } catch (e) {
+                console.error('Failed to fetch staff:', e);
+                setStaff([]);
+            }
+        };
+        fetchStaff();
+    }, [search]);
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button variant="outline" className="justify-between w-full">承認者を追加…</Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0">
+                <Command>
+                    <CommandInput placeholder="承認者を検索..." onValueChange={setSearch} />
+                    <CommandEmpty>見つかりません。</CommandEmpty>
+                    <CommandGroup>
+                        {staff.map((s) => (
+                            <CommandItem key={s.id} value={s.id} onSelect={() => { onAdd(s); setOpen(false); }}>
+                                {s.name}
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                </Command>
+            </PopoverContent>
+        </Popover>
     );
 }

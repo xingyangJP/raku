@@ -1,4 +1,39 @@
 # ラクシルcloud
+## 外部API
+https://api.xerographix.co.jp/public/docs/#introduction
+## 顧客情報
+Example request:
+const url = new URL(
+    "https://api.xerographix.co.jp/api/customers"
+);
+
+const headers = {
+    "Authorization": "Bearer {YOUR_AUTH_KEY}",
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+};
+
+fetch(url, {
+    method: "GET",
+    headers,
+}).then(response => response.json());
+
+## 自社スタッフ情報（担当者）
+Example request:
+const url = new URL(
+    "https://api.xerographix.co.jp/api/users"
+);
+
+const headers = {
+    "Authorization": "Bearer {YOUR_AUTH_KEY}",
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+};
+
+fetch(url, {
+    method: "GET",
+    headers,
+}).then(response => response.json());
 
 ## 進捗
 
@@ -160,6 +195,11 @@ https://ui.shadcn.com/docs/installation/laravel
 ### UI/UX改善
 
 -   **検索エリアのデザイン統一**: 入金管理ページの検索エリアを、請求・売掛管理ページと同様のアコーディオンデザインに統一しました。これにより、ユーザーインターフェースの一貫性が向上し、より直感的な操作が可能になりました。
+-   **承認申請モーダルのUI改善**:
+    -   承認申請モーダルで「申請する」ボタンを押すと、モーダルを閉じずに処理を開始します。
+    -   処理中は「申請する」ボタンが「申請中...」に変わり、無効化されます。
+    -   申請が成功すると、モーダルのフッター左側に「承認申請を開始しました」と赤文字で表示され、「申請する」ボタンは無効なままになります。
+    -   エラーが発生した場合は、「エラーが発生しました。」と表示され、再度申請を試みることができます。
 
 ### コード品質向上
 
