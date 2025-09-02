@@ -42,12 +42,20 @@ Route::get('/dashboard', function () {
         if ($currentStepIndex !== -1) {
             $currentApprover = $approvalFlow[$currentStepIndex];
 
-            $currId = $currentApprover['id'] ?? null;
-            $currIdInt = is_numeric($currId) ? (int)$currId : null;
-            $currIdStr = (string) $currId;
-            // Match by local id OR external_user_id
-            if (($currIdInt !== null && $currIdInt === $authId) || ($authExternalId !== '' && $currIdStr === $authExternalId)) {
-                $isCurrentUserNextApprover = true;
+            $approverIdInFlow = (string)($currentApprover['id'] ?? '');
+            $authIdStr = (string)($user->id ?? '');
+            $authExternalIdStr = (string)($user->external_user_id ?? '');
+
+            if ($approverIdInFlow !== '') {
+                if ($approverIdInFlow === $authIdStr) {
+                    $isCurrentUserNextApprover = true;
+                } elseif ($authExternalIdStr !== '' && $approverIdInFlow === $authExternalIdStr) {
+                    $isCurrentUserNextApprover = true;
+                }
+            }
+
+            if ($isCurrentUserNextApprover) {
+                // no-op
             } else {
                 $waitingForApproverName = $currentApprover['name'];
             }
@@ -58,12 +66,18 @@ Route::get('/dashboard', function () {
 
         // Check if current user is in the flow at all
         foreach ($approvalFlow as $approver) {
-            $apprId = $approver['id'] ?? null;
-            $apprIdInt = is_numeric($apprId) ? (int)$apprId : null;
-            $apprIdStr = (string) $apprId;
-            if (($apprIdInt !== null && $apprIdInt === $authId) || ($authExternalId !== '' && $apprIdStr === $authExternalId)) {
-                $isCurrentUserInFlow = true;
-                break;
+            $approverIdInFlow = (string)($approver['id'] ?? '');
+            $authIdStr = (string)($user->id ?? '');
+            $authExternalIdStr = (string)($user->external_user_id ?? '');
+
+            if ($approverIdInFlow !== '') {
+                if ($approverIdInFlow === $authIdStr) {
+                    $isCurrentUserInFlow = true;
+                    break;
+                } elseif ($authExternalIdStr !== '' && $approverIdInFlow === $authExternalIdStr) {
+                    $isCurrentUserInFlow = true;
+                    break;
+                }
             }
         }
 
