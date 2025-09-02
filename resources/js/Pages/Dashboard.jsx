@@ -4,9 +4,13 @@ import { Head } from '@inertiajs/react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { Badge } from "@/Components/ui/badge";
+import { Button } from "@/Components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/Components/ui/toggle-group";
 import { DollarSign, ShoppingCart, Users, ListChecks, BarChart3 } from 'lucide-react';
+import EstimateDetailSheet from '@/Components/EstimateDetailSheet';
+import { useState, useMemo } from 'react';
 
-export default function Dashboard({ auth }) {
+export default function Dashboard({ auth, toDoEstimates = [] }) {
     // Mock data based on requirements
     const summaryData = {
         receivables: { title: "当月売掛サマリ", amount: "¥1,250,000", change: "+5.2%", icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
@@ -22,23 +26,22 @@ export default function Dashboard({ auth }) {
         { rank: 5, customer: "株式会社E", amount: "¥150,000" },
     ];
 
-    const todoList = [
-        { task: "株式会社Bへの請求書発行", priority: "High" },
-        { task: "商品XYZの在庫確認", priority: "Medium" },
-        { task: "XX月次レポート作成", priority: "Low" },
-        { task: "株式会社Cとの打ち合わせ", priority: "High" },
-    ];
+    // Filter state: 'all' | 'mine'
+    const [filter, setFilter] = useState('all');
+    const [openSheet, setOpenSheet] = useState(false);
+    const [selectedEstimate, setSelectedEstimate] = useState(null);
 
-    const getPriorityBadge = (priority) => {
-        switch (priority) {
-            case 'High':
-                return <Badge variant="destructive">高</Badge>;
-            case 'Medium':
-                return <Badge variant="secondary">中</Badge>;
-            case 'Low':
-                return <Badge>低</Badge>;
-            default:
-                return <Badge>{priority}</Badge>;
+    const filteredTasks = useMemo(() => {
+        if (filter === 'mine') {
+            return (toDoEstimates || []).filter(x => x.status_for_dashboard === '確認して承認');
+        }
+        return toDoEstimates || [];
+    }, [filter, toDoEstimates]);
+
+    const openDetail = (task) => {
+        if (task && task.estimate) {
+            setSelectedEstimate(task.estimate);
+            setOpenSheet(true);
         }
     };
 
@@ -96,22 +99,43 @@ export default function Dashboard({ auth }) {
                     </Card>
                     <Card>
                         <CardHeader>
-                            <CardTitle className='flex items-center'><ListChecks className="h-5 w-5 mr-2"/>やることリスト</CardTitle>
-                            <CardDescription>対応が必要なタスク一覧</CardDescription>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle className='flex items-center'><ListChecks className="h-5 w-5 mr-2"/>やることリスト</CardTitle>
+                                    <CardDescription>承認タスク（申請日降順）</CardDescription>
+                                </div>
+                                <ToggleGroup type="single" value={filter} onValueChange={(v) => v && setFilter(v)} className="gap-1">
+                                    <ToggleGroupItem value="all" aria-label="全て">全て</ToggleGroupItem>
+                                    <ToggleGroupItem value="mine" aria-label="自分のみ">自分のみ</ToggleGroupItem>
+                                </ToggleGroup>
+                            </div>
                         </CardHeader>
                         <CardContent>
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>タスク</TableHead>
-                                        <TableHead className="w-[80px]">優先度</TableHead>
+                                        <TableHead className="w-[120px]">申請日</TableHead>
+                                        <TableHead>件名</TableHead>
+                                        <TableHead className="w-[160px]">状態/操作</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {todoList.map((item, index) => (
-                                        <TableRow key={index}>
-                                            <TableCell className="font-medium">{item.task}</TableCell>
-                                            <TableCell>{getPriorityBadge(item.priority)}</TableCell>
+                                    {filteredTasks.length === 0 && (
+                                        <TableRow>
+                                            <TableCell colSpan={3} className="text-slate-500">対象のタスクはありません。</TableCell>
+                                        </TableRow>
+                                    )}
+                                    {filteredTasks.map((task) => (
+                                        <TableRow key={task.id} className="hover:bg-slate-50">
+                                            <TableCell className="font-medium">{task.issue_date}</TableCell>
+                                            <TableCell className="max-w-[260px] truncate">{task.title}</TableCell>
+                                            <TableCell>
+                                                {task.status_for_dashboard === '確認して承認' ? (
+                                                    <Button size="sm" onClick={() => openDetail(task)}>確認して承認</Button>
+                                                ) : (
+                                                    <Badge variant="secondary">{task.status_for_dashboard}</Badge>
+                                                )}
+                                            </TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -119,6 +143,13 @@ export default function Dashboard({ auth }) {
                         </CardContent>
                     </Card>
                 </div>
+
+                {/* Detail Sheet (reuse existing modal) */}
+                <EstimateDetailSheet
+                    estimate={selectedEstimate}
+                    isOpen={openSheet}
+                    onClose={() => setOpenSheet(false)}
+                />
             </div>
         </AuthenticatedLayout>
     );

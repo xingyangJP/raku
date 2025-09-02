@@ -123,4 +123,17 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | E2E Testing Configuration
+    |--------------------------------------------------------------------------
+    |
+    | This configuration is used by Hyvor/laravel-playwright
+    |
+    */
+    'e2e' => [
+        'prefix' => 'playwright',
+        'environments' => ['local', 'testing'],
+    ],
+
 ];

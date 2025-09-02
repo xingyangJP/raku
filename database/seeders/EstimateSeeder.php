@@ -3,7 +3,9 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use App\Models\Estimate;
+use App\Models\User;
 use GuzzleHttp\Client;
 
 class EstimateSeeder extends Seeder
@@ -48,17 +50,21 @@ class EstimateSeeder extends Seeder
             $faker = \Faker\Factory::create('ja_JP');
         }
 
-        // 5種の明細テンプレート
+        // products テーブルから品目を取得（UIのセレクトと一致させる）
+        $productRows = DB::table('products')->orderBy('id')->get();
+        // フォールバックのカタログ
         $catalog = [
-            ['name' => '要件定義',   'unit' => '式',   'price' => 120000, 'cost' => 60000],
-            ['name' => '基本設計',   'unit' => '式',   'price' => 150000, 'cost' => 80000],
-            ['name' => '詳細設計/開発', 'unit' => '人日', 'price' => 80000,  'cost' => 50000],
-            ['name' => '総合テスト', 'unit' => '人日', 'price' => 70000,  'cost' => 40000],
-            ['name' => '導入支援/教育', 'unit' => '時間', 'price' => 9000,   'cost' => 4500],
+            ['id'=>1,'name'=>'要件定義','unit'=>'式','price'=>120000,'cost'=>60000,'tax_category'=>'standard'],
+            ['id'=>2,'name'=>'基本設計','unit'=>'式','price'=>150000,'cost'=>80000,'tax_category'=>'standard'],
+            ['id'=>3,'name'=>'詳細設計/開発','unit'=>'人日','price'=>80000,'cost'=>50000,'tax_category'=>'standard'],
+            ['id'=>4,'name'=>'総合テスト','unit'=>'人日','price'=>70000,'cost'=>40000,'tax_category'=>'standard'],
+            ['id'=>5,'name'=>'導入支援/教育','unit'=>'時間','price'=>9000,'cost'=>4500,'tax_category'=>'standard'],
         ];
 
         $created = 0;
-        for ($i = 0; $i < 50; $i++) {
+        $createdIds = [];
+        $totalToCreate = 50;
+        for ($i = 0; $i < $totalToCreate; $i++) {
             $user = $pickUsers[$i % max(1, $pickUsers->count())];
             $customer = $pickCustomers[$i % max(1, $pickCustomers->count())];
 
@@ -84,22 +90,31 @@ class EstimateSeeder extends Seeder
             }
             $number = $prefix . str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
 
-            // 明細5件を生成
+            // 明細（3〜7件）を生成。productsがあればそこから、なければフォールバックから。
             $items = [];
-            foreach ($catalog as $tpl) {
-                $qty = $tpl['unit'] === '人日' ? rand(3, 12) : ($tpl['unit'] === '時間' ? rand(8, 20) : rand(1, 3));
-                $price = (int) round($tpl['price'] * (rand(80, 120) / 100));
-                $cost  = (int) round(min($price - 1000, $tpl['cost'] * (rand(80, 120) / 100)));
+            $source = $productRows->count() ? $productRows->toArray() : $catalog;
+            $count = rand(3, 7);
+            for ($k = 0; $k < $count; $k++) {
+                $p = $source[$k % count($source)];
+                $pid = is_object($p) ? $p->id : $p['id'];
+                $pname = is_object($p) ? $p->name : $p['name'];
+                $punit = is_object($p) ? $p->unit : $p['unit'];
+                $pprice = (int) (is_object($p) ? $p->price : $p['price']);
+                $pcost = (int) (is_object($p) ? $p->cost : $p['cost']);
+                $ptax = is_object($p) ? ($p->tax_category ?? 'standard') : ($p['tax_category'] ?? 'standard');
+                $psku = is_object($p) ? ($p->sku ?? null) : ($p['sku'] ?? null);
+                $qty = $punit === '人日' ? rand(3, 12) : ($punit === '時間' ? rand(8, 20) : rand(1, 3));
                 $items[] = [
                     'id' => now()->valueOf() + rand(1, 999),
-                    'product_id' => null,
-                    'name' => $tpl['name'],
-                    'description' => $faker ? $faker->realText(rand(40, 80)) : '自動生成の説明文（' . $tpl['name'] . '）',
+                    'product_id' => $pid,
+                    'name' => $pname,
+                    'description' => $faker ? $faker->realText(rand(40, 80)) : '自動生成の説明文（' . $pname . '）',
                     'qty' => $qty,
-                    'unit' => $tpl['unit'],
-                    'price' => $price,
-                    'cost' => $cost,
-                    'tax_category' => 'standard',
+                    'unit' => $punit,
+                    'price' => $pprice,
+                    'cost' => $pcost,
+                    'tax_category' => $ptax,
+                    'sku' => $psku,
                 ];
             }
 
@@ -107,10 +122,11 @@ class EstimateSeeder extends Seeder
             $tax = (int) round($subtotal * 0.1);
             $total = $subtotal + $tax;
 
-            Estimate::create([
+            $seqTitle = str_pad((string)($i + 1), 3, '0', STR_PAD_LEFT);
+            $e = Estimate::create([
                 'customer_name' => $customerName,
                 'client_id' => $clientId,
-                'title' => ($faker ? $faker->randomElement(['基幹システムリニューアル','ECサイト機能追加','営業支援ツール改修','在庫管理システム保守','クラウド移行支援']) : '見積プロジェクト') . ' ' . ($i + 1),
+                'title' => '開発プロジェクト-' . $seqTitle,
                 'issue_date' => $issue,
                 'due_date' => $due,
                 'status' => 'draft',
@@ -123,7 +139,71 @@ class EstimateSeeder extends Seeder
                 'staff_name' => $staffName,
             ]);
             $created++;
+            $createdIds[] = $e->id;
         }
-        $this->command?->info(sprintf('見積: %d件作成', $created));
+
+        // 承認フロー付きのサンプルを20件作成（4パターン×各5件）
+        $allUsers = User::orderBy('id')->take(6)->get();
+        $patterns = ['allApproved','twoApproved','oneApproved','noneApproved'];
+        $perPattern = 5; // 合計20件
+
+        if ($allUsers->count() >= 3 && count($createdIds) >= ($perPattern * count($patterns))) {
+            $mkStep = function($u, $approvedAt = null) {
+                $id = $u->external_user_id ?: $u->id; // 外部ID優先
+                return [
+                    'id' => is_numeric($id) ? (int) $id : (string) $id,
+                    'name' => $u->name,
+                    'approved_at' => $approvedAt,
+                    'status' => $approvedAt ? 'approved' : 'pending',
+                ];
+            };
+
+            $targetIds = array_slice($createdIds, 0, $perPattern * count($patterns));
+            $chunks = array_chunk($targetIds, $perPattern);
+
+            foreach ($patterns as $pi => $pat) {
+                $ids = $chunks[$pi] ?? [];
+                foreach ($ids as $estId) {
+                    $est = Estimate::find($estId);
+                    if (!$est) continue;
+                    if ($pat === 'allApproved') {
+                        $est->approval_flow = [
+                            $mkStep($allUsers[0], now()->subDays(3)->toDateTimeString()),
+                            $mkStep($allUsers[1], now()->subDays(2)->toDateTimeString()),
+                            $mkStep($allUsers[2], now()->subDay()->toDateTimeString()),
+                        ];
+                        $est->status = 'sent';
+                        $est->approval_started = false;
+                    } elseif ($pat === 'twoApproved') {
+                        $est->approval_flow = [
+                            $mkStep($allUsers[0], now()->subDays(3)->toDateTimeString()),
+                            $mkStep($allUsers[1], now()->subDay()->toDateTimeString()),
+                            $mkStep($allUsers[2], null),
+                        ];
+                        $est->status = 'pending';
+                        $est->approval_started = true;
+                    } elseif ($pat === 'oneApproved') {
+                        $est->approval_flow = [
+                            $mkStep($allUsers[0], now()->subDay()->toDateTimeString()),
+                            $mkStep($allUsers[1], null),
+                            $mkStep($allUsers[2], null),
+                        ];
+                        $est->status = 'pending';
+                        $est->approval_started = true;
+                    } else { // noneApproved
+                        $est->approval_flow = [
+                            $mkStep($allUsers[0], null),
+                            $mkStep($allUsers[1], null),
+                            $mkStep($allUsers[2], null),
+                        ];
+                        $est->status = 'pending';
+                        $est->approval_started = true;
+                    }
+                    $est->save();
+                }
+            }
+        }
+
+        $this->command?->info(sprintf('見積: %d件作成（承認フローサンプル20件、残りドラフト）', $created));
     }
 }

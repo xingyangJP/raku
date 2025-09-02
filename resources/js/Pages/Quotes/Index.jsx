@@ -766,15 +766,39 @@ export default function QuoteIndex({ auth, estimates }) {
                                                             {(() => {
                                                                 const flow = Array.isArray(estimate.approval_flow) ? estimate.approval_flow : [];
                                                                 const steps = flow.length ? flow : [];
-                                                                const status = estimate.status;
-                                                                const now = new Date().toLocaleDateString('ja-JP');
-                                                                const derived = steps.map((s, idx) => ({
-                                                                    name: s.name,
-                                                                    avatar: s.name?.[0] || '承',
-                                                                    role: idx === 0 ? '第1承認者' : `第${idx+1}承認者`,
-                                                                    status: status === 'sent' ? '承認済' : (status === 'pending' ? (idx === 0 ? '未承認' : '待機中') : '未承認'),
-                                                                    date: status === 'sent' ? now : '',
-                                                                }));
+                                                                // 現行ステップ index（approved_at 基準）
+                                                                let currentStepIndex = -1;
+                                                                for (let i = 0; i < steps.length; i++) { if (!steps[i].approved_at) { currentStepIndex = i; break; } }
+                                                                const meId = props.auth?.user?.id;
+                                                                const meExt = props.auth?.user?.external_user_id;
+                                                                const isMeCurrent = (() => {
+                                                                    if (currentStepIndex === -1) return false;
+                                                                    const cid = steps[currentStepIndex].id;
+                                                                    const cidStr = cid == null ? '' : String(cid);
+                                                                    if (meId != null && cid === meId) return true;
+                                                                    if (meExt && cidStr && cidStr === String(meExt)) return true;
+                                                                    return false;
+                                                                })();
+                                                                const derived = steps.map((s, idx) => {
+                                                                    const isApproved = !!s.approved_at;
+                                                                    const isCurrent = !isApproved && idx === currentStepIndex;
+                                                                    return {
+                                                                        name: s.name,
+                                                                        avatar: s.name?.[0] || '承',
+                                                                        role: idx === 0 ? '第1承認者' : `第${idx+1}承認者`,
+                                                                        status: isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中'),
+                                                                        date: isApproved ? new Date(s.approved_at).toLocaleDateString('ja-JP') : '',
+                                                                        originalApprover: s,
+                                                                        isCurrent,
+                                                                    };
+                                                                });
+                                                                const approveFromSheet = () => {
+                                                                    if (!confirm('この見積書を承認しますか？')) return;
+                                                                    router.put(route('estimates.updateApproval', estimate.id), {}, {
+                                                                        onSuccess: () => { router.reload({ preserveScroll: true }); },
+                                                                        onError: (errors) => { alert(errors?.approval || '承認中にエラーが発生しました。'); }
+                                                                    });
+                                                                };
                                                                 return (
                                                             <Card>
                                                                 <CardHeader>
@@ -809,7 +833,11 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                                                         <p className="text-sm text-slate-500">{step.role}</p>
                                                                                                     </div>
                                                                                                     <div className="text-right">
-                                                                                                        <Badge 
+                                                                                                        <div className="flex items-center justify-end gap-2 mb-1">
+                                                                                                            {step.isCurrent && isMeCurrent && (
+                                                                                                                <Button onClick={approveFromSheet} size="sm" className="bg-black hover:bg-black/90 text-white">承認する</Button>
+                                                                                                            )}
+                                                                                                            <Badge 
                                                                                                             variant={step.status === '承認済' ? 'default' : 'secondary'}
                                                                                                             className={cn(
                                                                                                                 "flex items-center gap-1",
@@ -824,15 +852,18 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                                                             }
                                                                                                             {step.status}
                                                                                                         </Badge>
-                                                                                                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                                                                                                            <Calendar className="h-3 w-3" />
-                                                                                                            {step.date}
-                                                                                                        </p>
+                                                                                                        </div>
+                                                                                                        {step.date && (
+                                                                                                            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                                                                                                <Calendar className="h-3 w-3" />
+                                                                                                                {step.date}
+                                                                                                            </p>
+                                                                                                        )}
                                                                                                     </div>
                                                                                                 </div>
                                                                                                 
                                                                                                 <div className="text-sm text-slate-600">
-                                                                                                    {step.status === '承認済' ? '承認が完了しました。' : (index === 0 ? '承認待ちです。' : '前段の承認待ちです。')}
+                                                                                                    {step.status === '承認済' ? '承認が完了しました。' : (step.isCurrent ? '承認待ちです。' : '前段の承認待ちです。')}
                                                                                                 </div>
                                                                                             </CardContent>
                                                                                         </Card>

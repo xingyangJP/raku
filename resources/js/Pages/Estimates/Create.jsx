@@ -1,6 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, useForm, router } from '@inertiajs/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Textarea } from '@/Components/ui/textarea';
@@ -161,6 +161,23 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [openApproval, setOpenApproval] = useState(false);
     const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
     const [approvalStatus, setApprovalStatus] = useState('');
+    // UI即時反映用のローカルフラグ（サーバ反映前でもボタンを切替）
+    const [approvalLocal, setApprovalLocal] = useState(false);
+
+    const isInApproval = useMemo(() => {
+        if (approvalLocal) return true; // 申請直後は即座に取消へ
+        if (!estimate) return false;
+        // 完了承認 or 下書きは取消対象外
+        if (estimate.status === 'sent' || estimate.status === 'draft') return false;
+        const hasUnapproved = Array.isArray(estimate.approval_flow)
+            && estimate.approval_flow.some(s => !s.approved_at);
+        // DBフラグがあれば優先。ただし一部承認（未承認あり）でも取消を出す
+        if (typeof estimate.approval_started === 'boolean') {
+            return estimate.approval_started || hasUnapproved;
+        }
+        // フラグ未導入環境では、未承認あり or pending を回付中とみなす
+        return hasUnapproved || estimate.status === 'pending';
+    }, [approvalLocal, estimate]);
 
     const formatDate = (dateString) => {
         if (!dateString) return '';
@@ -186,6 +203,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         staff_id: estimate?.staff_id || null,
         staff_name: estimate?.staff_name || (estimate?.staff ? estimate.staff.name : null) || null,
         approval_flow: Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : [],
+        status: estimate?.status || 'draft',
     });
 
     useEffect(() => {
@@ -345,18 +363,34 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
 
     const handleSubmit = (e) => {
         e.preventDefault();
+        // 申請中の見積は最初から「申請取消」状態にする
+        const hasUnapproved = Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at);
+        if (estimate?.status === 'pending' || hasUnapproved) setApprovalStatus('success');
         setOpenApproval(true);
     };
 
     const submitWithApprovers = () => {
-        setData('status', 'pending');
+        // 送信直前に明確な payload を構築して、状態更新の非同期に依存しない
+        const payload = { ...data, status: 'pending' };
+        if (!(isEditMode && approvers.length === 0 && Array.isArray(estimate?.approval_flow) && estimate.approval_flow.length > 0)) {
+            // 新規 or モーダルで承認者を設定した場合のみ明示送信
+            payload.approval_flow = approvers;
+        } else {
+            // 既存フローあり・モーダル未編集 → サーバ側で既存フローをpendingリセット
+            delete payload.approval_flow;
+        }
+
         const options = {
             onStart: () => setApprovalStatus('submitting'),
             onSuccess: () => {
                 setApprovalStatus('success');
+                // 成功時もこのダイアログを開いたまま「申請取消」を出せるようにする
+                setOpenApproval(true);
+                setApprovalLocal(true); // 即座にフッターボタンを申請取消に切替
             },
             onError: (errors) => {
                 console.error('承認申請エラー:', errors);
+                alert('承認申請エラー: ' + JSON.stringify(errors));
                 setApprovalStatus('error');
             },
             preserveState: true,
@@ -364,12 +398,49 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         };
 
         if (isEditMode) {
-            // Use patch for updates
-            patch(route('estimates.update', estimate.id), options);
+            // 明示 payload で送信
+            router.patch(route('estimates.update', estimate.id), payload, options);
         } else {
-            post(route('estimates.store'), options);
+            router.post(route('estimates.store'), payload, options);
         }
     };
+
+    const cancelApproval = () => {
+        if (!estimate?.id) return;
+        if (!confirm('承認申請を取り消しますか？')) return;
+        setData('status', 'draft');
+        setData('approval_started', false);
+        patch(route('estimates.update', estimate.id), {
+            onSuccess: () => {
+                setApprovalStatus('');
+                setOpenApproval(false);
+                setApprovalLocal(false); // 即座に更新して申請へ戻す
+            },
+            onError: (e) => {
+                console.error('申請取消エラー:', e);
+                alert('申請取消エラー: ' + JSON.stringify(e));
+            },
+            preserveState: true,
+            preserveScroll: true,
+        });
+    };
+
+    // ダイアログを開いた時点で pending なら「申請取消」表示にする（再申請も統一）
+    useEffect(() => {
+        const hasUnapproved = Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at);
+        if (openApproval && (estimate?.status === 'pending' || hasUnapproved)) setApprovalStatus('success');
+    }, [openApproval, estimate?.status, estimate?.approval_flow]);
+
+    // 編集画面アクセス時にも状況を先に判定しておく（ダイアログを開いた直後に取消を出すための準備）
+    useEffect(() => {
+        const hasUnapproved = Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at);
+        if (estimate?.status === 'pending' || hasUnapproved) {
+            setApprovalStatus('success');
+        } else {
+            setApprovalStatus('');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [estimate?.id]);
 
     const handleDelete = () => {
         if (!isEditMode) return;
@@ -477,7 +548,9 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                                 <TableCell><Checkbox /></TableCell>
                                                 <TableCell>
                                                     <Select
-                                                        value={item.product_id ? String(item.product_id) : ''}
+                                                        key={`${item.id}-${item.product_id ?? 'none'}`}
+                                                        value={item.product_id != null ? String(item.product_id) : undefined}
+                                                        defaultValue={item.product_id != null ? String(item.product_id) : undefined}
                                                         onValueChange={(value) => handleProductSelect(item.id, value)}
                                                     >
                                                         <SelectTrigger className="w-[180px]">
@@ -590,18 +663,50 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                                 <CardTitle>承認フロー</CardTitle>
                                             </CardHeader>
                                             <CardContent>
-                                                {approvers.length === 0 ? (
-                                                    <p className="text-sm text-slate-500">承認者が設定されていません。「承認申請」で追加してください。</p>
-                                                ) : (
-                                                    <ol className="space-y-2 list-decimal list-inside">
-                                                        {approvers.map((ap, idx) => (
-                                                            <li key={`${ap.id}-${idx}`} className="flex items-center gap-2">
-                                                                <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">{idx+1}</span>
-                                                                <span className="font-medium">{ap.name}</span>
-                                                            </li>
-                                                        ))}
-                                                    </ol>
-                                                )}
+                                                {(() => {
+                                                    const baseFlow = Array.isArray(estimate?.approval_flow) && estimate.approval_flow.length
+                                                        ? estimate.approval_flow
+                                                        : approvers;
+                                                    if (!Array.isArray(baseFlow) || baseFlow.length === 0) {
+                                                        return (
+                                                            <p className="text-sm text-slate-500">承認者が設定されていません。「承認申請」で追加してください。</p>
+                                                        );
+                                                    }
+                                                    let currentIdx = -1;
+                                                    for (let i = 0; i < baseFlow.length; i++) { if (!baseFlow[i].approved_at) { currentIdx = i; break; } }
+                                                    const derived = baseFlow.map((s, idx) => {
+                                                        const isApproved = !!s.approved_at;
+                                                        const isCurrent = !isApproved && idx === currentIdx;
+                                                        return {
+                                                            id: s.id,
+                                                            name: s.name,
+                                                            approved_at: s.approved_at || '',
+                                                            status: isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中'),
+                                                            date: isApproved ? new Date(s.approved_at).toLocaleDateString('ja-JP') : '',
+                                                            order: idx + 1,
+                                                        };
+                                                    });
+                                                    return (
+                                                        <ol className="space-y-2 list-decimal list-inside">
+                                                            {derived.map(step => (
+                                                                <li key={`${step.id}-${step.order}`} className="flex items-center justify-between gap-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">{step.order}</span>
+                                                                        <span className="font-medium">{step.name}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-3">
+                                                                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${step.status==='承認済' ? 'bg-green-100 text-green-800' : (step.status==='未承認' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700')}`}>
+                                                                            {step.status}
+                                                                        </span>
+                                                                        {step.date && (
+                                                                            <span className="text-xs text-slate-500">{step.date}</span>
+                                                                        )}
+                                                                    </div>
+                                                                </li>
+                                                            ))}
+                                                        </ol>
+                                                    );
+                                                })()}
                                             </CardContent>
                                         </Card>
                                     </div>
@@ -638,13 +743,14 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                         <CardHeader>
                                             <CardTitle>原価・粗利分析（社内用）</CardTitle>
                                         </CardHeader>
-                                        <CardContent className="flex flex-col lg:flex-row justify-between items-center">
-                                            <div className="w-full lg:w-1/2 flex justify-center items-center relative h-48">
-                                                <ResponsiveContainer width="100%" height="100%">
-                                                    <PieChart>
-                                                        <Pie
-                                                            data={grossProfitChartData}
-                                                            cx="50%"
+                                        <CardContent className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+                                            <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div className="w-full flex justify-center items-center relative h-48">
+                                                    <ResponsiveContainer width="100%" height="100%">
+                                                        <PieChart>
+                                                            <Pie
+                                                                data={grossProfitChartData}
+                                                                cx="50%"
                                                             cy="50%"
                                                             innerRadius={60}
                                                             outerRadius={80}
@@ -658,14 +764,14 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                                     </PieChart>
                                                 </ResponsiveContainer>
                                                 <div className="absolute inset-0 flex items-center justify-center text-lg font-bold">粗利</div>
-                                            </div>
-                                            <div className="w-full lg:w-1/2 flex justify-center items-center relative h-48">
-                                                <ResponsiveContainer width="100%" height="100%">
-                                                    <PieChart>
-                                                        <Pie
-                                                            data={costChartData}
-                                                            cx="50%"
-                                                            cy="50%"
+                                                </div>
+                                                <div className="w-full flex justify-center items-center relative h-48">
+                                                    <ResponsiveContainer width="100%" height="100%">
+                                                        <PieChart>
+                                                            <Pie
+                                                                data={costChartData}
+                                                                cx="50%"
+                                                                cy="50%"
                                                             innerRadius={60}
                                                             outerRadius={80}
                                                             paddingAngle={5}
@@ -676,14 +782,22 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                                             ))}
                                                         </Pie>
                                                     </PieChart>
-                                                </ResponsiveContainer>
-                                                <div className="absolute inset-0 flex items-center justify-center text-lg font-bold">原価</div>
+                                                    </ResponsiveContainer>
+                                                    <div className="absolute inset-0 flex items-center justify-center text-lg font-bold">原価</div>
+                                                </div>
                                             </div>
-                                            <div className="w-full lg:w-1/2 space-y-2 mt-4 lg:mt-0">
+                                            <div className="lg:col-span-2 space-y-2">
                                                 <p className="font-bold mb-2">品目名 粗利金額（原価金額）</p>
-                                                {Object.entries(groupedAnalysisData).map(([itemName, data]) => (
+                                                {Object.entries(groupedAnalysisData).map(([itemName, data], idx) => (
                                                     <p key={itemName} className="flex justify-between">
-                                                        <span>{itemName}:</span>
+                                                        <span className="flex items-center">
+                                                            <span
+                                                                aria-hidden
+                                                                className="inline-block w-3 h-3 rounded-sm mr-2"
+                                                                style={{ backgroundColor: COLORS[idx % COLORS.length] }}
+                                                            />
+                                                            {itemName}:
+                                                        </span>
                                                         <span>{data.grossProfit.toLocaleString()}円（{data.cost.toLocaleString()}円）</span>
                                                     </p>
                                                 ))}
@@ -712,7 +826,12 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                         <Button type="button" variant="destructive" onClick={handleDelete}>削除</Button>
                                     )}
                                     <Button type="button" variant="secondary" onClick={saveDraft}>下書き保存</Button>
-                                    <Button type="button" onClick={handleSubmit}>{isEditMode ? '更新して申請' : '承認申請'}</Button>
+                                    <Button type="button" variant="secondary" onClick={handlePdfPreview}>プレビュー</Button>
+                                    {isInApproval ? (
+                                        <Button type="button" variant="destructive" onClick={cancelApproval}>申請取消</Button>
+                                    ) : (
+                                        <Button type="button" onClick={handleSubmit}>{isEditMode ? '更新して申請' : '承認申請'}</Button>
+                                    )}
                                 </div>
                             </CardFooter>
                         </Card>
@@ -752,17 +871,23 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                     ))}
                                 </div>
                             </div>
-                            <DialogFooter>
-                                {approvalStatus === 'success' && (
+                            <DialogFooter className="flex items-center gap-2">
+                                { (approvalStatus === 'success' || estimate?.status === 'pending' || (Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at))) && (
                                     <span className="mr-auto inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-red-600 text-white">承認申請を開始しました</span>
                                 )}
                                 {approvalStatus === 'error' && (
                                     <span className="mr-auto inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-red-600 text-white">エラーが発生しました。</span>
                                 )}
                                 <Button variant="secondary" type="button" onClick={() => { setOpenApproval(false); setApprovalStatus(''); }}>キャンセル</Button>
-                                <Button type="button" onClick={submitWithApprovers} disabled={approvalStatus === 'submitting' || approvalStatus === 'success'}>
-                                    {approvalStatus === 'submitting' || approvalStatus === 'success' ? '申請中..' : '申請する'}
-                                </Button>
+                                {!(approvalStatus === 'success' || estimate?.status === 'pending' || (Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at))) ? (
+                                    <Button type="button" onClick={submitWithApprovers} disabled={approvalStatus === 'submitting'}>
+                                        {approvalStatus === 'submitting' ? '申請中..' : '申請する'}
+                                    </Button>
+                                ) : (
+                                    <Button type="button" variant="destructive" onClick={cancelApproval}>
+                                        申請取消
+                                    </Button>
+                                )}
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>

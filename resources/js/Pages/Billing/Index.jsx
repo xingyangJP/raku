@@ -99,7 +99,7 @@ export default function BillingIndex({ auth }) {
                                                 <SheetContent className="sm:max-w-2xl">
                                                     <SheetHeader><SheetTitle>{invoice.id}: {invoice.title}</SheetTitle><SheetDescription>{invoice.customerName}</SheetDescription></SheetHeader>
                                                     <div className="py-4 space-y-4">{/* Details here */}<p>詳細情報をここに表示します。</p></div>
-                                                    <SheetFooter><Button>入金登録</Button><Button variant="secondary">PDFプレビュー</Button></SheetFooter>
+                                                    <SheetFooter><Button>入金登録</Button><Button variant="secondary">プレビュー</Button></SheetFooter>
                                                 </SheetContent>
                                             </Sheet>
                                         ))}

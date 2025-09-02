@@ -122,7 +122,7 @@ export default function Login({ status, canResetPassword }) {
                         </Link>
                     )}
 
-                    <PrimaryButton className="ms-4" disabled={processing}>
+                    <PrimaryButton type="submit" className="ms-4" disabled={processing}>
                         ログイン
                     </PrimaryButton>
                 </div>

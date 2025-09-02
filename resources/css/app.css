@@ -57,3 +57,38 @@
         @apply bg-background text-foreground;
     }
 }
+
+/* Global loader for Gemini */
+.gemini-global-loader {
+  display: block;
+  width: 84px;
+  height: 84px;
+  position: relative;
+}
+
+.gemini-global-loader:before , .gemini-global-loader:after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #FFF;
+  transform: translate(-50% , -100%)  scale(0);
+  animation: gemini_push_401 2s infinite linear;
+}
+
+.gemini-global-loader:after {
+  animation-delay: 1s;
+}
+
+@keyframes gemini_push_401 {
+  0% , 50% {
+    transform: translate(-50% , 0%)  scale(1)
+  }
+
+  100% {
+    transform: translate(-50%, -100%) scale(0)
+  }
+}

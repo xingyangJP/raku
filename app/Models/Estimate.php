@@ -21,6 +21,7 @@ class Estimate extends Model
         'staff_id',
         'staff_name',
         'approval_flow',
+        'approval_started',
     ];
 
     protected $casts = [
@@ -28,6 +29,7 @@ class Estimate extends Model
         'issue_date' => 'date',
         'due_date' => 'date',
         'approval_flow' => 'array',
+        'approval_started' => 'boolean',
     ];
 
     // No local FK relation for staff; staff_id refers to external directory

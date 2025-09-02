@@ -9,6 +9,7 @@ use App\Models\Estimate;
 use App\Models\User;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class EstimateController extends Controller
 {
@@ -87,17 +88,32 @@ class EstimateController extends Controller
         }
         $status = $validated['status'] ?? 'sent';
         unset($validated['status']);
+        // Normalize approval flow and status when submitting for approval
+        if (isset($validated['approval_flow']) && is_array($validated['approval_flow'])) {
+            $hasUnapproved = false;
+            $normalizedFlow = [];
+            foreach ($validated['approval_flow'] as $step) {
+                $approvedAt = $status === 'pending' ? null : ($step['approved_at'] ?? null);
+                if (empty($approvedAt)) { $hasUnapproved = true; }
+                $normalizedFlow[] = [
+                    'id' => $step['id'] ?? null,
+                    'name' => $step['name'] ?? null,
+                    'approved_at' => $approvedAt,
+                    'status' => $approvedAt ? 'approved' : 'pending',
+                ];
+            }
+            $validated['approval_flow'] = $normalizedFlow;
+            if ($hasUnapproved && $status !== 'draft') { $status = 'pending'; }
+            // Flag to simplify UI state (only if column exists)
+            if (Schema::hasColumn('estimates', 'approval_started')) {
+                $validated['approval_started'] = $hasUnapproved;
+            }
+        }
         $estimate = Estimate::create(array_merge($validated, ['status' => $status]));
 
-        $products = $this->loadProducts();
-
-        // After creating, we render the edit page (Create component) with the new estimate data
-        // This allows the UI to update without a full redirect, preserving modal state.
-        return Inertia::render('Estimates/Create', [
-            'estimate' => $estimate->fresh(),
-            'products' => $products,
-            'approval_success_message' => '承認申請を開始しました。'
-        ]);
+        // Redirect to edit page so browser URL is stable for reloads (avoid GET /estimates/{id})
+        return redirect()->route('estimates.edit', $estimate->id)
+            ->with('approval_success_message', '承認申請を開始しました。');
     }
 
     public function apply(Request $request, Estimate $estimate)
@@ -106,18 +122,24 @@ class EstimateController extends Controller
             'approval_flow' => 'required|array',
         ]);
 
+        // Reset approval steps on (re)apply
         $estimate->status = 'pending';
-        $estimate->approval_flow = $validated['approval_flow'];
+        if (Schema::hasColumn('estimates', 'approval_started')) {
+            $estimate->approval_started = true;
+        }
+        $estimate->approval_flow = array_map(function ($s) {
+            return [
+                'id' => $s['id'] ?? null,
+                'name' => $s['name'] ?? null,
+                'approved_at' => null,
+                'status' => 'pending',
+            ];
+        }, $validated['approval_flow']);
         $estimate->save();
 
-        // Re-render the component to trigger onSuccess on the frontend
-        $products = $this->loadProducts();
-
-        return Inertia::render('Estimates/Create', [
-            'estimate' => $estimate->fresh(),
-            'products' => $products,
-            'approval_success_message' => '承認申請を開始しました。'
-        ]);
+        // Redirect to edit page to normalize URL for reloads
+        return redirect()->route('estimates.edit', $estimate->id)
+            ->with('approval_success_message', '承認申請を開始しました。');
     }
 
     public function saveDraft(Request $request)
@@ -213,7 +235,11 @@ class EstimateController extends Controller
 
     public function index()
     {
-        $estimates = Estimate::orderByDesc('updated_at')->get();
+        // 並びが更新日時で乱れないよう、発行日→見積番号→IDの降順
+        $estimates = Estimate::orderByDesc('issue_date')
+            ->orderByDesc('estimate_number')
+            ->orderByDesc('id')
+            ->get();
         return Inertia::render('Quotes/Index', [
             'estimates' => $estimates,
         ]);
@@ -272,6 +298,72 @@ class EstimateController extends Controller
         return redirect()->back()->with('success', count($request->ids) . '件の見積書の担当者付替を処理しました。');
     }
 
+    /**
+     * Mark the current user's step as approved in the approval flow.
+     * If this is the final step, mark the estimate as fully approved (sent).
+     */
+    public function updateApproval(Estimate $estimate)
+    {
+        $user = Auth::user();
+
+        // Ensure approval_flow exists and is an array
+        $flow = $estimate->approval_flow;
+        if (!is_array($flow) || empty($flow)) {
+            return redirect()->back()->withErrors(['approval' => '承認フローが設定されていません。']);
+        }
+
+        // Find the first step without approved_at (current step)
+        $currentIndex = -1;
+        foreach ($flow as $idx => $step) {
+            if (empty($step['approved_at'])) {
+                $currentIndex = $idx;
+                break;
+            }
+        }
+
+        if ($currentIndex === -1) {
+            // All steps already approved; ensure status is sent
+            if ($estimate->status !== 'sent') {
+                $estimate->status = 'sent';
+                $estimate->save();
+            }
+            return redirect()->back()->with('success', '既に承認済みです。');
+        }
+
+        $currentStep = $flow[$currentIndex];
+        // Allow matching either by local users.id (numeric) or users.external_user_id (string)
+        $currId = $currentStep['id'] ?? null;
+        $matchesLocalId = is_numeric($currId) && (int)$currId === (int)$user->id;
+        $currIdStr = is_null($currId) ? '' : (string)$currId;
+        $userExt = (string)($user->external_user_id ?? '');
+        $matchesExternalId = ($currIdStr !== '') && ($userExt !== '') && ($currIdStr === $userExt);
+        if (!($matchesLocalId || $matchesExternalId)) {
+            return redirect()->back()->withErrors(['approval' => '現在の承認ステップの担当者ではありません。']);
+        }
+
+        // Approve current step
+        $flow[$currentIndex]['approved_at'] = now()->toDateTimeString();
+        $flow[$currentIndex]['status'] = 'approved';
+        $estimate->approval_flow = $flow;
+
+        // If all steps are now approved, mark as sent
+        $allApproved = true;
+        foreach ($flow as $step) {
+            if (empty($step['approved_at'])) {
+                $allApproved = false;
+                break;
+            }
+        }
+        if ($allApproved) {
+            $estimate->status = 'sent';
+            $estimate->approval_started = false;
+        }
+
+        $estimate->save();
+
+        return redirect()->back()->with('success', '承認しました。');
+    }
+
     public function update(Request $request, Estimate $estimate)
     {
         // Normalize client_id to string if numeric
@@ -311,6 +403,45 @@ class EstimateController extends Controller
         if (!Schema::hasColumn('estimates', 'approval_flow')) {
             unset($validated['approval_flow']);
         }
+        // Normalize approval flow and status for resubmission
+        if (isset($validated['approval_flow']) && is_array($validated['approval_flow'])) {
+            $hasUnapproved = false;
+            $normalizedFlow = [];
+            foreach ($validated['approval_flow'] as $step) {
+                // resubmission resets prior approvals
+                $approvedAt = ($status === 'pending') ? null : ($step['approved_at'] ?? null);
+                if (empty($approvedAt)) { $hasUnapproved = true; }
+                $normalizedFlow[] = [
+                    'id' => $step['id'] ?? null,
+                    'name' => $step['name'] ?? null,
+                    'approved_at' => $approvedAt,
+                    'status' => $approvedAt ? 'approved' : 'pending',
+                ];
+            }
+            $validated['approval_flow'] = $normalizedFlow;
+            if ($hasUnapproved && $status !== 'draft') { $status = 'pending'; }
+            if (Schema::hasColumn('estimates', 'approval_started')) {
+                $validated['approval_started'] = ($status === 'pending');
+            }
+        } elseif ($status === 'pending' && is_array($estimate->approval_flow)) {
+            // No new flow provided but moving to pending: reset existing flow
+            $validated['approval_flow'] = array_map(function ($s) {
+                return [
+                    'id' => $s['id'] ?? null,
+                    'name' => $s['name'] ?? null,
+                    'approved_at' => null,
+                    'status' => 'pending',
+                ];
+            }, $estimate->approval_flow);
+            if (Schema::hasColumn('estimates', 'approval_started')) {
+                $validated['approval_started'] = true;
+            }
+        }
+
+        if ($status === 'draft' && Schema::hasColumn('estimates', 'approval_started')) {
+            $validated['approval_started'] = false;
+        }
+
         $estimate->update(array_merge($validated, ['status' => $status]));
 
         $flash = [];
@@ -323,13 +454,9 @@ class EstimateController extends Controller
             $flash['success'] = 'Quote updated successfully.';
         }
 
-        $products = $this->loadProducts();
-
-        return Inertia::render('Estimates/Create', [
-            'estimate' => $estimate->fresh(),
-            'products' => $products,
-            'approval_success_message' => '承認申請を開始しました。'
-        ]);
+        // Redirect to edit page so the URL remains GET-able after reload
+        return redirect()->route('estimates.edit', $estimate->id)
+            ->with('approval_success_message', '承認申請を開始しました。');
     }
 
     public function destroy(Estimate $estimate)
