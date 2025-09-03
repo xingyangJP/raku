@@ -33,7 +33,7 @@ export default function Dashboard({ auth, toDoEstimates = [] }) {
 
     const filteredTasks = useMemo(() => {
         if (filter === 'mine') {
-            return (toDoEstimates || []).filter(x => x.status_for_dashboard === '確認して承認');
+            return (toDoEstimates || []).filter(task => task.is_current_user_in_flow);
         }
         return toDoEstimates || [];
     }, [filter, toDoEstimates]);

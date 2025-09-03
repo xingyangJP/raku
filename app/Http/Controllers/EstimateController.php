@@ -2,20 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Barryvdh\DomPDF\Facade\Pdf;
 use App\Models\Estimate;
 use App\Models\User;
-use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\DB;
+use App\Services\MoneyForwardApiService;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Inertia\Inertia;
 
 class EstimateController extends Controller
 {
     private function loadProducts()
     {
-        // Prefer DB-backed products if table exists; otherwise fallback to in-memory samples
         if (Schema::hasTable('products')) {
             return DB::table('products')
                 ->where('is_active', true)
@@ -31,19 +31,93 @@ class EstimateController extends Controller
         ];
     }
 
+    public function index()
+    {
+        $estimates = Estimate::orderByDesc('issue_date')
+            ->orderByDesc('estimate_number')
+            ->orderByDesc('id')
+            ->get();
+        return Inertia::render('Quotes/Index', [
+            'estimates' => $estimates,
+        ]);
+    }
+
     public function create()
     {
         $products = $this->loadProducts();
 
         return Inertia::render('Estimates/Create', [
             'products' => $products,
-            // users fetched via external API on client
         ]);
+    }
+
+    public function saveDraft(Request $request)
+    {
+        $clientId = $request->input('client_id');
+        if (!is_null($clientId) && !is_string($clientId)) {
+            $request->merge(['client_id' => (string) $clientId]);
+        }
+
+        // If an ID is present, it's an update of an existing draft.
+        if ($request->has('id') && $request->id) {
+            $estimate = Estimate::findOrFail($request->id);
+            // Make sure we are only updating a draft.
+            if ($estimate->status !== 'draft') {
+                return response()->json(['message' => 'Only drafts can be updated via saveDraft.'], 422);
+            }
+            $validated = $request->validate([
+                'customer_name' => 'required|string|max:255',
+                'client_id' => 'nullable|string|max:255',
+                'title' => 'required|string|max:255',
+                'issue_date' => 'nullable|date',
+                'due_date' => 'nullable|date',
+                'total_amount' => 'required|integer',
+                'tax_amount' => 'required|integer',
+                'notes' => 'nullable|string',
+                'internal_memo' => 'nullable|string',
+                'delivery_location' => 'nullable|string',
+                'items' => 'required|array|min:1',
+                'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
+                'staff_id' => 'nullable|integer',
+                'staff_name' => 'required|string|max:255',
+            ]);
+            $estimate->update(array_merge($validated, ['status' => 'draft']));
+            return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Draft updated successfully.');
+
+        } else {
+            // It's a new draft.
+            $validated = $request->validate([
+                'customer_name' => 'required|string|max:255',
+                'client_id' => 'nullable|string|max:255',
+                'title' => 'required|string|max:255',
+                'issue_date' => 'nullable|date',
+                'due_date' => 'nullable|date',
+                'total_amount' => 'required|integer',
+                'tax_amount' => 'required|integer',
+                'notes' => 'nullable|string',
+                'internal_memo' => 'nullable|string',
+                'delivery_location' => 'nullable|string',
+                'items' => 'required|array|min:1',
+                'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
+                'staff_id' => 'nullable|integer',
+                'staff_name' => 'required|string|max:255',
+            ]);
+
+            if (empty($validated['estimate_number'])) {
+                $validated['estimate_number'] = Estimate::generateReadableEstimateNumber(
+                    $validated['staff_id'] ?? null,
+                    $validated['client_id'] ?? null,
+                    true // is_draft = true
+                );
+            }
+            
+            $estimate = Estimate::create(array_merge($validated, ['status' => 'draft']));
+            return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Draft saved successfully.');
+        }
     }
 
     public function store(Request $request)
     {
-        // Normalize client_id to string if numeric
         $clientId = $request->input('client_id');
         if (!is_null($clientId) && !is_string($clientId)) {
             $request->merge(['client_id' => (string) $clientId]);
@@ -58,6 +132,8 @@ class EstimateController extends Controller
             'total_amount' => 'required|integer',
             'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
+            'internal_memo' => 'nullable|string',
+            'delivery_location' => 'nullable|string',
             'items' => 'required|array',
             'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
             'staff_id' => 'nullable|integer',
@@ -66,7 +142,6 @@ class EstimateController extends Controller
             'status' => 'nullable|string|in:draft,pending,sent,rejected',
         ]);
 
-        // Normalize dates to Y-m-d
         if (!empty($validated['issue_date'])) {
             $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
         }
@@ -74,13 +149,12 @@ class EstimateController extends Controller
             $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
         }
 
-        // Drop approval_flow safely if migration not yet applied
         if (!Schema::hasColumn('estimates', 'approval_flow')) {
             unset($validated['approval_flow']);
         }
 
         if (empty($validated['estimate_number'])) {
-            $validated['estimate_number'] = $this->generateReadableEstimateNumber(
+            $validated['estimate_number'] = Estimate::generateReadableEstimateNumber(
                 $validated['staff_id'] ?? null,
                 $validated['client_id'] ?? null,
                 false
@@ -88,7 +162,6 @@ class EstimateController extends Controller
         }
         $status = $validated['status'] ?? 'sent';
         unset($validated['status']);
-        // Normalize approval flow and status when submitting for approval
         if (isset($validated['approval_flow']) && is_array($validated['approval_flow'])) {
             $hasUnapproved = false;
             $normalizedFlow = [];
@@ -104,92 +177,54 @@ class EstimateController extends Controller
             }
             $validated['approval_flow'] = $normalizedFlow;
             if ($hasUnapproved && $status !== 'draft') { $status = 'pending'; }
-            // Flag to simplify UI state (only if column exists)
             if (Schema::hasColumn('estimates', 'approval_started')) {
                 $validated['approval_started'] = $hasUnapproved;
             }
         }
         $estimate = Estimate::create(array_merge($validated, ['status' => $status]));
 
-        // Redirect to edit page so browser URL is stable for reloads (avoid GET /estimates/{id})
         return redirect()->route('estimates.edit', $estimate->id)
             ->with('approval_success_message', '承認申請を開始しました。');
     }
 
-    public function apply(Request $request, Estimate $estimate)
+    public function edit(Estimate $estimate)
     {
-        $validated = $request->validate([
-            'approval_flow' => 'required|array',
+        $products = $this->loadProducts();
+        $is_fully_approved = $estimate->status === 'sent';
+
+        return Inertia::render('Estimates/Create', [
+            'estimate' => $estimate,
+            'products' => $products,
+            'is_fully_approved' => $is_fully_approved,
         ]);
-
-        // Reset approval steps on (re)apply
-        $estimate->status = 'pending';
-        if (Schema::hasColumn('estimates', 'approval_started')) {
-            $estimate->approval_started = true;
-        }
-        $estimate->approval_flow = array_map(function ($s) {
-            return [
-                'id' => $s['id'] ?? null,
-                'name' => $s['name'] ?? null,
-                'approved_at' => null,
-                'status' => 'pending',
-            ];
-        }, $validated['approval_flow']);
-        $estimate->save();
-
-        // Redirect to edit page to normalize URL for reloads
-        return redirect()->route('estimates.edit', $estimate->id)
-            ->with('approval_success_message', '承認申請を開始しました。');
     }
 
-    public function saveDraft(Request $request)
+    public function update(Request $request, Estimate $estimate)
     {
-        // Normalize client_id to string if numeric
         $clientId = $request->input('client_id');
         if (!is_null($clientId) && !is_string($clientId)) {
             $request->merge(['client_id' => (string) $clientId]);
         }
 
-        $rules = [
-            'customer_name' => 'nullable|string|max:255',
+        $validated = $request->validate([
+            'customer_name' => 'required|string|max:255',
             'client_id' => 'nullable|string|max:255',
-            'title' => 'nullable|string|max:255',
-            'issue_date' => 'nullable|date',
+            'title' => 'required|string|max:255',
+            'issue_date' => 'required|date',
             'due_date' => 'nullable|date',
-            'total_amount' => 'nullable|integer',
-            'tax_amount' => 'nullable|integer',
+            'total_amount' => 'required|integer',
+            'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
-            'items' => 'nullable|array',
-            // For drafts, allow any integer; we normalized invalid IDs to a valid user or null above
+            'internal_memo' => 'nullable|string',
+            'delivery_location' => 'nullable|string',
+            'items' => 'required|array',
+            'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
             'staff_id' => 'nullable|integer',
             'staff_name' => 'nullable|string|max:255',
             'approval_flow' => 'nullable|array',
-        ];
+            'status' => 'nullable|string|in:draft,pending,sent,rejected',
+        ]);
 
-        $estimateNumber = $request->input('estimate_number');
-        $estimate = null;
-
-        // If estimate_number is missing, generate a draft number (column is NOT NULL)
-        if (!$estimateNumber) {
-            $estimateNumber = $this->generateReadableEstimateNumber(
-                $request->input('staff_id'),
-                $request->input('client_id'),
-                true
-            );
-            $request->merge(['estimate_number' => $estimateNumber]);
-        }
-
-        if ($estimateNumber) {
-            $estimate = Estimate::where('estimate_number', $estimateNumber)->first();
-            $estimateNumberRule = 'required|string|max:255|unique:estimates,estimate_number';
-            if ($estimate) {
-                $estimateNumberRule .= ',' . $estimate->id;
-            }
-            $rules['estimate_number'] = $estimateNumberRule;
-        }
-
-        $validated = $request->validate($rules);
-        // Normalize dates to Y-m-d if present
         if (!empty($validated['issue_date'])) {
             $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
         }
@@ -197,68 +232,188 @@ class EstimateController extends Controller
             $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
         }
 
-        // Drop approval_flow safely if migration not yet applied
+        $status = $validated['status'] ?? $estimate->status;
+        unset($validated['status']);
+
         if (!Schema::hasColumn('estimates', 'approval_flow')) {
             unset($validated['approval_flow']);
         }
 
-        if ($estimate) {
-            // Update existing estimate
-            $estimate->update(array_merge($validated, ['status' => 'draft']));
+        if (isset($validated['approval_flow']) && is_array($validated['approval_flow'])) {
+            $hasUnapproved = false;
+            $normalizedFlow = [];
+            foreach ($validated['approval_flow'] as $step) {
+                $approvedAt = ($status === 'pending') ? null : ($step['approved_at'] ?? null);
+                if (empty($approvedAt)) { $hasUnapproved = true; }
+                $normalizedFlow[] = [
+                    'id' => $step['id'] ?? null,
+                    'name' => $step['name'] ?? null,
+                    'approved_at' => $approvedAt,
+                    'status' => $approvedAt ? 'approved' : 'pending',
+                ];
+            }
+            $validated['approval_flow'] = $normalizedFlow;
+            if ($hasUnapproved && $status !== 'draft') { $status = 'pending'; }
+            if (Schema::hasColumn('estimates', 'approval_started')) {
+                $validated['approval_started'] = ($status === 'pending');
+            }
+        } elseif ($status === 'pending' && is_array($estimate->approval_flow)) {
+            $validated['approval_flow'] = array_map(function ($s) {
+                return [
+                    'id' => $s['id'] ?? null,
+                    'name' => $s['name'] ?? null,
+                    'approved_at' => null,
+                    'status' => 'pending',
+                ];
+            }, $estimate->approval_flow);
+            if (Schema::hasColumn('estimates', 'approval_started')) {
+                $validated['approval_started'] = true;
+            }
+        }
+
+        if ($status === 'draft' && Schema::hasColumn('estimates', 'approval_started')) {
+            $validated['approval_started'] = false;
+        }
+
+        // ステータスが 'draft' から変更され、かつ下書き番号を持つ場合に番号を再生成
+        if ($estimate->status === 'draft' && $status !== 'draft') {
+            $validated['estimate_number'] = Estimate::generateReadableEstimateNumber(
+                $validated['staff_id'] ?? $estimate->staff_id,
+                $validated['client_id'] ?? $estimate->client_id,
+                false // Not a draft anymore
+            );
+        }
+
+        $estimate->update(array_merge($validated, ['status' => $status]));
+
+        return redirect()->route('estimates.edit', $estimate->id)
+            ->with('success', 'Quote updated successfully.');
+    }
+
+    public function cancel(Estimate $estimate)
+    {
+        $estimate->status = 'draft';
+        $estimate->approval_started = false;
+        $estimate->approval_flow = [];
+        $estimate->save();
+
+        return redirect()->route('estimates.edit', $estimate->id)->with('success', '承認申請を取り消しました。');
+    }
+
+    public function redirectToAuthForInvoiceCreation(Estimate $estimate)
+    {
+        session(['estimate_id_for_invoice_creation' => $estimate->id]);
+        $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
+            'response_type' => 'code',
+            'client_id' => config('services.money_forward.client_id'),
+            'redirect_uri' => route('estimates.createInvoice.callback'),
+            'scope' => 'mfc/invoice/data.write',
+        ]);
+        return redirect()->away($authUrl);
+    }
+
+    public function handleInvoiceCreationCallback(Request $request, MoneyForwardApiService $apiService)
+    {
+        if (!$request->has('code')) {
+            return redirect()->route('billing.index')->with('error', 'Authorization failed.');
+        }
+
+        $estimateId = session('estimate_id_for_invoice_creation');
+        if (!$estimateId) {
+            return redirect()->route('billing.index')->with('error', 'Estimate not found in session.');
+        }
+
+        $estimate = Estimate::find($estimateId);
+        if (!$estimate) {
+            return redirect()->route('billing.index')->with('error', 'Estimate not found.');
+        }
+
+        $token = $apiService->getAccessToken($request->code);
+        if (!$token) {
+            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to get access token.');
+        }
+
+        $result = $apiService->createInvoiceFromEstimate($estimate, $token);
+
+        if ($result) {
+            return redirect()->route('billing.index')->with('success', 'Invoice created successfully from estimate ' . $estimate->estimate_number);
         } else {
-            // Create new estimate
-            $estimate = Estimate::create(array_merge($validated, ['status' => 'draft']));
+            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to create invoice in Money Forward.');
+        }
+    }
+
+    public function destroy(Estimate $estimate)
+    {
+        $estimate->delete();
+        return redirect()->route('quotes.index')->with('success', '見積書を削除しました。');
+    }
+
+    public function previewPdf(Request $request)
+    {
+        $estimateData = $request->all();
+        return view('estimates.pdf', compact('estimateData'));
+    }
+
+    public function updateApproval(Estimate $estimate)
+    {
+        $user = Auth::user();
+
+        $flow = $estimate->approval_flow;
+        if (!is_array($flow) || empty($flow)) {
+            return redirect()->back()->withErrors(['approval' => '承認フローが設定されていません。']);
         }
 
-        return redirect()->back()->with('success', 'Draft saved successfully.');
-    }
-
-    private function generateReadableEstimateNumber($staffId, $clientId, bool $draft): string
-    {
-        // Format: EST-{staff}-{client}-{yyddmm}-{seq}  (PHP date: y=YY, d=DD, m=MM)
-        $date = now()->format('ydm');
-        $staff = $staffId ?: 'X';
-        $client = $clientId ?: 'X';
-        $kind = $draft ? 'EST-D' : 'EST';
-        $prefix = "$kind-$staff-$client-$date-";
-        $latest = Estimate::where('estimate_number', 'like', $prefix.'%')
-            ->orderBy('estimate_number', 'desc')
-            ->first();
-        $seq = 1;
-        if ($latest) {
-            $tail = substr($latest->estimate_number, strlen($prefix));
-            $num = (int) $tail;
-            $seq = $num + 1;
+        $currentIndex = -1;
+        foreach ($flow as $idx => $step) {
+            if (empty($step['approved_at'])) {
+                $currentIndex = $idx;
+                break;
+            }
         }
-        return $prefix . str_pad((string)$seq, 3, '0', STR_PAD_LEFT);
-    }
 
-    public function index()
-    {
-        // 並びが更新日時で乱れないよう、発行日→見積番号→IDの降順
-        $estimates = Estimate::orderByDesc('issue_date')
-            ->orderByDesc('estimate_number')
-            ->orderByDesc('id')
-            ->get();
-        return Inertia::render('Quotes/Index', [
-            'estimates' => $estimates,
-        ]);
-    }
+        if ($currentIndex === -1) {
+            if ($estimate->status !== 'sent') {
+                $estimate->status = 'sent';
+                $estimate->save();
+            }
+            return redirect()->back()->with('success', '既に承認済みです。');
+        }
 
-    public function edit(Estimate $estimate)
-    {
-        $products = $this->loadProducts();
+        $currentStep = $flow[$currentIndex];
+        $currId = $currentStep['id'] ?? null;
+        $matchesLocalId = is_numeric($currId) && (int)$currId === (int)$user->id;
+        $currIdStr = is_null($currId) ? '' : (string)$currId;
+        $userExt = (string)($user->external_user_id ?? '');
+        $matchesExternalId = ($currIdStr !== '') && ($userExt !== '') && ($currIdStr === $userExt);
+        if (!($matchesLocalId || $matchesExternalId)) {
+            return redirect()->back()->withErrors(['approval' => '現在の承認ステップの担当者ではありません。']);
+        }
 
-        return Inertia::render('Estimates/Create', [
-            'estimate' => $estimate,
-            'products' => $products,
-        ]);
+        $flow[$currentIndex]['approved_at'] = now()->toDateTimeString();
+        $flow[$currentIndex]['status'] = 'approved';
+        $estimate->approval_flow = $flow;
+
+        $allApproved = true;
+        foreach ($flow as $step) {
+            if (empty($step['approved_at'])) {
+                $allApproved = false;
+                break;
+            }
+        }
+        if ($allApproved) {
+            $estimate->status = 'sent';
+            $estimate->approval_started = false;
+        }
+
+        $estimate->save();
+
+        return redirect()->back()->with('success', '承認しました。');
     }
 
     public function duplicate(Estimate $estimate)
     {
         $newEstimate = $estimate->replicate();
-        $newEstimate->estimate_number = $this->generateReadableEstimateNumber(
+        $newEstimate->estimate_number = Estimate::generateReadableEstimateNumber(
             $estimate->staff_id ?? null,
             $estimate->client_id ?? null,
             true
@@ -269,8 +424,6 @@ class EstimateController extends Controller
         return redirect()->route('estimates.edit', $newEstimate->id)
             ->with('success', '見積書を複製しました。');
     }
-
-    // generateUniqueEstimateNumber obsolete; unified to generateReadableEstimateNumber
 
     public function bulkApprove(Request $request)
     {
@@ -289,191 +442,10 @@ class EstimateController extends Controller
         $request->validate([
             'ids' => 'required|array',
             'ids.*' => 'exists:estimates,id',
-            // 'new_staff_id' => 'required|exists:users,id', // Uncomment and implement when frontend is ready
         ]);
-
-        // Placeholder for reassign logic
-        // Estimate::whereIn('id', $request->ids)->update(['staff_id' => $request->new_staff_id]);
 
         return redirect()->back()->with('success', count($request->ids) . '件の見積書の担当者付替を処理しました。');
     }
 
-    /**
-     * Mark the current user's step as approved in the approval flow.
-     * If this is the final step, mark the estimate as fully approved (sent).
-     */
-    public function updateApproval(Estimate $estimate)
-    {
-        $user = Auth::user();
-
-        // Ensure approval_flow exists and is an array
-        $flow = $estimate->approval_flow;
-        if (!is_array($flow) || empty($flow)) {
-            return redirect()->back()->withErrors(['approval' => '承認フローが設定されていません。']);
-        }
-
-        // Find the first step without approved_at (current step)
-        $currentIndex = -1;
-        foreach ($flow as $idx => $step) {
-            if (empty($step['approved_at'])) {
-                $currentIndex = $idx;
-                break;
-            }
-        }
-
-        if ($currentIndex === -1) {
-            // All steps already approved; ensure status is sent
-            if ($estimate->status !== 'sent') {
-                $estimate->status = 'sent';
-                $estimate->save();
-            }
-            return redirect()->back()->with('success', '既に承認済みです。');
-        }
-
-        $currentStep = $flow[$currentIndex];
-        // Allow matching either by local users.id (numeric) or users.external_user_id (string)
-        $currId = $currentStep['id'] ?? null;
-        $matchesLocalId = is_numeric($currId) && (int)$currId === (int)$user->id;
-        $currIdStr = is_null($currId) ? '' : (string)$currId;
-        $userExt = (string)($user->external_user_id ?? '');
-        $matchesExternalId = ($currIdStr !== '') && ($userExt !== '') && ($currIdStr === $userExt);
-        if (!($matchesLocalId || $matchesExternalId)) {
-            return redirect()->back()->withErrors(['approval' => '現在の承認ステップの担当者ではありません。']);
-        }
-
-        // Approve current step
-        $flow[$currentIndex]['approved_at'] = now()->toDateTimeString();
-        $flow[$currentIndex]['status'] = 'approved';
-        $estimate->approval_flow = $flow;
-
-        // If all steps are now approved, mark as sent
-        $allApproved = true;
-        foreach ($flow as $step) {
-            if (empty($step['approved_at'])) {
-                $allApproved = false;
-                break;
-            }
-        }
-        if ($allApproved) {
-            $estimate->status = 'sent';
-            $estimate->approval_started = false;
-        }
-
-        $estimate->save();
-
-        return redirect()->back()->with('success', '承認しました。');
-    }
-
-    public function update(Request $request, Estimate $estimate)
-    {
-        // Normalize client_id to string if numeric
-        $clientId = $request->input('client_id');
-        if (!is_null($clientId) && !is_string($clientId)) {
-            $request->merge(['client_id' => (string) $clientId]);
-        }
-
-        $validated = $request->validate([
-            'customer_name' => 'required|string|max:255',
-            'client_id' => 'nullable|string|max:255',
-            'title' => 'required|string|max:255',
-            'issue_date' => 'required|date',
-            'due_date' => 'nullable|date',
-            'total_amount' => 'required|integer',
-            'tax_amount' => 'required|integer',
-            'notes' => 'nullable|string',
-            'items' => 'required|array',
-            'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
-            'staff_id' => 'nullable|integer',
-            'staff_name' => 'nullable|string|max:255',
-            'approval_flow' => 'nullable|array',
-            'status' => 'nullable|string|in:draft,pending,sent,rejected',
-        ]);
-
-        // Normalize dates to Y-m-d
-        if (!empty($validated['issue_date'])) {
-            $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
-        }
-        if (!empty($validated['due_date'])) {
-            $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
-        }
-
-        $status = $validated['status'] ?? $estimate->status;
-        unset($validated['status']);
-        // Drop approval_flow safely if migration not yet applied
-        if (!Schema::hasColumn('estimates', 'approval_flow')) {
-            unset($validated['approval_flow']);
-        }
-        // Normalize approval flow and status for resubmission
-        if (isset($validated['approval_flow']) && is_array($validated['approval_flow'])) {
-            $hasUnapproved = false;
-            $normalizedFlow = [];
-            foreach ($validated['approval_flow'] as $step) {
-                // resubmission resets prior approvals
-                $approvedAt = ($status === 'pending') ? null : ($step['approved_at'] ?? null);
-                if (empty($approvedAt)) { $hasUnapproved = true; }
-                $normalizedFlow[] = [
-                    'id' => $step['id'] ?? null,
-                    'name' => $step['name'] ?? null,
-                    'approved_at' => $approvedAt,
-                    'status' => $approvedAt ? 'approved' : 'pending',
-                ];
-            }
-            $validated['approval_flow'] = $normalizedFlow;
-            if ($hasUnapproved && $status !== 'draft') { $status = 'pending'; }
-            if (Schema::hasColumn('estimates', 'approval_started')) {
-                $validated['approval_started'] = ($status === 'pending');
-            }
-        } elseif ($status === 'pending' && is_array($estimate->approval_flow)) {
-            // No new flow provided but moving to pending: reset existing flow
-            $validated['approval_flow'] = array_map(function ($s) {
-                return [
-                    'id' => $s['id'] ?? null,
-                    'name' => $s['name'] ?? null,
-                    'approved_at' => null,
-                    'status' => 'pending',
-                ];
-            }, $estimate->approval_flow);
-            if (Schema::hasColumn('estimates', 'approval_started')) {
-                $validated['approval_started'] = true;
-            }
-        }
-
-        if ($status === 'draft' && Schema::hasColumn('estimates', 'approval_started')) {
-            $validated['approval_started'] = false;
-        }
-
-        $estimate->update(array_merge($validated, ['status' => $status]));
-
-        $flash = [];
-        if ($status === 'pending') {
-            $flash['approval_started'] = true;
-            if (!empty($validated['approval_flow'])) {
-                $flash['approval_flow'] = $validated['approval_flow'];
-            }
-        } else {
-            $flash['success'] = 'Quote updated successfully.';
-        }
-
-        // Redirect to edit page so the URL remains GET-able after reload
-        return redirect()->route('estimates.edit', $estimate->id)
-            ->with('approval_success_message', '承認申請を開始しました。');
-    }
-
-    public function destroy(Estimate $estimate)
-    {
-        $estimate->delete();
-        return redirect()->route('quotes.index')->with('success', '見積書を削除しました。');
-    }
-
-    public function previewPdf(Request $request)
-    {
-        $estimateData = $request->all();
-
-        // For web preview
-        return view('estimates.pdf', compact('estimateData'));
-
-        // For PDF generation
-        // $pdf = Pdf::loadView('estimates.pdf', compact('estimateData'));
-        // return $pdf->stream('estimate_preview.pdf');
-    }
+    
 }

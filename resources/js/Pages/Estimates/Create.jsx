@@ -146,7 +146,7 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
 
 // --- Main Component ---
 
-export default function EstimateCreate({ auth, products, users = [], estimate = null }) {
+export default function EstimateCreate({ auth, products, users = [], estimate = null, is_fully_approved = false }) {
     const isEditMode = estimate !== null;
 
     const [isInternalView, setIsInternalView] = useState(true);
@@ -156,7 +156,6 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         : null
     );
     const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
-    const [estimateNumber, setEstimateNumber] = useState(estimate?.estimate_number || '');
     const [approvers, setApprovers] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
     const [openApproval, setOpenApproval] = useState(false);
     const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
@@ -193,11 +192,13 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         customer_name: estimate?.customer_name || '',
         client_id: estimate?.client_id || null,
         title: estimate?.title || '',
-        issue_date: isEditMode ? formatDate(estimate?.issue_date) : '',
+        issue_date: isEditMode ? formatDate(estimate?.issue_date) : new Date().toISOString().slice(0, 10),
         due_date: isEditMode ? formatDate(estimate?.due_date) : '',
         total_amount: estimate?.total_amount || 0,
         tax_amount: estimate?.tax_amount || 0,
         notes: estimate?.notes || '',
+        internal_memo: estimate?.internal_memo || '',
+        delivery_location: estimate?.delivery_location || '',
         items: estimate?.items || [],
         estimate_number: estimate?.estimate_number || '',
         staff_id: estimate?.staff_id || null,
@@ -207,20 +208,32 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     });
 
     useEffect(() => {
-        if (!isEditMode && selectedStaff) {
-            const today = new Date();
-            const dd = String(today.getDate()).padStart(2, '0');
-            const mm = String(today.getMonth() + 1).padStart(2, '0');
-            const yy = String(today.getFullYear()).slice(-2);
-            setEstimateNumber(`EST-${selectedStaff.id}-${dd}${mm}${yy}`);
-        } else if (!selectedStaff) {
-            setEstimateNumber(estimate?.estimate_number || '');
+        if (estimate) {
+            setData({
+                id: estimate.id,
+                customer_name: estimate.customer_name || '',
+                client_id: estimate.client_id || null,
+                title: estimate.title || '',
+                issue_date: formatDate(estimate.issue_date),
+                due_date: formatDate(estimate.due_date),
+                total_amount: estimate.total_amount || 0,
+                tax_amount: estimate.tax_amount || 0,
+                notes: estimate.notes || '',
+                internal_memo: estimate.internal_memo || '',
+                delivery_location: estimate.delivery_location || '',
+                items: estimate.items || [],
+                estimate_number: estimate.estimate_number || '',
+                staff_id: estimate.staff_id || null,
+                staff_name: estimate.staff_name || null,
+                approval_flow: Array.isArray(estimate.approval_flow) ? estimate.approval_flow : [],
+                status: estimate.status || 'draft',
+            });
+            setLineItems(estimate.items || []);
+            setSelectedStaff((estimate.staff_id && estimate.staff_name) ? { id: estimate.staff_id, name: estimate.staff_name } : null);
+            setSelectedCustomer(estimate.customer_name ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
+            setApprovers(Array.isArray(estimate.approval_flow) ? estimate.approval_flow : []);
         }
-    }, [selectedStaff, isEditMode, estimate]);
-
-    useEffect(() => {
-        setData('items', lineItems);
-    }, [lineItems]);
+    }, [estimate]);
 
     useEffect(() => {
         setData('customer_name', selectedCustomer?.customer_name || '');
@@ -258,8 +271,8 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const total = subtotal + tax;
 
     useEffect(() => {
-        setData(prevData => ({ ...prevData, items: lineItems, total_amount: total, tax_amount: tax, estimate_number: estimateNumber }));
-    }, [lineItems, total, tax, estimateNumber]);
+        setData(prevData => ({ ...prevData, items: lineItems, total_amount: total, tax_amount: tax }));
+    }, [lineItems, total, tax]);
 
     useEffect(() => {
         setData('approval_flow', approvers);
@@ -401,6 +414,8 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
             // 明示 payload で送信
             router.patch(route('estimates.update', estimate.id), payload, options);
         } else {
+            // Do not send estimate_number for new estimates, let backend generate it.
+            delete payload.estimate_number;
             router.post(route('estimates.store'), payload, options);
         }
     };
@@ -408,19 +423,18 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const cancelApproval = () => {
         if (!estimate?.id) return;
         if (!confirm('承認申請を取り消しますか？')) return;
-        setData('status', 'draft');
-        setData('approval_started', false);
-        patch(route('estimates.update', estimate.id), {
+        router.patch(route('estimates.cancel', estimate.id), {}, {
             onSuccess: () => {
                 setApprovalStatus('');
                 setOpenApproval(false);
-                setApprovalLocal(false); // 即座に更新して申請へ戻す
+                setApprovalLocal(false);
+                setApprovers([]);
             },
             onError: (e) => {
                 console.error('申請取消エラー:', e);
                 alert('申請取消エラー: ' + JSON.stringify(e));
             },
-            preserveState: true,
+            preserveState: false, 
             preserveScroll: true,
         });
     };
@@ -477,18 +491,21 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                 <div className="space-y-2">
                                     <Label htmlFor="customer">顧客名</Label>
                                     <CustomerCombobox selectedCustomer={selectedCustomer} onCustomerChange={setSelectedCustomer} />
+                                    {errors.customer_name && <p className="text-sm text-red-600 mt-1">{errors.customer_name}</p>}
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="staff">自社担当者</Label>
                                     <StaffCombobox selectedStaff={selectedStaff} onStaffChange={setSelectedStaff} />
+                                    {errors.staff_name && <p className="text-sm text-red-600 mt-1">{errors.staff_name}</p>}
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="project-name">件名</Label>
                                     <Input id="project-name" value={data.title} onChange={(e) => setData('title', e.target.value)} placeholder="新会計システム導入" />
+                                    {errors.title && <p className="text-sm text-red-600 mt-1">{errors.title}</p>}
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="estimate-number">見積番号</Label>
-                                    <Input id="estimate-number" value={data.estimate_number} onChange={(e) => setData('estimate_number', e.target.value)} readOnly={!isEditMode && selectedStaff} />
+                                    <Input id="estimate-number" value={data.estimate_number} onChange={(e) => setData('estimate_number', e.target.value)} readOnly={!isEditMode} placeholder="下書き保存後に採番" />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="issue-date">発行日</Label>
@@ -504,7 +521,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                 </div>
                                 <div className="lg:col-span-2 space-y-2">
                                     <Label htmlFor="delivery-location">納入場所</Label>
-                                    <Input id="delivery-location" placeholder="お客様指定の場所" />
+                                    <Input id="delivery-location" value={data.delivery_location} onChange={(e) => setData('delivery_location', e.target.value)} placeholder="お客様指定の場所" />
                                 </div>
                                 <div className="lg:col-span-2 space-y-2">
                                     <Label htmlFor="external-remarks">備考（対外）</Label>
@@ -513,7 +530,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                 {isInternalView && (
                                     <div className="lg:col-span-2 space-y-2">
                                         <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
-                                        <Textarea id="internal-remarks" placeholder="値引きの背景について..." />
+                                        <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
                                     </div>
                                 )}
                             </CardContent>
@@ -650,6 +667,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                     <Button type="button" variant="outline" size="sm" onClick={addLineItem}><PlusCircle className="mr-2 h-4 w-4" />行を追加</Button>
                                     <Button type="button" variant="outline" size="sm"><Copy className="mr-2 h-4 w-4" />選択行を複製</Button>
                                 </div>
+                                {errors.items && <p className="text-sm text-red-600 mt-2">{errors.items}</p>}
                             </CardContent>
                         </Card>
 
@@ -822,6 +840,13 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                     <Button variant="outline"><History className="mr-2 h-4 w-4" />変更履歴</Button>
                                 </div>
                                 <div className="space-x-2">
+                                    {isEditMode && is_fully_approved && (
+                                        <a href={route('estimates.createInvoice.start', { estimate: estimate.id })}>
+                                            <Button type="button" className="bg-green-500 hover:bg-green-600">
+                                                請求書を発行する
+                                            </Button>
+                                        </a>
+                                    )}
                                     {isEditMode && (
                                         <Button type="button" variant="destructive" onClick={handleDelete}>削除</Button>
                                     )}

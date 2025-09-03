@@ -179,25 +179,29 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                             ¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}
                                         </p>
                                     </div>
-                                    <div>
-                                        <p className="text-sm text-slate-500">承認フロー</p>
-                                        {Array.isArray(estimate.approval_flow) && estimate.approval_flow.length ? (
-                                            <ol className="text-sm text-slate-700 list-decimal list-inside space-y-1">
-                                                {estimate.approval_flow.map((ap, i) => (
-                                                    <li key={`${ap.id}-${i}`}>{ap.name}</li>
-                                                ))}
-                                            </ol>
-                                        ) : (
-                                            <p className="text-sm text-slate-400">未設定</p>
+                                </div>
+                                <div className="mt-4 pt-4 border-t">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-2">
+                                        {estimate.delivery_location && (
+                                            <div className="col-span-2 mb-2">
+                                                <p className="text-sm text-slate-500">納入場所</p>
+                                                <p className="font-semibold whitespace-pre-wrap">{estimate.delivery_location}</p>
+                                            </div>
+                                        )}
+                                        {estimate.notes && (
+                                            <div>
+                                                <p className="text-sm text-slate-500">備考（対外）</p>
+                                                <p className="mt-1 text-sm whitespace-pre-wrap">{estimate.notes}</p>
+                                            </div>
+                                        )}
+                                        {estimate.internal_memo && (
+                                            <div>
+                                                <p className="text-sm text-slate-500">備考（社内メモ）</p>
+                                                <p className="mt-1 text-sm whitespace-pre-wrap">{estimate.internal_memo}</p>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
-                                {estimate.notes && (
-                                    <div className="mt-4 pt-4 border-t">
-                                        <p className="text-sm text-slate-500">備考</p>
-                                        <p className="mt-1">{estimate.notes}</p>
-                                    </div>
-                                )}
                             </CardContent>
                         </Card>
 

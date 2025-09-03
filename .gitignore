@@ -39,3 +39,10 @@ app/storage/
 public_html/storage
 public_html/hot
 *.bak
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

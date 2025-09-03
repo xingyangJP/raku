@@ -76,19 +76,11 @@ class EstimateSeeder extends Seeder
             $issue = now()->copy()->subDays(random_int(0, 30))->startOfDay();
             $due = $issue->copy()->addDays(random_int(14, 45));
 
-            // 番号: EST-{staff}-{client}-{yyddmm}-{seq}
-            $date = $issue->format('ydm');
-            $prefix = "EST-{$staffId}-{$clientId}-{$date}-";
-            $latest = Estimate::where('estimate_number', 'like', $prefix.'%')
-                ->orderBy('estimate_number', 'desc')
-                ->first();
-            $seq = 1;
-            if ($latest) {
-                $tail = substr($latest->estimate_number, strlen($prefix));
-                $num = (int) $tail;
-                $seq = $num + 1;
-            }
-            $number = $prefix . str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
+            $number = Estimate::generateReadableEstimateNumber(
+                $staffId,
+                $clientId,
+                true // Create all as drafts first
+            );
 
             // 明細（3〜7件）を生成。productsがあればそこから、なければフォールバックから。
             $items = [];
@@ -166,6 +158,13 @@ class EstimateSeeder extends Seeder
                 foreach ($ids as $estId) {
                     $est = Estimate::find($estId);
                     if (!$est) continue;
+
+                    // Regenerate number from draft to final, as these are not drafts anymore
+                    $est->estimate_number = Estimate::generateReadableEstimateNumber(
+                        $est->staff_id,
+                        $est->client_id,
+                        false
+                    );
                     if ($pat === 'allApproved') {
                         $est->approval_flow = [
                             $mkStep($allUsers[0], now()->subDays(3)->toDateTimeString()),

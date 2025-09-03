@@ -17,6 +17,7 @@
         "fakerphp/faker": "^1.23"
     },
     "require-dev": {
+        "hyvor/laravel-playwright": "^2.0",
         "laravel/breeze": "^2.3",
         "laravel/pail": "^1.2.2",
         "laravel/pint": "^1.24",

@@ -14,6 +14,15 @@ return [
     |
     */
 
+    'money_forward' => [
+        'client_id' => env('MONEY_FORWARD_CLIENT_ID'),
+        'client_secret' => env('MONEY_FORWARD_CLIENT_SECRET'),
+        'redirect_uri' => env('MONEY_FORWARD_REDIRECT_URI', 'http://localhost:8000/callback'),
+        'authorization_url' => 'https://api.biz.moneyforward.com/authorize',
+        'token_url' => 'https://api.biz.moneyforward.com/token',
+        'api_url' => 'https://invoice.moneyforward.com/api/v3',
+    ],
+
     'postmark' => [
         'token' => env('POSTMARK_TOKEN'),
     ],
