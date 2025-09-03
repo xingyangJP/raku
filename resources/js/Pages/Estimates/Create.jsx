@@ -163,21 +163,6 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     // UI即時反映用のローカルフラグ（サーバ反映前でもボタンを切替）
     const [approvalLocal, setApprovalLocal] = useState(false);
 
-    const isInApproval = useMemo(() => {
-        if (approvalLocal) return true; // 申請直後は即座に取消へ
-        if (!estimate) return false;
-        // 完了承認 or 下書きは取消対象外
-        if (estimate.status === 'sent' || estimate.status === 'draft') return false;
-        const hasUnapproved = Array.isArray(estimate.approval_flow)
-            && estimate.approval_flow.some(s => !s.approved_at);
-        // DBフラグがあれば優先。ただし一部承認（未承認あり）でも取消を出す
-        if (typeof estimate.approval_started === 'boolean') {
-            return estimate.approval_started || hasUnapproved;
-        }
-        // フラグ未導入環境では、未承認あり or pending を回付中とみなす
-        return hasUnapproved || estimate.status === 'pending';
-    }, [approvalLocal, estimate]);
-
     const formatDate = (dateString) => {
         if (!dateString) return '';
         if (typeof dateString === 'string' && dateString.includes('T')) {
@@ -206,6 +191,13 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         approval_flow: Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : [],
         status: estimate?.status || 'draft',
     });
+
+    // data.status を直接参照して、現在のUIの状態を正しく判定する
+    const isInApproval = useMemo(() => {
+        if (approvalLocal) return true; // 申請直後は即座に取消へ
+        // `data.status` を見ることで、申請取消などの操作後の状態を即座に反映
+        return data.status === 'pending';
+    }, [approvalLocal, data.status]);
 
     useEffect(() => {
         if (estimate) {
@@ -505,7 +497,10 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="estimate-number">見積番号</Label>
-                                    <Input id="estimate-number" value={data.estimate_number} onChange={(e) => setData('estimate_number', e.target.value)} readOnly={!isEditMode} placeholder="下書き保存後に採番" />
+                                    {/* 編集不可のため、Inputではなくdivで表示 */}
+                                    <div id="estimate-number" className="flex h-10 w-full items-center rounded-md border border-input bg-slate-100 px-3 py-2 text-sm text-muted-foreground" aria-readonly="true">
+                                        {data.estimate_number || '（下書き保存時に自動採番）'}
+                                    </div>
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="issue-date">発行日</Label>
@@ -850,7 +845,9 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                     {isEditMode && (
                                         <Button type="button" variant="destructive" onClick={handleDelete}>削除</Button>
                                     )}
-                                    <Button type="button" variant="secondary" onClick={saveDraft}>下書き保存</Button>
+                                    {data.status === 'draft' && (
+                                        <Button type="button" variant="secondary" onClick={saveDraft}>下書き保存</Button>
+                                    )}
                                     <Button type="button" variant="secondary" onClick={handlePdfPreview}>プレビュー</Button>
                                     {isInApproval ? (
                                         <Button type="button" variant="destructive" onClick={cancelApproval}>申請取消</Button>
