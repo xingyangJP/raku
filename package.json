@@ -2,13 +2,13 @@
   "$schema": "https://json.schemastore.org/package.json",
   "private": true,
   "type": "module",
-"scripts": {
-  "build": "vite build",
-  "dev": "vite",
-  "test:e2e": "playwright test",
-  "test:e2e:ui": "playwright test --ui",
-  "test:e2e:report": "playwright show-report"
-},
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report"
+  },
   "devDependencies": {
     "@headlessui/react": "^2.0.0",
     "@inertiajs/react": "^2.0.0",

@@ -20,7 +20,7 @@ class EstimateController extends Controller
             return DB::table('products')
                 ->where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'name', 'price', 'cost', 'unit', 'sku']);
+                ->get(['id', 'name', 'price', 'cost', 'unit', 'sku', 'description']);
         }
         return [
             ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000, 'unit' => '式'],

@@ -328,7 +328,15 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         const selectedProduct = products.find(p => p.id === parseInt(productId));
         if (selectedProduct) {
             setLineItems(prevItems => prevItems.map(item => 
-                item.id === itemId ? { ...item, name: selectedProduct.name, price: selectedProduct.price, cost: selectedProduct.cost, product_id: selectedProduct.id } : item
+                item.id === itemId ? {
+                    ...item,
+                    name: selectedProduct.name,
+                    price: selectedProduct.price,
+                    cost: selectedProduct.cost,
+                    product_id: selectedProduct.id,
+                    description: selectedProduct.description,
+                    unit: selectedProduct.unit
+                } : item
             ));
         }
     };

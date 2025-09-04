@@ -1,109 +1,110 @@
-
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
-import { Badge } from "@/Components/ui/badge";
-import { Button } from "@/Components/ui/button";
-import { Input } from "@/Components/ui/input";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger, SheetFooter } from "@/Components/ui/sheet";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/Components/ui/accordion";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/Components/ui/dropdown-menu";
-import { DotsHorizontalIcon } from "@radix-ui/react-icons";
-import { FileDown, PlusCircle, Search } from 'lucide-react';
+import { Head, Link, usePage } from '@inertiajs/react';
+import { router } from '@inertiajs/core';
+import { Button } from '@/Components/ui/button';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
+import { Badge } from '@/Components/ui/badge';
 
-export default function ProductIndex({ auth }) {
-    const products = [
-        {
-            id: 'PD-001', name: '高性能ノートPC 14インチ', nameKana: 'コウセイノウノートPC 14インチ', spec: 'Core i7/16GB/512GB SSD', jan: '4512345678901',
-            categoryLarge: 'PC', categoryMedium: 'ノートPC', taxRate: '10%', taxClass: '課税', unit: '台', stock: 20, price: 150000, cost: 95000,
-            flags: { nameChange: false, stockMgmt: true, arrivalMgmt: true, salesMgmt: true }, rep: '山田 太郎', updated: '2025-08-20'
-        },
-        {
-            id: 'PD-002', name: 'ビジネスソフトウェア', nameKana: 'ビジネスソフトウェア', spec: '永続ライセンス', jan: '4512345678902',
-            categoryLarge: 'ソフトウェア', categoryMedium: 'オフィス', taxRate: '10%', taxClass: '課税', unit: 'ライセンス', stock: 999, price: 45000, cost: 12000,
-            flags: { nameChange: false, stockMgmt: false, arrivalMgmt: false, salesMgmt: true }, rep: '鈴木 花子', updated: '2025-08-22'
-        },
-        {
-            id: 'PD-003', name: 'USB-C ハブ 7-in-1', nameKana: 'USB-C ハブ 7-IN-1', spec: 'HDMI/USB3.0*3/PD', jan: '4512345678903',
-            categoryLarge: '周辺機器', categoryMedium: 'ハブ・ドック', taxRate: '10%', taxClass: '課税', unit: '個', stock: 150, price: 4500, cost: 2200,
-            flags: { nameChange: true, stockMgmt: true, arrivalMgmt: true, salesMgmt: true }, rep: '山田 太郎', updated: '2025-08-15'
-        },
-    ];
+export default function Index({ auth, products }) {
+    const { flash } = usePage().props;
+
+    const handleDelete = (productId) => {
+        if (confirm('Are you sure you want to delete this product?')) {
+            router.delete(route('products.destroy', productId));
+        }
+    };
 
     return (
-        <AuthenticatedLayout user={auth.user} header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">商品管理</h2>}>
-            <Head title="Product Management" />
-            <div className="space-y-6">
-                <Accordion type="single" collapsible defaultValue="filters">
-                    <AccordionItem value="filters">
-                        <AccordionTrigger></AccordionTrigger>
-                        <AccordionContent>
-                            <CardContent className="pt-4">
-                                <div className="flex gap-4 items-start">
-                                    <Input placeholder="商品CD, 名称, カナ, JAN..." className="max-w-xs" />
-                                    <Button variant="outline">詳細フィルタ</Button>
-                                    <Button className="flex items-center gap-2"><Search className="h-4 w-4"/>検索</Button>
-                                </div>
-                            </CardContent>
-                        </AccordionContent>
-                    </AccordionItem>
-                </Accordion>
+        <AuthenticatedLayout
+            user={auth.user}
+            header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">Product Master</h2>}
+        >
+            <Head title="Product Master" />
 
-                <Card>
-                    <CardHeader className="flex flex-row items-center justify-between">
-                        <div><CardTitle>商品一覧</CardTitle><CardDescription>全 {products.length} 件</CardDescription></div>
-                        <div className="flex gap-2">
-                            <Button variant="outline"><FileDown className="h-4 w-4 mr-2"/>CSV</Button>
-                            <Button><PlusCircle className="h-4 w-4 mr-2"/>新規登録</Button>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <Table>
-                            <TableHeader><TableRow><TableHead>商品CD</TableHead><TableHead>商品名</TableHead><TableHead>規格名</TableHead><TableHead>分類</TableHead><TableHead>定価</TableHead><TableHead>更新日</TableHead><TableHead className="w-[50px]"></TableHead></TableRow></TableHeader>
-                            <TableBody>
-                                {products.map((product) => (
-                                    <Sheet key={product.id}>
-                                        <TableRow>
-                                            <TableCell className="font-medium">{product.id}</TableCell>
+            <div className="py-12">
+                <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
+                    <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                        <div className="p-6 text-gray-900">
+                            {flash.success && (
+                                <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
+                                    <span className="block sm:inline">{flash.success}</span>
+                                </div>
+                            )}
+                            <div className="flex justify-end mb-4">
+                                <Link href={route('products.create')}>
+                                    <Button>新規追加</Button>
+                                </Link>
+                            </div>
+
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>SKU</TableHead>
+                                        <TableHead>品目名</TableHead>
+                                        <TableHead>分類</TableHead>
+                                        <TableHead>原価</TableHead>
+                                        <TableHead>定価</TableHead>
+                                        <TableHead>詳細説明</TableHead>
+                                        <TableHead>更新日</TableHead>
+                                        <TableHead>操作</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {products.data.map((product) => (
+                                        <TableRow key={product.id}>
+                                            <TableCell>{product.sku}</TableCell>
                                             <TableCell>{product.name}</TableCell>
-                                            <TableCell className="text-muted-foreground">{product.spec}</TableCell>
-                                            <TableCell>{product.categoryLarge}/{product.categoryMedium}</TableCell>
-                                            <TableCell>¥{product.price.toLocaleString()}</TableCell>
-                                            <TableCell>{product.updated}</TableCell>
                                             <TableCell>
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild><Button variant="ghost" className="h-8 w-8 p-0"><DotsHorizontalIcon className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end">
-                                                        <SheetTrigger asChild><DropdownMenuItem>詳細を見る</DropdownMenuItem></SheetTrigger>
-                                                        <DropdownMenuItem>編集</DropdownMenuItem>
-                                                        <DropdownMenuItem>複製</DropdownMenuItem>
-                                                        <DropdownMenuSeparator />
-                                                        <DropdownMenuItem>単価メンテへ</DropdownMenuItem>
-                                                        <DropdownMenuItem>在庫へ</DropdownMenuItem>
-                                                        <DropdownMenuSeparator />
-                                                        <DropdownMenuItem className="text-red-600">削除</DropdownMenuItem>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
+                                                <Badge variant="secondary">{product.category ? product.category.name : 'N/A'}</Badge>
+                                            </TableCell>
+                                            <TableCell>{product.cost}</TableCell>
+                                            <TableCell>{product.price}</TableCell>
+                                            <TableCell>{product.description}</TableCell>
+                                            <TableCell>{new Date(product.updated_at).toLocaleDateString()}</TableCell>
+                                            <TableCell>
+                                                <Link href={route('products.edit', product.id)} className="mr-2">
+                                                    <Button variant="outline" size="sm">編集</Button>
+                                                </Link>
+                                                <Button variant="destructive" size="sm" onClick={() => handleDelete(product.id)}>
+                                                    削除
+                                                </Button>
                                             </TableCell>
                                         </TableRow>
-                                        <SheetContent className="w-[640px] sm:max-w-none">
-                                            <SheetHeader><SheetTitle>{product.name}</SheetTitle><SheetDescription>{product.id} / {product.spec}</SheetDescription></SheetHeader>
-                                            <Tabs defaultValue="overview" className="mt-4">
-                                                <TabsList><TabsTrigger value="overview">概要</TabsTrigger><TabsTrigger value="pricing">価格</TabsTrigger><TabsTrigger value="stock">在庫</TabsTrigger><TabsTrigger value="history">履歴</TabsTrigger></TabsList>
-                                                <TabsContent value="overview" className="py-4">ここに基本情報と設定フラグを表示します。</TabsContent>
-                                                <TabsContent value="pricing" className="py-4">ここに定価・原価情報を表示します。</TabsContent>
-                                                <TabsContent value="stock" className="py-4">ここに倉庫別在庫へのリンク等を表示します。</TabsContent>
-                                                <TabsContent value="history" className="py-4">ここに更新履歴を表示します。</TabsContent>
-                                            </Tabs>
-                                        </SheetContent>
-                                    </Sheet>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    </CardContent>
-                </Card>
+                                    ))}
+                                </TableBody>
+                            </Table>
+
+                            {/* Pagination */}
+                            <div className="mt-4 flex justify-center">
+                                {products.links.map((link, index) => {
+                                    const isNull = link.url === null;
+                                    const classNames = `mr-1 mb-1 px-4 py-3 text-sm leading-4 border rounded ${
+                                        link.active ? "bg-blue-700 text-white" : "bg-white"
+                                    } ${isNull ? "text-gray-400" : "hover:bg-gray-100"}`;
+
+                                    if (isNull) {
+                                        return (
+                                            <div
+                                                key={index}
+                                                className={classNames}
+                                                dangerouslySetInnerHTML={{ __html: link.label }}
+                                            />
+                                        );
+                                    } else {
+                                        return (
+                                            <Link
+                                                key={index}
+                                                className={classNames}
+                                                href={link.url}
+                                                dangerouslySetInnerHTML={{ __html: link.label }}
+                                            />
+                                        );
+                                    }
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </AuthenticatedLayout>
     );
