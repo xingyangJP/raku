@@ -3,6 +3,8 @@ import { router } from '@inertiajs/core';
 import { Link, usePage } from '@inertiajs/react';
 import { Bell, Home, Package2, ShoppingCart, Users, LineChart, Settings, Package, FileText, Landmark, Boxes } from 'lucide-react';
 
+console.log('AuthenticatedLayout rendered');
+
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/Components/ui/dropdown-menu';
@@ -11,7 +13,8 @@ import { CircleUser, Menu } from 'lucide-react';
 import Loading from '@/Components/Loading';
 
 export default function AuthenticatedLayout({ header, children }) {
-    const user = usePage().props.auth.user;
+    const { auth: { user }, appVersion } = usePage().props;
+    console.log('Inertia Page Props:', usePage().props);
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
@@ -62,6 +65,9 @@ export default function AuthenticatedLayout({ header, children }) {
                                     </Link>
                                 ))}
                             </nav>
+                        </div>
+                        <div className="mt-auto p-4 text-center text-xs text-muted-foreground">
+                            Version: {appVersion}
                         </div>
                     </div>
                 </div>

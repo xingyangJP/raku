@@ -136,4 +136,6 @@ return [
         'environments' => ['local', 'testing'],
     ],
 
+    'version' => env('APP_VERSION', 'v1.0.0'),
+
 ];

@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
 use Inertia\Middleware;
+use App\Http\View\Composers\AppVersionComposer;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -40,6 +41,7 @@ class HandleInertiaRequests extends Middleware
                 'approval_started' => fn () => $request->session()->get('approval_started'),
                 'approval_flow' => fn () => $request->session()->get('approval_flow'),
             ],
+            'appVersion' => AppVersionComposer::getAppVersion(),
         ];
     }
 }
