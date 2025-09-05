@@ -9,6 +9,7 @@ class Estimate extends Model
     protected $fillable = [
         'customer_name',
         'client_id',
+        'mf_department_id',
         'title',
         'issue_date',
         'due_date',
@@ -24,6 +25,10 @@ class Estimate extends Model
         'approval_started',
         'internal_memo',
         'delivery_location',
+        'mf_quote_id',
+        'mf_quote_pdf_url',
+        'mf_invoice_id',
+        'mf_invoice_pdf_url',
     ];
 
     protected $casts = [

@@ -192,6 +192,13 @@ class EstimateController extends Controller
         $products = $this->loadProducts();
         $is_fully_approved = $estimate->status === 'sent';
 
+        // Manually attach a 'customer' object for frontend compatibility
+        $estimate->customer = (object)[
+            'id' => $estimate->client_id,
+            'mf_partner_id' => $estimate->client_id, // Assuming client_id is mf_partner_id
+            'customer_name' => $estimate->customer_name, // Include customer_name for consistency
+        ];
+
         return Inertia::render('Estimates/Create', [
             'estimate' => $estimate,
             'products' => $products,
@@ -300,32 +307,32 @@ class EstimateController extends Controller
         return redirect()->route('estimates.edit', $estimate->id)->with('success', '承認申請を取り消しました。');
     }
 
-    public function redirectToAuthForInvoiceCreation(Estimate $estimate)
+    public function redirectToAuthForQuoteCreation(Estimate $estimate)
     {
-        session(['estimate_id_for_invoice_creation' => $estimate->id]);
+        session(['estimate_id_for_quote_creation' => $estimate->id]);
         $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
             'response_type' => 'code',
             'client_id' => config('services.money_forward.client_id'),
-            'redirect_uri' => route('estimates.createInvoice.callback'),
-            'scope' => 'mfc/invoice/data.write',
+            'redirect_uri' => route('estimates.createQuote.callback'),
+            'scope' => 'mfc/quote/data.write',
         ]);
         return redirect()->away($authUrl);
     }
 
-    public function handleInvoiceCreationCallback(Request $request, MoneyForwardApiService $apiService)
+    public function handleQuoteCreationCallback(Request $request, MoneyForwardApiService $apiService)
     {
         if (!$request->has('code')) {
-            return redirect()->route('billing.index')->with('error', 'Authorization failed.');
+            return redirect()->route('quotes.index')->with('error', 'Authorization failed.');
         }
 
-        $estimateId = session('estimate_id_for_invoice_creation');
+        $estimateId = session('estimate_id_for_quote_creation');
         if (!$estimateId) {
-            return redirect()->route('billing.index')->with('error', 'Estimate not found in session.');
+            return redirect()->route('quotes.index')->with('error', 'Estimate not found in session.');
         }
 
         $estimate = Estimate::find($estimateId);
         if (!$estimate) {
-            return redirect()->route('billing.index')->with('error', 'Estimate not found.');
+            return redirect()->route('quotes.index')->with('error', 'Estimate not found.');
         }
 
         $token = $apiService->getAccessToken($request->code);
@@ -333,12 +340,16 @@ class EstimateController extends Controller
             return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to get access token.');
         }
 
-        $result = $apiService->createInvoiceFromEstimate($estimate, $token);
+        // Call the new method in MoneyForwardApiService to create a quote
+        $result = $apiService->createQuoteFromEstimate($estimate, $token);
 
-        if ($result) {
-            return redirect()->route('billing.index')->with('success', 'Invoice created successfully from estimate ' . $estimate->estimate_number);
+        if ($result && isset($result['id']) && isset($result['pdf_url'])) {
+            $estimate->mf_quote_id = $result['id'];
+            $estimate->mf_quote_pdf_url = $result['pdf_url'];
+            $estimate->save();
+            return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Successfully created quote in Money Forward.');
         } else {
-            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to create invoice in Money Forward.');
+            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to create quote in Money Forward.');
         }
     }
 
@@ -447,5 +458,48 @@ class EstimateController extends Controller
         return redirect()->back()->with('success', count($request->ids) . '件の見積書の担当者付替を処理しました。');
     }
 
-    
+    public function redirectToAuthForBillingConversion(Estimate $estimate)
+    {
+        session(['estimate_id_for_billing_conversion' => $estimate->id]);
+        $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
+            'response_type' => 'code',
+            'client_id' => config('services.money_forward.client_id'),
+            'redirect_uri' => route('estimates.convertToBilling.callback'),
+            'scope' => 'mfc/invoice/data.write',
+        ]);
+        return redirect()->away($authUrl);
+    }
+
+    public function handleBillingConversionCallback(Request $request, MoneyForwardApiService $apiService)
+    {
+        if (!$request->has('code')) {
+            return redirect()->route('quotes.index')->with('error', 'Authorization failed.');
+        }
+
+        $estimateId = session('estimate_id_for_billing_conversion');
+        if (!$estimateId) {
+            return redirect()->route('quotes.index')->with('error', 'Estimate not found in session.');
+        }
+
+        $estimate = Estimate::find($estimateId);
+        if (!$estimate) {
+            return redirect()->route('quotes.index')->with('error', 'Estimate not found.');
+        }
+
+        $token = $apiService->getAccessToken($request->code);
+        if (!$token) {
+            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to get access token.');
+        }
+
+        $result = $apiService->convertQuoteToBilling($estimate->mf_quote_id, $token);
+
+        if ($result && isset($result['id']) && isset($result['pdf_url'])) {
+            $estimate->mf_invoice_id = $result['id'];
+            //            $estimate->mf_invoice_pdf_url = $result['pdf_url']; // mf_invoice_pdf_url is not a column in estimates table
+            $estimate->save();
+            return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Successfully converted quote to invoice in Money Forward.');
+        } else {
+            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to convert quote to invoice in Money Forward.');
+        }
+    }
 }

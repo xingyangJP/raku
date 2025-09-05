@@ -29,7 +29,11 @@ function CustomerCombobox({ selectedCustomer, onCustomerChange }) {
         const fetchCustomers = async () => {
             try {
                 const response = await axios.get(`/api/customers?search=${search}`);
-                setCustomers(response.data);
+                setCustomers(response.data.map(c => ({
+                    id: c.id,
+                    customer_name: c.customer_name,
+                    department_id: c.department_id // Assuming department_id is returned
+                })));
             } catch (error) {
                 console.error("Failed to fetch customers:", error);
             }
@@ -163,6 +167,17 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     // UI即時反映用のローカルフラグ（サーバ反映前でもボタンを切替）
     const [approvalLocal, setApprovalLocal] = useState(false);
 
+    const [openIssueMFQuoteConfirm, setOpenIssueMFQuoteConfirm] = useState(false);
+    const [openConvertToInvoiceConfirm, setOpenConvertToInvoiceConfirm] = useState(false);
+
+    const handleIssueMFQuote = () => {
+        router.visit(route('estimates.createQuote.start', { estimate: estimate.id }));
+    };
+
+    const handleConvertToInvoice = () => {
+        router.visit(route('estimates.convertToBilling.start', { estimate: estimate.id }));
+    };
+
     const formatDate = (dateString) => {
         if (!dateString) return '';
         if (typeof dateString === 'string' && dateString.includes('T')) {
@@ -176,6 +191,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         id: estimate?.id || null,
         customer_name: estimate?.customer_name || '',
         client_id: estimate?.client_id || null,
+        mf_department_id: estimate?.mf_department_id || null,
         title: estimate?.title || '',
         issue_date: isEditMode ? formatDate(estimate?.issue_date) : new Date().toISOString().slice(0, 10),
         due_date: isEditMode ? formatDate(estimate?.due_date) : '',
@@ -205,6 +221,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                 id: estimate.id,
                 customer_name: estimate.customer_name || '',
                 client_id: estimate.client_id || null,
+                mf_department_id: estimate.mf_department_id || null,
                 title: estimate.title || '',
                 issue_date: formatDate(estimate.issue_date),
                 due_date: formatDate(estimate.due_date),
@@ -222,7 +239,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
             });
             setLineItems(estimate.items || []);
             setSelectedStaff((estimate.staff_id && estimate.staff_name) ? { id: estimate.staff_id, name: estimate.staff_name } : null);
-            setSelectedCustomer(estimate.customer_name ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
+            setSelectedCustomer(estimate.customer_name ? { customer_name: estimate.customer_name, id: estimate.client_id || null, department_id: estimate.mf_department_id || null } : null);
             setApprovers(Array.isArray(estimate.approval_flow) ? estimate.approval_flow : []);
         }
     }, [estimate]);
@@ -230,6 +247,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     useEffect(() => {
         setData('customer_name', selectedCustomer?.customer_name || '');
         setData('client_id', selectedCustomer?.id || null);
+        setData('mf_department_id', selectedCustomer?.department_id || null);
     }, [selectedCustomer]);
 
     // Keep staff_id/staff_name in sync when selected
@@ -843,13 +861,34 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                     <Button variant="outline"><History className="mr-2 h-4 w-4" />変更履歴</Button>
                                 </div>
                                 <div className="space-x-2">
-                                    {isEditMode && is_fully_approved && (
-                                        <a href={route('estimates.createInvoice.start', { estimate: estimate.id })}>
-                                            <Button type="button" className="bg-green-500 hover:bg-green-600">
-                                                請求書を発行する
+                                    {isEditMode && estimate.status === 'sent' && estimate.client_id && !estimate.mf_quote_id && (
+                                        <Button type="button" onClick={() => setOpenIssueMFQuoteConfirm(true)}>
+                                            マネーフォワードで見積書発行
+                                        </Button>
+                                    )}
+
+                                    {isEditMode && estimate.mf_quote_id && !estimate.mf_invoice_id && (
+                                        <Button type="button" onClick={() => setOpenConvertToInvoiceConfirm(true)}>
+                                            請求書に変換
+                                        </Button>
+                                    )}
+
+                                    {isEditMode && estimate.mf_quote_pdf_url && (
+                                        <a href={estimate.mf_quote_pdf_url} target="_blank" rel="noopener noreferrer">
+                                            <Button type="button">
+                                                MF見積書を確認
                                             </Button>
                                         </a>
                                     )}
+
+                                    {isEditMode && estimate.mf_invoice_pdf_url && (
+                                        <a href={estimate.mf_invoice_pdf_url} target="_blank" rel="noopener noreferrer">
+                                            <Button type="button">
+                                                請求書を確認
+                                            </Button>
+                                        </a>
+                                    )}
+
                                     {isEditMode && (
                                         <Button type="button" variant="destructive" onClick={handleDelete}>削除</Button>
                                     )}
@@ -941,6 +980,34 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                             </div>
                             <DialogFooter>
                                 <Button onClick={() => setOpenApprovalStarted(false)}>OK</Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* マネーフォワードで見積書発行 確認モーダル */}
+                    <Dialog open={openIssueMFQuoteConfirm} onOpenChange={setOpenIssueMFQuoteConfirm}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>マネーフォワードで見積書発行</DialogTitle>
+                                <DialogDescription>この見積からマネーフォワードで見積書を発行しますか？</DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter>
+                                <Button variant="secondary" onClick={() => setOpenIssueMFQuoteConfirm(false)}>キャンセル</Button>
+                                <Button onClick={handleIssueMFQuote}>発行する</Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* 請求書に変換 確認モーダル */}
+                    <Dialog open={openConvertToInvoiceConfirm} onOpenChange={setOpenConvertToInvoiceConfirm}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>請求書に変換</DialogTitle>
+                                <DialogDescription>この見積をマネーフォワードで請求書に変換しますか？</DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter>
+                                <Button variant="secondary" onClick={() => setOpenConvertToInvoiceConfirm(false)}>キャンセル</Button>
+                                <Button onClick={handleConvertToInvoice}>変換する</Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>

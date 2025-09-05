@@ -65,9 +65,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/estimates/{estimate}/edit', [App\Http\Controllers\EstimateController::class, 'edit'])->whereNumber('estimate')->name('estimates.edit');
     Route::post('/estimates/{estimate}/duplicate', [App\Http\Controllers\EstimateController::class, 'duplicate'])->whereNumber('estimate')->name('estimates.duplicate');
 
-    // Create Invoice from Estimate
-    Route::get('/estimates/{estimate}/create-invoice', [App\Http\Controllers\EstimateController::class, 'redirectToAuthForInvoiceCreation'])->name('estimates.createInvoice.start');
-    Route::get('/estimates/create-invoice/callback', [App\Http\Controllers\EstimateController::class, 'handleInvoiceCreationCallback'])->name('estimates.createInvoice.callback');
+    // Create Quote from Estimate
+    Route::get('/estimates/{estimate}/create-quote', [App\Http\Controllers\EstimateController::class, 'redirectToAuthForQuoteCreation'])->name('estimates.createQuote.start');
+    Route::get('/estimates/create-quote/callback', [App\Http\Controllers\EstimateController::class, 'handleQuoteCreationCallback'])->name('estimates.createQuote.callback');
+
+    // Convert Quote to Billing
+    Route::get('/estimates/{estimate}/convert-to-billing', [App\Http\Controllers\EstimateController::class, 'redirectToAuthForBillingConversion'])->name('estimates.convertToBilling.start');
+    Route::get('/estimates/convert-to-billing/callback', [App\Http\Controllers\EstimateController::class, 'handleBillingConversionCallback'])->name('estimates.convertToBilling.callback');
 
     // API routes moved outside auth for login page access
 
