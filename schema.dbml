@@ -1,0 +1,365 @@
+Table "approval_settings" {
+  "id" bigint [pk, not null, increment]
+  "default_flow" json [default: NULL]
+  "threshold_rules" json [default: NULL]
+  "remind_after_days" tinyint [not null, default: '3']
+  "remind_interval_days" tinyint [not null, default: '3']
+  "allow_delegate" tinyint(1) [not null, default: '1']
+  "allow_skip" tinyint(1) [not null, default: '0']
+  "admin_override" tinyint(1) [not null, default: '1']
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+}
+
+Table "billing_items" {
+  "id" varchar(255) [pk, not null]
+  "billing_id" varchar(255) [not null]
+  "name" varchar(255) [default: NULL]
+  "code" varchar(255) [default: NULL]
+  "detail" text
+  "unit" varchar(255) [default: NULL]
+  "price" decimal(15,2) [default: NULL]
+  "quantity" decimal(15,2) [default: NULL]
+  "is_deduct_withholding_tax" tinyint(1) [not null, default: '0']
+  "excise" varchar(255) [default: NULL]
+  "delivery_number" varchar(255) [default: NULL]
+  "delivery_date" date [default: NULL]
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+
+  Indexes {
+    billing_id [name: "billing_items_billing_id_foreign"]
+  }
+}
+
+Table "billings" {
+  "id" varchar(255) [pk, not null]
+  "pdf_url" varchar(255) [default: NULL]
+  "operator_id" varchar(255) [default: NULL]
+  "department_id" varchar(255) [default: NULL]
+  "member_id" varchar(255) [default: NULL]
+  "member_name" varchar(255) [default: NULL]
+  "partner_id" varchar(255) [default: NULL]
+  "partner_name" varchar(255) [default: NULL]
+  "office_id" varchar(255) [default: NULL]
+  "office_name" varchar(255) [default: NULL]
+  "office_detail" varchar(255) [default: NULL]
+  "title" varchar(255) [default: NULL]
+  "memo" text
+  "payment_condition" varchar(255) [default: NULL]
+  "billing_date" date [default: NULL]
+  "due_date" date [default: NULL]
+  "sales_date" date [default: NULL]
+  "billing_number" varchar(255) [default: NULL]
+  "note" text
+  "document_name" varchar(255) [default: NULL]
+  "payment_status" varchar(255) [default: NULL]
+  "email_status" varchar(255) [default: NULL]
+  "posting_status" varchar(255) [default: NULL]
+  "is_downloaded" tinyint(1) [not null, default: '0']
+  "is_locked" tinyint(1) [not null, default: '0']
+  "deduct_price" decimal(15,2) [default: NULL]
+  "tag_names" json [default: NULL]
+  "excise_price" decimal(15,2) [default: NULL]
+  "excise_price_of_untaxable" decimal(15,2) [default: NULL]
+  "excise_price_of_non_taxable" decimal(15,2) [default: NULL]
+  "excise_price_of_tax_exemption" decimal(15,2) [default: NULL]
+  "excise_price_of_five_percent" decimal(15,2) [default: NULL]
+  "excise_price_of_eight_percent" decimal(15,2) [default: NULL]
+  "excise_price_of_eight_percent_as_reduced_tax_rate" decimal(15,2) [default: NULL]
+  "excise_price_of_ten_percent" decimal(15,2) [default: NULL]
+  "subtotal_price" decimal(15,2) [default: NULL]
+  "subtotal_of_untaxable_excise" decimal(15,2) [default: NULL]
+  "subtotal_of_non_taxable_excise" decimal(15,2) [default: NULL]
+  "subtotal_of_tax_exemption_excise" decimal(15,2) [default: NULL]
+  "subtotal_of_five_percent_excise" decimal(15,2) [default: NULL]
+  "subtotal_of_eight_percent_excise" decimal(15,2) [default: NULL]
+  "subtotal_of_eight_percent_as_reduced_tax_rate_excise" decimal(15,2) [default: NULL]
+  "subtotal_of_ten_percent_excise" decimal(15,2) [default: NULL]
+  "subtotal_with_tax_of_untaxable_excise" decimal(15,2) [default: NULL]
+  "subtotal_with_tax_of_non_taxable_excise" decimal(15,2) [default: NULL]
+  "subtotal_with_tax_of_tax_exemption_excise" decimal(15,2) [default: NULL]
+  "subtotal_with_tax_of_five_percent_excise" decimal(15,2) [default: NULL]
+  "subtotal_with_tax_of_eight_percent_excise" decimal(15,2) [default: NULL]
+  "subtotal_with_tax_of_eight_percent_as_reduced_tax_rate_excise" decimal(15,2) [default: NULL]
+  "subtotal_with_tax_of_ten_percent_excise" decimal(15,2) [default: NULL]
+  "total_price" decimal(15,2) [default: NULL]
+  "registration_code" varchar(255) [default: NULL]
+  "use_invoice_template" tinyint(1) [not null, default: '0']
+  "config" json [default: NULL]
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+
+  Indexes {
+    billing_number [unique, name: "billings_billing_number_unique"]
+  }
+}
+
+Table "cache" {
+  "key" varchar(255) [pk, not null]
+  "value" mediumtext [not null]
+  "expiration" int [not null]
+}
+
+Table "cache_locks" {
+  "key" varchar(255) [pk, not null]
+  "owner" varchar(255) [not null]
+  "expiration" int [not null]
+}
+
+Table "categories" {
+  "id" bigint [pk, not null, increment]
+  "name" varchar(255) [not null]
+  "code" varchar(255) [not null]
+  "last_item_seq" int [not null, default: '0']
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+
+  Indexes {
+    code [unique, name: "categories_code_unique"]
+  }
+}
+
+Table "company_settings" {
+  "id" bigint [pk, not null, increment]
+  "company_name" varchar(255) [not null]
+  "address" varchar(255) [default: NULL]
+  "phone" varchar(255) [default: NULL]
+  "email" varchar(255) [default: NULL]
+  "logo_path" varchar(255) [default: NULL]
+  "seal_path" varchar(255) [default: NULL]
+  "fiscal_year_start_month" tinyint [not null, default: '4']
+  "monthly_close_day" tinyint [not null, default: '31']
+  "post_close_lock_policy" varchar(255) [not null, default: 'soft']
+  "default_tax_rate" decimal(5,2) [not null, default: '10.00']
+  "tax_category_default" varchar(255) [not null, default: 'standard']
+  "calc_order" varchar(255) [not null, default: 'line_then_tax']
+  "rounding_subtotal" varchar(255) [not null, default: 'round']
+  "rounding_tax" varchar(255) [not null, default: 'round']
+  "rounding_total" varchar(255) [not null, default: 'round']
+  "unit_price_precision" tinyint [not null, default: '0']
+  "currency" varchar(255) [not null, default: 'JPY']
+  "estimate_number_format" varchar(255) [not null, default: 'EST-{staff}-{client}-{ydm}-{seq3}']
+  "draft_estimate_number_format" varchar(255) [not null, default: 'EST-D-{staff}-{client}-{ydm}-{seq3}']
+  "sequence_reset_rule" varchar(255) [not null, default: 'daily']
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+}
+
+Table "estimates" {
+  "id" bigint [pk, not null, increment]
+  "customer_name" varchar(255) [default: NULL]
+  "client_id" varchar(255) [default: NULL]
+  "mf_department_id" varchar(255) [default: NULL]
+  "title" varchar(255) [default: NULL]
+  "issue_date" date [default: NULL]
+  "due_date" date [default: NULL]
+  "status" varchar(255) [not null, default: 'draft']
+  "mf_quote_id" varchar(255) [default: NULL]
+  "mf_quote_pdf_url" varchar(255) [default: NULL]
+  "mf_invoice_id" varchar(255) [default: NULL]
+  "total_amount" int [default: NULL]
+  "tax_amount" int [default: NULL]
+  "notes" text
+  "internal_memo" text
+  "delivery_location" text
+  "estimate_number" varchar(255) [not null]
+  "items" json [default: NULL]
+  "approval_flow" json [default: NULL]
+  "approval_started" tinyint(1) [not null, default: '0']
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+  "staff_id" bigint [default: NULL]
+  "staff_name" varchar(255) [default: NULL]
+
+  Indexes {
+    estimate_number [unique, name: "estimates_estimate_number_unique"]
+    staff_id [name: "estimates_staff_id_foreign"]
+  }
+}
+
+Table "failed_jobs" {
+  "id" bigint [pk, not null, increment]
+  "uuid" varchar(255) [not null]
+  "connection" text [not null]
+  "queue" text [not null]
+  "payload" longtext [not null]
+  "exception" longtext [not null]
+  "failed_at" timestamp [not null, default: `CURRENT_TIMESTAMP`]
+
+  Indexes {
+    uuid [unique, name: "failed_jobs_uuid_unique"]
+  }
+}
+
+Table "job_batches" {
+  "id" varchar(255) [pk, not null]
+  "name" varchar(255) [not null]
+  "total_jobs" int [not null]
+  "pending_jobs" int [not null]
+  "failed_jobs" int [not null]
+  "failed_job_ids" longtext [not null]
+  "options" mediumtext
+  "cancelled_at" int [default: NULL]
+  "created_at" int [not null]
+  "finished_at" int [default: NULL]
+}
+
+Table "jobs" {
+  "id" bigint [pk, not null, increment]
+  "queue" varchar(255) [not null]
+  "payload" longtext [not null]
+  "attempts" tinyint [not null]
+  "reserved_at" int [default: NULL]
+  "available_at" int [not null]
+  "created_at" int [not null]
+
+  Indexes {
+    queue [name: "jobs_queue_index"]
+  }
+}
+
+Table "local_invoices" {
+  "id" bigint [pk, not null, increment]
+  "estimate_id" bigint [default: NULL]
+  "customer_name" varchar(255) [default: NULL]
+  "client_id" varchar(255) [default: NULL]
+  "department_id" varchar(255) [default: NULL]
+  "title" varchar(255) [default: NULL]
+  "billing_number" varchar(255) [default: NULL]
+  "billing_date" date [default: NULL]
+  "due_date" date [default: NULL]
+  "notes" text
+  "items" json [default: NULL]
+  "total_amount" int [not null, default: '0']
+  "tax_amount" int [not null, default: '0']
+  "staff_id" bigint [default: NULL]
+  "staff_name" varchar(255) [default: NULL]
+  "status" varchar(255) [not null, default: 'draft']
+  "mf_billing_id" varchar(255) [default: NULL]
+  "mf_pdf_url" varchar(255) [default: NULL]
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+
+  Indexes {
+    billing_number [unique, name: "local_invoices_billing_number_unique"]
+  }
+}
+
+Table "mf_tokens" {
+  "id" bigint [pk, not null, increment]
+  "user_id" bigint [not null]
+  "access_token" text [not null]
+  "refresh_token" text [not null]
+  "expires_at" timestamp [not null]
+  "scope" varchar(255) [default: NULL]
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+
+  Indexes {
+    user_id [unique, name: "mf_tokens_user_id_unique"]
+  }
+}
+
+Table "migrations" {
+  "id" int [pk, not null, increment]
+  "migration" varchar(255) [not null]
+  "batch" int [not null]
+}
+
+Table "partners" {
+  "id" bigint [pk, not null, increment]
+  "mf_partner_id" varchar(255) [not null]
+  "code" varchar(255) [default: NULL]
+  "name" varchar(255) [default: NULL]
+  "payload" json [default: NULL]
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+
+  Indexes {
+    mf_partner_id [unique, name: "partners_mf_partner_id_unique"]
+  }
+}
+
+Table "password_reset_tokens" {
+  "email" varchar(255) [pk, not null]
+  "token" varchar(255) [not null]
+  "created_at" timestamp [default: NULL]
+}
+
+Table "products" {
+  "id" bigint [pk, not null, increment]
+  "category_id" bigint [not null]
+  "mf_id" varchar(255) [default: NULL]
+  "code" varchar(255) [not null]
+  "seq" int [default: NULL]
+  "name" varchar(255) [not null]
+  "unit" varchar(255) [not null, default: '式']
+  "price" decimal(15,2) [not null, default: '0.00']
+  "quantity" decimal(15,2) [default: NULL]
+  "cost" int [not null, default: '0']
+  "tax_category" varchar(255) [not null, default: 'standard']
+  "is_deduct_withholding_tax" tinyint(1) [default: NULL]
+  "is_active" tinyint(1) [not null, default: '1']
+  "description" text
+  "attributes" json [default: NULL]
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+  "mf_updated_at" timestamp [default: NULL]
+
+  Indexes {
+    code [unique, name: "products_sku_unique"]
+    mf_id [unique, name: "products_mf_id_unique"]
+    (category_id, seq) [unique, name: "products_category_id_seq_unique"]
+  }
+}
+
+Table "sessions" {
+  "id" varchar(255) [pk, not null]
+  "user_id" bigint [default: NULL]
+  "ip_address" varchar(45) [default: NULL]
+  "user_agent" text
+  "payload" longtext [not null]
+  "last_activity" int [not null]
+
+  Indexes {
+    user_id [name: "sessions_user_id_index"]
+    last_activity [name: "sessions_last_activity_index"]
+  }
+}
+
+Table "settings_permissions" {
+  "id" bigint [pk, not null, increment]
+  "user_id" bigint [not null]
+  "role" varchar(255) [not null, default: 'viewer']
+  "can_access" tinyint(1) [not null, default: '0']
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+
+  Indexes {
+    user_id [unique, name: "settings_permissions_user_id_unique"]
+  }
+}
+
+Table "users" {
+  "id" bigint [pk, not null, increment]
+  "external_user_id" varchar(255) [default: NULL]
+  "name" varchar(255) [not null]
+  "email" varchar(255) [not null]
+  "email_verified_at" timestamp [default: NULL]
+  "password" varchar(255) [not null]
+  "remember_token" varchar(100) [default: NULL]
+  "created_at" timestamp [default: NULL]
+  "updated_at" timestamp [default: NULL]
+
+  Indexes {
+    email [unique, name: "users_email_unique"]
+    external_user_id [name: "users_external_user_id_index"]
+  }
+}
+
+Ref "billing_items_billing_id_foreign":"billings"."id" < "billing_items"."billing_id" [delete: cascade]
+
+Ref "mf_tokens_user_id_foreign":"users"."id" < "mf_tokens"."user_id" [delete: cascade]
+
+Ref "settings_permissions_user_id_foreign":"users"."id" < "settings_permissions"."user_id" [delete: cascade]

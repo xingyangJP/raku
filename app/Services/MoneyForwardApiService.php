@@ -3,8 +3,14 @@
 namespace App\Services;
 
 use App\Models\Estimate;
+use App\Models\LocalInvoice;
+use App\Models\MfToken;
+use App\Models\User;
 use GuzzleHttp\Client;
+use GuzzleHttp\Exception\RequestException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
 
 class MoneyForwardApiService
 {
@@ -25,10 +31,7 @@ class MoneyForwardApiService
         $this->redirectUri = config('services.money_forward.redirect_uri');
     }
 
-    // This is a placeholder. A proper implementation would require a robust way
-    // to get a valid token, likely involving refresh tokens and persistent storage.
-    // For now, this will require a new authorization code for each use.
-    public function getAccessToken($code)
+    public function getAccessTokenFromCode(string $code, string $redirectUri): ?array
     {
         try {
             $response = $this->client->post($this->tokenUrl, [
@@ -36,17 +39,84 @@ class MoneyForwardApiService
                     'grant_type' => 'authorization_code',
                     'client_id' => $this->clientId,
                     'client_secret' => $this->clientSecret,
-                    'redirect_uri' => $this->redirectUri,
+                    'redirect_uri' => $redirectUri,
                     'code' => $code,
                 ],
             ]);
 
-            return json_decode($response->getBody()->getContents())->access_token;
+            return json_decode($response->getBody()->getContents(), true);
         } catch (\Exception $e) {
-            Log::error('Failed to get Money Forward access token: ' . $e->getMessage());
+            Log::error('Failed to get Money Forward access token from code: ' . $e->getMessage());
             return null;
         }
     }
+
+    public function refreshAccessToken(string $refreshToken): ?array
+    {
+        try {
+            $response = $this->client->post($this->tokenUrl, [
+                'form_params' => [
+                    'grant_type' => 'refresh_token',
+                    'client_id' => $this->clientId,
+                    'client_secret' => $this->clientSecret,
+                    'refresh_token' => $refreshToken,
+                ],
+            ]);
+
+            return json_decode($response->getBody()->getContents(), true);
+        } catch (\Exception $e) {
+            Log::error('Failed to refresh Money Forward access token: ' . $e->getMessage());
+            // If refresh fails, the old token is likely invalid. The user needs to re-authenticate.
+            // Depending on the error, we might want to delete the stored token.
+            return null;
+        }
+    }
+
+    public function storeToken(array $tokenData, int $userId): void
+    {
+        MfToken::updateOrCreate(
+            ['user_id' => $userId],
+            [
+                'access_token' => $tokenData['access_token'],
+                'refresh_token' => $tokenData['refresh_token'],
+                'expires_at' => Carbon::now()->addSeconds($tokenData['expires_in'] - 60), // Subtract 60s buffer
+                'scope' => $tokenData['scope'],
+            ]
+        );
+    }
+
+    public function getValidAccessToken(?int $userId = null): ?string
+    {
+        $userId = $userId ?? Auth::id();
+        if (!$userId) {
+            return null;
+        }
+
+        $mfToken = MfToken::where('user_id', $userId)->first();
+
+        if (!$mfToken) {
+            return null; // No token, user needs to authorize
+        }
+
+        if ($mfToken->isExpired()) {
+            Log::info('MF token expired, attempting refresh.', ['user_id' => $userId]);
+            $newTokenData = $this->refreshAccessToken($mfToken->refresh_token);
+
+            if (!$newTokenData) {
+                Log::error('MF token refresh failed.', ['user_id' => $userId]);
+                // Optionally delete the invalid token
+                // $mfToken->delete();
+                return null; // Refresh failed, user needs to re-authorize
+            }
+
+            Log::info('MF token refresh successful.', ['user_id' => $userId]);
+            $this->storeToken($newTokenData, $userId);
+            return $newTokenData['access_token'];
+        }
+
+        return $mfToken->access_token;
+    }
+
 
     public function createInvoiceFromEstimate(Estimate $estimate, $accessToken)
     {
@@ -61,13 +131,17 @@ class MoneyForwardApiService
             ];
         }
 
+        // Safely resolve dates (fallbacks if null)
+        $issue = $estimate->issue_date ? Carbon::parse($estimate->issue_date) : Carbon::now();
+        $due = $estimate->due_date ? Carbon::parse($estimate->due_date) : (clone $issue)->addMonth();
+
         $invoiceData = [
             'billing' => [
                 'partner_id' => $estimate->client_id,
                 'title' => $estimate->title,
-                'billing_date' => $estimate->issue_date->format('Y-m-d'),
-                'due_date' => $estimate->due_date->format('Y-m-d'),
-                'sales_date' => $estimate->issue_date->format('Y-m-d'), // Assuming sales date is same as issue date
+                'billing_date' => $issue->format('Y-m-d'),
+                'due_date' => $due->format('Y-m-d'),
+                'sales_date' => $issue->format('Y-m-d'), // Assuming sales date is same as issue date
                 'notes' => $estimate->notes,
                 'items' => $items,
             ]
@@ -90,6 +164,87 @@ class MoneyForwardApiService
         }
     }
 
+    public function createInvoiceFromLocal(LocalInvoice $invoice, $accessToken)
+    {
+        $items = [];
+        foreach (($invoice->items ?? []) as $item) {
+            // Map tax category to excise if provided; default to ten_percent
+            $excise = 'ten_percent';
+            if (isset($item['tax_category'])) {
+                switch ($item['tax_category']) {
+                    case 'reduced': $excise = 'eight_percent_as_reduced_tax_rate'; break;
+                    case 'exempt': $excise = 'untaxable'; break;
+                    case 'non_taxable': $excise = 'non_taxable'; break;
+                    case 'five_percent': $excise = 'five_percent'; break;
+                    case 'eight_percent': $excise = 'eight_percent'; break;
+                    case 'ten_percent': $excise = 'ten_percent'; break;
+                    default: $excise = 'ten_percent';
+                }
+            }
+            $mapped = [
+                'name' => $item['name'] ?? '',
+                'price' => $item['price'] ?? 0,
+                'quantity' => $item['qty'] ?? 1,
+                'unit' => $item['unit'] ?? '式',
+                'detail' => $item['description'] ?? '',
+            ];
+            if (empty($item['item_id'])) {
+                $mapped['excise'] = $excise;
+            } else {
+                $mapped['item_id'] = $item['item_id'];
+            }
+            $items[] = $mapped;
+        }
+
+        $issue = $invoice->billing_date ? Carbon::parse($invoice->billing_date) : Carbon::now();
+        $due = $invoice->due_date ? Carbon::parse($invoice->due_date) : (clone $issue)->addMonth();
+
+        // Build payload by BillingNewTemplateCreateRequest (top-level fields)
+        $payload = [
+            'partner_id' => $invoice->client_id,
+            'department_id' => $invoice->department_id,
+            'title' => $invoice->title,
+            'memo' => $invoice->notes,
+            'payment_condition' => null,
+            'billing_date' => $issue->format('Y-m-d'),
+            'due_date' => $due->format('Y-m-d'),
+            'sales_date' => $issue->format('Y-m-d'),
+            'billing_number' => $invoice->billing_number,
+            'note' => $invoice->notes,
+            'document_name' => '請求書',
+            'tag_names' => [],
+            'items' => $items,
+        ];
+
+        try {
+            $response = $this->client->post($this->apiUrl . '/invoice_template_billings', [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $accessToken,
+                    'Content-Type' => 'application/json',
+                ],
+                'json' => $payload,
+            ]);
+            return json_decode($response->getBody()->getContents(), true);
+        } catch (RequestException $e) {
+            $status = $e->getResponse() ? $e->getResponse()->getStatusCode() : null;
+            $body = $e->getResponse() ? (string) $e->getResponse()->getBody() : null;
+            Log::error('Failed to create Money Forward invoice (local): ' . $e->getMessage(), [
+                'status' => $status,
+                'response' => $body,
+                'payload' => $payload,
+            ]);
+            return [
+                'error_message' => $e->getMessage(),
+                'status' => $status,
+                'response' => $body,
+            ];
+        } catch (\Exception $e) {
+            Log::error('Failed to create Money Forward invoice (local): ' . $e->getMessage());
+            report($e);
+            return ['error_message' => $e->getMessage()];
+        }
+    }
+
     public function createQuoteFromEstimate(Estimate $estimate, $accessToken)
     {
         $items = [];
@@ -101,10 +256,10 @@ class MoneyForwardApiService
                         $excise = 'ten_percent';
                         break;
                     case 'reduced':
-                        $excise = 'eight_percent_as_reduced_tax_rate';
+                        $excise = 'eight_percent_reduced';
                         break;
                     case 'exempt':
-                        $excise = 'tax_exemption';
+                        $excise = 'untaxable';
                         break;
                 }
             }
@@ -119,21 +274,35 @@ class MoneyForwardApiService
             ];
         }
 
+        // Safely resolve dates (fallbacks if null)
+        $issue = $estimate->issue_date ? Carbon::parse($estimate->issue_date) : Carbon::now();
+        $expired = $estimate->due_date ? Carbon::parse($estimate->due_date) : (clone $issue)->addMonth();
+
+        if ($expired->lte($issue)) {
+            $expired = (clone $issue)->addMonth();
+        }
+
+        // Ensure quote_number length within MF limit (<= 30 chars)
+        $quoteNumber = $estimate->estimate_number;
+        if (is_string($quoteNumber) && strlen($quoteNumber) > 30) {
+            $quoteNumber = substr($quoteNumber, 0, 30);
+        }
+
         $quoteData = [
             'department_id' => $estimate->mf_department_id,
             'partner_id' => $estimate->client_id,
-            'quote_number' => $estimate->estimate_number,
+            'quote_number' => $quoteNumber,
             'title' => $estimate->title,
             'memo' => $estimate->internal_memo ?? '',
-            'quote_date' => $estimate->issue_date->format('Y-m-d'),
-            'expired_date' => $estimate->due_date->format('Y-m-d'),
+            'quote_date' => $issue->format('Y-m-d'),
+            'expired_date' => $expired->format('Y-m-d'),
             'note' => $estimate->notes,
             'document_name' => '見積書',
             'items' => $items,
         ];
 
         try {
-            $response = $this->client->post($this->apiUrl . '/api/v3/quotes', [
+            $response = $this->client->post($this->apiUrl . '/quotes', [
                 'headers' => [
                     'Authorization' => 'Bearer ' . $accessToken,
                     'Content-Type' => 'application/json',
@@ -142,17 +311,30 @@ class MoneyForwardApiService
             ]);
 
             return json_decode($response->getBody()->getContents(), true);
+        } catch (RequestException $e) {
+            $status = $e->getResponse() ? $e->getResponse()->getStatusCode() : null;
+            $body = $e->getResponse() ? (string) $e->getResponse()->getBody() : null;
+            Log::error('Failed to create Money Forward quote: ' . $e->getMessage(), [
+                'status' => $status,
+                'response' => $body,
+                'payload' => $quoteData,
+            ]);
+            return [
+                'error_message' => $e->getMessage(),
+                'status' => $status,
+                'response' => $body,
+            ];
         } catch (\Exception $e) {
             Log::error('Failed to create Money Forward quote: ' . $e->getMessage());
             report($e);
-            return null;
+            return ['error_message' => $e->getMessage()];
         }
     }
 
     public function convertQuoteToBilling($quoteId, $accessToken)
     {
         try {
-            $response = $this->client->post($this->apiUrl . "/api/v3/quotes/{$quoteId}/convert_to_billing", [
+            $response = $this->client->post($this->apiUrl . "/quotes/{$quoteId}/convert_to_billing", [
                 'headers' => [
                     'Authorization' => 'Bearer ' . $accessToken,
                     'Content-Type' => 'application/json',
@@ -165,5 +347,165 @@ class MoneyForwardApiService
             report($e);
             return null;
         }
+    }
+
+    public function fetchAllPartners(string $accessToken): array
+    {
+        $all = [];
+        $page = 1;
+        $perPage = 100;
+        try {
+            while (true) {
+                $url = $this->apiUrl . '/partners';
+                $response = $this->client->get($url, [
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . $accessToken,
+                        'Accept' => 'application/json',
+                    ],
+                    'query' => [
+                        'page' => $page,
+                        'per_page' => $perPage,
+                    ],
+                ]);
+                $status = $response->getStatusCode();
+                if ($status !== 200) {
+                    Log::error('MF partners fetch non-200', ['status' => $status]);
+                    break;
+                }
+                $body = json_decode($response->getBody()->getContents(), true);
+                $data = $body['data'] ?? [];
+                $pagination = $body['pagination'] ?? ['current_page' => $page, 'total_pages' => $page];
+
+                foreach ($data as $p) { $all[] = $p; }
+
+                if (($pagination['current_page'] ?? $page) >= ($pagination['total_pages'] ?? $page)) {
+                    break;
+                }
+                $page++;
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch Money Forward partners: ' . $e->getMessage());
+            report($e);
+        }
+        return $all;
+    }
+
+    public function fetchPartnerDetail(string $partnerId, string $accessToken): ?array
+    {
+        try {
+            $response = $this->client->get($this->apiUrl . "/partners/{$partnerId}", [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $accessToken,
+                    'Accept' => 'application/json',
+                ],
+            ]);
+            if ($response->getStatusCode() !== 200) {
+                Log::warning('MF partner detail non-200', ['id' => $partnerId, 'status' => $response->getStatusCode()]);
+                return null;
+            }
+            $body = json_decode($response->getBody()->getContents(), true);
+            // Some APIs wrap data; handle both
+            return $body['data'] ?? $body;
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch Money Forward partner detail: ' . $e->getMessage(), ['id' => $partnerId]);
+            report($e);
+            return null;
+        }
+    }
+
+    public function getItems(string $accessToken, array $query = []): array
+    {
+        $allItems = [];
+        $page = 1;
+        $perPage = 100;
+
+        try {
+            while (true) {
+                $response = $this->client->get($this->apiUrl . '/items', [
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . $accessToken,
+                        'Accept' => 'application/json',
+                    ],
+                    'query' => array_merge($query, [
+                        'page' => $page,
+                        'per_page' => $perPage,
+                    ]),
+                ]);
+
+                if ($response->getStatusCode() !== 200) {
+                    Log::error('Money Forward items fetch failed with status: ' . $response->getStatusCode());
+                    break;
+                }
+
+                $body = json_decode($response->getBody()->getContents(), true);
+                $data = $body['data'] ?? [];
+                $pagination = $body['pagination'] ?? [];
+
+                $allItems = array_merge($allItems, $data);
+
+                if (empty($pagination) || $pagination['current_page'] >= $pagination['total_pages']) {
+                    break;
+                }
+
+                $page++;
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch Money Forward items: ' . $e->getMessage());
+            report($e);
+        }
+
+        return $allItems;
+    }
+
+    public function createItem(string $accessToken, array $data): ?array
+    {
+        try {
+            $response = $this->client->post($this->apiUrl . '/items', [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $accessToken,
+                    'Content-Type' => 'application/json',
+                ],
+                'json' => $data,
+            ]);
+
+            return json_decode($response->getBody()->getContents(), true);
+        } catch (RequestException $e) {
+            $this->logRequestException($e, 'create');
+            return null;
+        }
+    }
+
+    public function updateItem(string $accessToken, string $itemId, array $data): ?array
+    {
+        try {
+            $response = $this->client->put($this->apiUrl . "/items/{$itemId}", [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $accessToken,
+                    'Content-Type' => 'application/json',
+                ],
+                'json' => $data,
+            ]);
+
+            return json_decode($response->getBody()->getContents(), true);
+        } catch (RequestException $e) {
+            if ($e->hasResponse() && $e->getResponse()->getStatusCode() === 404) {
+                return ['error' => 'not_found']; // Special return for 404
+            }
+            $this->logRequestException($e, 'update');
+            return null;
+        }
+    }
+
+    private function logRequestException(RequestException $e, string $action): void
+    {
+        $response = $e->getResponse();
+        $statusCode = $response ? $response->getStatusCode() : 'N/A';
+        $responseBody = $response ? $response->getBody()->getContents() : 'N/A';
+
+        Log::error("Failed to {$action} Money Forward item", [
+            'statusCode' => $statusCode,
+            'response' => $responseBody,
+            'request' => $e->getRequest(),
+        ]);
     }
 }

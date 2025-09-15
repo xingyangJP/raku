@@ -1,257 +1,67 @@
-# ラクシルcloud
-[xero@sv867 raku]$ curl --version
-curl 7.29.0 (x86_64-redhat-linux-gnu) libcurl/7.29.0 NSS/3.53.1 zlib/1.2.7 libidn/1.28 libssh2/1.8.0
-Protocols: dict file ftp ftps gopher http https imap imaps ldap ldaps pop3 pop3s rtsp scp sftp smtp smtps telnet tftp 
-Features: AsynchDNS GSS-Negotiate IDN IPv6 Largefile NTLM NTLM_WB SSL libz unix-sockets 
-[xero@sv867 raku]$ composer -V
-Composer version 1.9.1 2019-11-01 17:20:17
-[xero@sv867 raku]$ 
+# RAKUSHIRU Cloud – 全体仕様（最新版）
 
+**概要**
+- 目的: 見積→MF見積作成→請求へ変換、ローカル請求→MF請求作成、請求一覧の取得/表示を実装。
+- 認証: MoneyForward OAuth2（Authorization Code）。アクセストークンは都度取得（簡易実装）。
+- 前提: 取引先と部門はMFに存在し、パートナー同期でローカルDBへ保存済み。
 
-PHP8.0.x(CGI)	/usr/bin/php8.0-cgi 又は /usr/bin/php-fcgi8.0
-PHP8.0.x(CLI)	/usr/bin/php8.0
-## 外部API
-https://api.xerographix.co.jp/public/docs/#introduction
-## 顧客情報
-Example request:
-const url = new URL(
-    "https://api.xerographix.co.jp/api/customers"
-);
+**環境変数**
+- MONEY_FORWARD_CLIENT_ID / MONEY_FORWARD_CLIENT_SECRET: MFアプリのクレデンシャル。
+- MONEY_FORWARD_QUOTE_SCOPE: 既定 `mfc/invoice/data.write`。
+- MONEY_FORWARD_BILLING_REDIRECT_URI: `http://localhost:8000/callback`。
+- MONEY_FORWARD_PARTNER_REDIRECT_URI: `http://localhost:8000/mf/partners/callback`。
+- MONEY_FORWARD_ESTIMATE_REDIRECT_URI: `http://localhost:8000/estimates/create-quote/callback`。
+- MONEY_FORWARD_CONVERT_REDIRECT_URI: `http://localhost:8000/estimates/convert-to-billing/callback`。
+- MONEY_FORWARD_QUOTE_VIEW_REDIRECT_URI: `http://localhost:8000/estimates/view-quote/callback`。
+- MONEY_FORWARD_INVOICE_REDIRECT_URI: `http://localhost:8000/invoices/send/callback`。
 
-const headers = {
-    "Authorization": "Bearer {YOUR_AUTH_KEY}",
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-};
+**MF 開発者ポータルに登録する Redirect URI**
+- `http://localhost:8000/callback`
+- `http://localhost:8000/estimates/create-quote/callback`
+- `http://localhost:8000/estimates/convert-to-billing/callback`
+- `http://localhost:8000/estimates/view-quote/callback`
+- `http://localhost:8000/mf/partners/callback`
+- `http://localhost:8000/invoices/send/callback`
 
-fetch(url, {
-    method: "GET",
-    headers,
-}).then(response => response.json());
+**主要フロー**
+- 見積→MF見積作成: `GET /estimates/{estimate}/create-quote` → コールバックでトークン交換→ `POST /quotes`。
+- 見積→請求へ変換: `GET /estimates/{estimate}/convert-to-billing` → `POST /quotes/{id}/convert_to_billing`。
+- 見積PDF表示: `GET /estimates/{estimate}/view-quote` → コールバックでPDFストリーム。
+- ローカル請求→MF請求作成: `GET /invoices/{invoice}/send` → `POST /invoice_template_billings`。
+- 請求PDF表示（ローカル）: `GET /invoices/{invoice}/view-pdf` → コールバックでPDFストリーム。
+- パートナー同期（取引先+部門）: `GET /mf/partners/start` → 一覧取得→詳細でdepartmentsをpayload保存。
 
-## 自社スタッフ情報（担当者）
-Example request:
-const url = new URL(
-    "https://api.xerographix.co.jp/api/users"
-);
+**UI 仕様（抜粋）**
+- 見積編集: 下部アクションに「マネーフォワードで見積書発行」「請求へ変換」「PDF表示」。PDFは `mf_quote_id` がある時のみ表示。
+- 見積一覧: 行メニューから「PDF表示」（`mf_quote_id` がある時のみ）。旧「プレビュー」は廃止。
+- 請求編集: 「MF未生成」→送信→生成後は「PDF」。
+- 請求一覧: ローカル請求は `mf_billing_id` 有無で「PDF」/「MF未生成」を表示。
 
-const headers = {
-    "Authorization": "Bearer {YOUR_AUTH_KEY}",
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-};
+**バックエンド要点**
+- 見積作成時: `client_id` と `mf_department_id` をMFのpartner detailで検証し、不整合は自動補修。
+- ローカル請求送信時: `department_id` をpartner detailで検証し、自動補修。
+- OAuth state: フロー毎に別キーで保存/検証/クリア（例: `mf_quote_oauth_state`, `mf_quote_pdf_state`, `mf_invoice_oauth_state`, `mf_invoice_pdf_state`）。
+- エラーハンドリング: 422 などの `error_description` をUIに表示。リクエスト/レスポンスはサーバログに出力。
 
-fetch(url, {
-    method: "GET",
-    headers,
-}).then(response => response.json());
+**主なエンドポイント（サーバ）**
+- 見積: `routes/web.php:36`、`app/Http/Controllers/EstimateController.php`。
+- 請求（ローカル）: `routes/web.php:41`、`app/Http/Controllers/LocalInvoiceController.php`。
+- 請求一覧＋MF取得: `app/Http/Controllers/BillingController.php`、`resources/js/Pages/Billing/Index.jsx`。
+- 取引先API: `app/Http/Controllers/ApiController.php:87`（疑似部門IDのフォールバック無し）。
 
-## 進捗
+**Seeder / データ**
+- 既定では `DevDemoSeeder` を使用（疑似部門IDは投入しない）。
+- 最新仕様に合うフィクスチャ駆動Seederは追加可能（`database/seeders/data/*.json` からアップサート）。
+- 実行: `php artisan migrate:fresh --seed`。
 
-未完成モックリスト:
+**運用チェックリスト**
+- `.env` のクレデンシャルと各 Redirect URI が正しい。
+- MFポータルに全てのリダイレクトURIを登録済み。
+- ダッシュボードで「取引先同期」を実行し、部門がpayloadに入っている。
+- 見積/請求実行時に 422 が出る場合は department を要確認（MF側で部門作成→同期）。
 
-一覧画面（/estimates）（未完）
+**補足**
+- 認可URL/トークンURL: `https://api.biz.moneyforward.com/authorize` / `https://api.biz.moneyforward.com/token`。
+- APIベースURL: `https://invoice.moneyforward.com/api/v3`。
+- UIは shadcn/ui + Inertia React。旧「プレビュー」機能は廃止済み。
 
-上部バー
-フィルタ機能
-一覧テーブル
-右ドロワー詳細
-見積作成・編集画面（/estimates/create, /estimates/{id}/edit）（部分的に実装済み）
-
-社内/社外ビュー切り替え
-品目マスター連携
-原価・粗利分析 改善が必要な項目:
-詳細テキストボックスの幅
-数量フィールドの3桁制限
-単位フィールドの3文字制限
-原価・粗利分析の表示形式
-PDFプレビュー画面（未完）
-
-モックはあるが実装はこれから
-設定画面（/settings/rates）（未完）
-
-人日単価マスター
-職位/グレード設定
-計算ルール設定
-未完成機能リスト:
-
-データ管理機能
-
-バージョン管理システム（未完）
-変更履歴の記録と表示（未完）
-添付ファイル管理（未完）
-計算機能
-
-人日計算システム（未完）
-自動原価計算（部分的に実装済み）
-税率計算（部分的に実装済み）
-ワークフロー機能
-
-承認システム（未完）
-ステータス管理（未完）
-通知システム（未完）
-出力機能
-
-PDF生成（未完）
-Excel/CSVエクスポート（未完）
-メール送信機能（未完）
-セキュリティ機能
-
-権限管理システム（未完）
-監査ログ記録（未完）
-社内/社外ビューの完全分離（部分的に実装済み）
-マスターデータ管理
-
-品目マスター（部分的に実装済み）
-顧客マスター（部分的に実装済み）
-単価マスター（未完）
-UI/UX機能
-
-キーボードショートカット（未完）
-ドラッグ&ドロップ操作（未完）
-リアルタイムバリデーション（部分的に実装済み）
-テンプレート機能
-
-見積テンプレートの保存と読み込み（未完）
-行セットのテンプレート化（未完）
-インテグレーション
-
-受注システムとの連携（未完）
-案件管理システムとの連携（未完）
-パフォーマンス最適化
-
-大量データの効率的な処理（未完）
-キャッシュ戦略の実装（未完）
-
-## 概要
-
-Rakuは、企業の日常業務を効率化するための統合業務管理システムです。売上、入金、請求、在庫、商品、見積もりといった主要な業務プロセスを一元的に管理し、ビジネス運営の効率と透明性を向上させます。
-
-## 主要機能
-
--   **売上管理**: 顧客からの注文や売上データを記録・追跡します。
--   **入金管理**: 顧客からの入金情報を管理し、売掛金との照合をサポートします。
--   **請求・売掛管理**: 請求書の発行から売掛金の管理まで、請求サイクル全体をカバーします。
--   **在庫管理**: 商品の入出庫、現在の在庫状況をリアルタイムで把握します。
--   **商品管理**: 取り扱い商品の詳細情報、価格、カテゴリなどを一元管理します。
--   **見積管理**: 顧客への見積書作成と管理を行います。
-
-## 技術スタック
-
-本プロジェクトは以下の技術スタックで構築されています。
-
-### バックエンド
-
--   **Laravel**: PHP製のWebアプリケーションフレームワーク。堅牢なMVCアーキテクチャと豊富な機能を提供します。
-
-### フロントエンド
-
--   **React**: UI構築のためのJavaScriptライブラリ。コンポーネントベースのアプローチで、再利用性の高いUIを開発します。
--   **Inertia.js**: モダンなシングルページアプリケーション（SPA）を構築するためのアダプター。LaravelとReact（またはVue.js/Svelte）をシームレスに連携させます。
--   **Vite**: 高速な開発サーバーとビルドツール。モダンなJavaScriptプロジェクトのフロントエンド開発を効率化します。
-
-### スタイル/CSS
-
--   **Tailwind CSS**: ユーティリティファーストのCSSフレームワーク。HTML内で直接CSSクラスを記述することで、高速かつ柔軟なUIスタイリングを可能にします。
--   **PostCSS**: CSSの変換ツール。Tailwind CSSの処理や、ベンダープレフィックスの自動付与などに使用されます。
-デザインはtailwindでスタイルを構成しモダンなUIにする
-https://ui.shadcn.com/docs/installation/laravel
-https://ui.shadcn.com/docs/installation/laravel
-
-## 画面モック作成ガイド
-
-画面モックを効率的かつ安定して作成するために、以下のガイドラインに従ってください。
-
-### UIコンポーネントについて
-
-このプロジェクトのUIコンポーネントは、[shadcn/ui](https://ui.shadcn.com/) をベースにしています。モダンで一貫性のあるUIを構築するために、可能な限り既存のコンポーネントを再利用してください。
-
-### 新規コンポーネントの追加
-
-新しいUIコンポーネントが必要になった場合、以下の手順で追加します。
-
-1.  **既存コンポーネントの確認**:
-    まず、`resources/js/Components/ui` ディレクトリに必要なコンポーネントが既に存在しないか確認してください。
-
-2.  **依存関係のインストール**:
-    `shadcn/ui` のコンポーネントは、多くの場合 `@radix-ui` のライブラリに依存しています。`package.json` を確認し、必要な `@radix-ui` のパッケージ（例: `@radix-ui/react-select`）がインストールされているか確認してください。不足している場合は、`npm install` で追加します。
-
-3.  **コンポーнентファイルの作成**:
-    `shadcn/ui` のドキュメントを参考に、対応するコンポーネントのソースコードを取得し、`resources/js/Components/ui` ディレクトリに `.tsx` ファイルとして作成します。
-
-    **コマンド例**:
-    `shadcn/ui` のCLIが利用できる環境であれば、以下のコマンドでコンポーネントを自動的に追加できます。
-    ```bash
-    npx shadcn-ui@latest add [component_name]
-    ```
-
-### エラー発生時のトラブルシューティング
-
-モック作成中に `500 Internal Server Error` が発生した場合、以下の点を確認してください。
-
--   **Viteのエラーメッセージ**: ブラウザの開発者ツールコンソールに表示されるViteのエラーメッセージを確認します。`Failed to resolve import` のようなエラーが出ている場合、コンポーネントのインポートパスが間違っているか、ファイル自体が存在しない可能性があります。
--   **依存関係の不足**: 新しく追加したコンポーネントが依存するライブラリ（特に `@radix-ui`）がインストールされているか `package.json` で確認してください。
--   **サーバーサイドのエラー**: `storage/logs/laravel.log` を確認し、Laravel側でエラーが発生していないか確認します。（`.env` の `APP_DEBUG` が `true` になっていることを確認してください）
-
-
-## 最近の更新
-
-### 新機能追加
-
--   **入金管理ページ**: 入金データの登録、一覧表示、管理機能を追加しました。
--   **請求・売掛管理ページ**: 請求書情報と売掛金の詳細な管理機能を提供します。
--   **商品管理ページ**: 商品情報の追加、編集、削除機能を提供します。
--   **見積管理ページ**: 見積書の作成、追跡、管理機能を追加しました。
-
-### UI/UX改善
-
--   **検索エリアのデザイン統一**: 入金管理ページの検索エリアを、請求・売掛管理ページと同様のアコーディオンデザインに統一しました。これにより、ユーザーインターフェースの一貫性が向上し、より直感的な操作が可能になりました。
--   **承認申請モーダルのUI改善**:
-    -   承認申請モーダルで「申請する」ボタンを押すと、モーダルを閉じずに処理を開始します。
-    -   処理中は「申請する」ボタンが「申請中...」に変わり、無効化されます。
-    -   申請が成功すると、モーダルのフッター左側に「承認申請を開始しました」と赤文字で表示され、「申請する」ボタンは無効なままになります。
-    -   エラーが発生した場合は、「エラーが発生しました。」と表示され、再度申請を試みることができます。
-
-### コード品質向上
-
--   **インポート構文の修正**: 一部のJavaScriptファイル（例: `resources/js/Pages/Deposits/Index.jsx`）で発生していたインポート構文のエラー（`=>`の誤用）を修正し、コードの安定性と保守性を高めました。
-
-## インストール
-
-1.  Composerの依存関係をインストールします。
-    ```bash
-    composer install
-    ```
-2.  Node.jsの依存関係をインストールします。
-    ```bash
-    npm install
-    ```
-3.  `.env`ファイルを適切に設定します。
-    ```bash
-    cp .env.example .env
-    php artisan key:generate
-    # データベース設定など
-    ```
-4.  データベースマイグレーションを実行します。
-    ```bash
-    php artisan migrate
-    ```
-5.  （オプション）初期データをシーディングします。
-    ```bash
-    php artisan db:seed
-    ```
-6.  フロントエンドアセットをビルドまたは開発モードで実行します。
-    ```bash
-    npm run dev
-    # または本番環境向けに
-    # npm run build
-    ```
-7.  Laravel開発サーバーを起動します。
-    ```bash
-    php artisan serve
-    ```
-
-## 使い方
-
-ブラウザで `http://localhost:8000` にアクセスしてシステムをご利用ください。
-本番環境URL: `https://sales.xerographix.co.jp/`

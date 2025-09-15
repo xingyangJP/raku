@@ -1,0 +1,3541 @@
+openapi: 3.1.0
+x-stoplight:
+  id: 1ho22pl6hug83
+info:
+  title: Money Forward Invoice API
+  version: 3.5.0
+  summary: Money Forward Invoice API
+  description: |-
+    ### マネーフォワード クラウド請求書APIについて
+    https://biz.moneyforward.com/support/invoice/guide/api-guide/a03.html
+    ### マネーフォワード クラウド請求書API v3 スタートアップガイド
+    https://biz.moneyforward.com/support/invoice/guide/api-guide/a04.html
+servers:
+  - url: /api/v3
+paths:
+  /office:
+    parameters: []
+    get:
+      summary: Get my office
+      description: 事業者情報の取得
+      tags:
+        - Office
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Office'
+              examples:
+                if-corporation-office:
+                  $ref: '#/components/examples/CorporationOffice'
+                if-individual-office:
+                  $ref: '#/components/examples/IndividualOffice'
+        '404':
+          description: Not Found
+      operationId: get-office
+    put:
+      summary: Update my office
+      description: 事業者情報の更新
+      operationId: put-office
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Office'
+              examples:
+                if-corporation-office:
+                  $ref: '#/components/examples/CorporationOffice'
+                if-individual-office:
+                  $ref: '#/components/examples/IndividualOffice'
+        '400':
+          description: Bad Request
+      requestBody:
+        $ref: '#/components/requestBodies/OfficeUpdateRequest'
+      tags:
+        - Office
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  /office/registration_code:
+    put:
+      summary: Update registration code of my office
+      description: 適格請求書発行事業者番号の作成・更新
+      operationId: put-office-registration-code
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registration_code:
+                    type: string
+                required:
+                  - registration_code
+              examples:
+                Example:
+                  value:
+                    registration_code: T1234567890123
+        '400':
+          description: Bad Request
+      tags:
+        - Office
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                registration_code:
+                  type: string
+                  pattern: '/^T\d{13}$/'
+              required:
+                - registration_code
+            examples: {}
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+    delete:
+      summary: Delete registration code of my office
+      description: 適格請求書発行事業者番号の削除
+      operationId: delete-office-registration_code
+      responses:
+        '204':
+          description: OK
+      tags:
+        - Office
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  /partners:
+    get:
+      summary: Get partners
+      description: 取引先一覧の取得
+      tags:
+        - Partner
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Partner'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationData'
+                required:
+                  - data
+                  - pagination
+              examples:
+                Example:
+                  value:
+                    data:
+                      - id: 95PHKI9_FeSw3coTj673Cg
+                        code: p41uz1dyvw3cj71qrkja
+                        name: Ryu p41uz1dyvw3cj71qrkja
+                        name_kana: p41uz1dyvw3cj71qrkja
+                        name_suffix: 御中
+                        memo: p41uz1dyvw3cj71qrkja
+                        created_at: '2023-03-20 13:39:28 +0900'
+                        updated_at: '2023-03-20 13:39:28 +0900'
+                        departments:
+                          - id: qwc4iT7ZrywxipJCOqtZQg
+                            zip: 123-4567
+                            tel: '1234567'
+                            prefecture: 山形県
+                            address1: hb3m8kaxz9eex1czmpn2
+                            address2: hb3m8kaxz9eex1czmpn2
+                            person_name: hb3m8kaxz9eex1czmpn2
+                            person_title: hb3m8kaxz9eex1czmpn2
+                            person_dept: hb3m8kaxz9eex1czmpn2
+                            email: hb3m8kaxz9eex1czmpn2@moneyforward.com
+                            cc_emails: hb3m8kaxz9eex1czmpn2@moneyforward.com
+                            peppol_id: '0088:0000000000001'
+                            office_member_name: hb3m8kaxz9eex1czmpn2
+                            office_member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+                            created_at: '2023-03-20 13:44:52 +0900'
+                            updated_at: '2023-03-20 13:44:52 +0900'
+                    pagination:
+                      total_count: 3
+                      total_pages: 3
+                      per_page: 1
+                      current_page: 3
+      operationId: get-partners
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: name
+          description: >-
+            Partner name, it can be specified multiple value by separating them
+            with a comma.
+        - schema:
+            type: string
+          in: query
+          name: code
+          description: >-
+            Partner code, it can be specified multiple value by separating them
+            with a comma.
+        - schema:
+            type: string
+          in: query
+          name: name_kana
+          description: >-
+            Name of partner with katakana, it can be specified multiple value by
+            separating them with a comma.
+        - schema:
+            type: string
+          in: query
+          name: partner_pic
+          description: >-
+            Name of a person in charge of the partner, it can be specified
+            multiple value by separating them with a comma.
+        - schema:
+            type: string
+          in: query
+          name: office_pic
+          description: >-
+            Office member's name in charge of the department, it can be
+            specified multiple value by separating them with a comma.
+        - schema:
+            type: integer
+            minimum: 1
+          in: query
+          name: page
+          description: 'default: 1'
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          in: query
+          name: per_page
+          description: 'default: 100'
+    post:
+      summary: Create new partner
+      description: 取引先の作成
+      operationId: post-partners
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Partner'
+              examples:
+                Example:
+                  $ref: '#/components/examples/PartnerWithDepartment'
+        '400':
+          description: Bad Request
+      requestBody:
+        $ref: '#/components/requestBodies/PartnerCreateRequest'
+      tags:
+        - Partner
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/partners/{partner_id}':
+    parameters:
+      - schema:
+          type: string
+        name: partner_id
+        in: path
+        required: true
+    get:
+      summary: Get a partner
+      description: 取引先の取得
+      tags:
+        - Partner
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Partner'
+              examples:
+                with-departments:
+                  $ref: '#/components/examples/PartnerWithDepartment'
+                without-departments:
+                  $ref: '#/components/examples/PartnerWithoutDepartment'
+        '404':
+          description: Not Found
+      operationId: get-partners-id
+    put:
+      summary: Update a partner
+      description: 取引先の更新
+      operationId: put-partners-id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Partner'
+              examples:
+                Example:
+                  $ref: '#/components/examples/PartnerWithDepartment'
+        '400':
+          description: Bad Request
+      requestBody:
+        $ref: '#/components/requestBodies/PartnerUpdateRequest'
+      tags:
+        - Partner
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+    delete:
+      summary: Delete a partner
+      description: 取引先の削除
+      operationId: delete-partners-id
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+      tags:
+        - Partner
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/partners/{partner_id}/departments':
+    parameters:
+      - schema:
+          type: string
+        name: partner_id
+        in: path
+        required: true
+    get:
+      summary: Get departments
+      description: 取引先部署一覧の取得
+      tags:
+        - Department
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Department'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationData'
+                required:
+                  - data
+                  - pagination
+              examples:
+                Example:
+                  value:
+                    data:
+                      - id: qwc4iT7ZrywxipJCOqtZQg
+                        zip: 123-4567
+                        tel: '1234567'
+                        prefecture: 山形県
+                        address1: hb3m8kaxz9eex1czmpn2
+                        address2: hb3m8kaxz9eex1czmpn2
+                        person_name: hb3m8kaxz9eex1czmpn2
+                        person_title: hb3m8kaxz9eex1czmpn2
+                        person_dept: hb3m8kaxz9eex1czmpn2
+                        email: hb3m8kaxz9eex1czmpn2@moneyforward.com
+                        cc_emails: hb3m8kaxz9eex1czmpn2@moneyforward.com
+                        peppol_id: '0088:0000000000001'
+                        office_member_name: hb3m8kaxz9eex1czmpn2
+                        office_member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+                        created_at: '2023-03-20 13:44:52 +0900'
+                        updated_at: '2023-03-20 13:44:52 +0900'
+                    pagination:
+                      total_count: 1
+                      total_pages: 1
+                      per_page: 1
+                      current_page: 1
+        '404':
+          description: 'A partner is not found '
+      operationId: get-partners-id-partner-departments
+    post:
+      summary: Create new department
+      description: 取引先部署の作成
+      operationId: post-partners-id-departments
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Department'
+              examples:
+                Example:
+                  $ref: '#/components/examples/Department'
+        '400':
+          description: Bad Request
+        '404':
+          description: Partner is not found
+      requestBody:
+        $ref: '#/components/requestBodies/DepartmentCreateRequest'
+      tags:
+        - Department
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/partners/{partner_id}/departments/{department_id}':
+    parameters:
+      - schema:
+          type: string
+        name: partner_id
+        in: path
+        required: true
+      - schema:
+          type: string
+        name: department_id
+        in: path
+        required: true
+    get:
+      summary: Get a department
+      description: 取引先部署の取得
+      tags:
+        - Department
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Department'
+              examples:
+                Example:
+                  $ref: '#/components/examples/Department'
+        '404':
+          description: |-
+            Partner is not found
+            Department is not found
+      operationId: get-partners-partner_id-departments-id
+    put:
+      summary: Update a department
+      description: 取引先部署の更新
+      operationId: put-partners-partner_id-departments-id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Department'
+              examples:
+                Example:
+                  $ref: '#/components/examples/Department'
+        '400':
+          description: Bad Request
+        '404':
+          description: Partner is not found
+      requestBody:
+        $ref: '#/components/requestBodies/DepartmentUpdateRequest'
+      tags:
+        - Department
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+    delete:
+      summary: Delete a department
+      description: 取引先部署の削除
+      operationId: delete-partners-partner_id-departments-id
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+        '404':
+          description: Partner is not found
+      tags:
+        - Department
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  /items:
+    get:
+      summary: Get items
+      description: 品目一覧の取得
+      tags:
+        - Item
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Item'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationData'
+                required:
+                  - data
+                  - pagination
+              examples:
+                if-corporation-office:
+                  value:
+                    data:
+                      - id: t93_uqoFUT_EnX85CJ16XA
+                        name: Name
+                        code: Code
+                        detail: Detail
+                        unit: Unit
+                        price: '1234.1'
+                        quantity: '1'
+                        excise: ten_percent
+                        created_at: '2022-07-14 13:14:03 +0900'
+                        updated_at: '2023-01-27 16:19:56 +0900'
+                    pagination:
+                      total_count: 1
+                      total_pages: 1
+                      per_page: 1
+                      current_page: 1
+                if-individual-office:
+                  value:
+                    data:
+                      - id: t93_uqoFUT_EnX85CJ16XA
+                        name: Name
+                        code: Code
+                        detail: Detail
+                        unit: Unit
+                        price: '1234.1'
+                        is_deduct_withholding_tax: true
+                        quantity: '1'
+                        excise: ten_percent
+                        created_at: '2022-07-14 13:14:03 +0900'
+                        updated_at: '2023-01-27 16:19:56 +0900'
+                    pagination:
+                      total_count: 1
+                      total_pages: 1
+                      per_page: 1
+                      current_page: 1
+      operationId: get-items
+      parameters:
+        - schema:
+            type: string
+          in: query
+          name: name
+          description: >-
+            Item name, it can be specified multiple value by separating them
+            with a comma.
+        - schema:
+            type: string
+          in: query
+          name: code
+          description: >-
+            Item code, it can be specified multiple value by separating them
+            with a comma.
+        - schema:
+            type: integer
+          in: query
+          name: page
+          description: 'default: 1'
+        - schema:
+            type: integer
+          in: query
+          name: per_page
+          description: 'default: 100'
+    post:
+      summary: Create new item
+      description: 品目の作成
+      operationId: post-items
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+              examples:
+                if-corporation-office:
+                  $ref: '#/components/examples/IvItemWithoutIsDeductWithHoldingTax'
+                if-individual-office:
+                  $ref: '#/components/examples/IvItemWithIsDeductWithHoldingTax'
+        '400':
+          description: Bad Request
+      requestBody:
+        $ref: '#/components/requestBodies/ItemCreateRequest'
+      tags:
+        - Item
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/items/{item_id}':
+    parameters:
+      - schema:
+          type: string
+        name: item_id
+        in: path
+        required: true
+    get:
+      summary: Get an item
+      description: 品目の取得
+      tags:
+        - Item
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+              examples:
+                if-corporation-office:
+                  $ref: '#/components/examples/IvItemWithoutIsDeductWithHoldingTax'
+                if-individual-office:
+                  $ref: '#/components/examples/IvItemWithIsDeductWithHoldingTax'
+        '404':
+          description: Not Found
+      operationId: get-items-id
+    put:
+      summary: Update an item
+      description: 品目の更新
+      operationId: put-items-id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+              examples:
+                if-corporation-office:
+                  $ref: '#/components/examples/IvItemWithoutIsDeductWithHoldingTax'
+                if-individual-office:
+                  $ref: '#/components/examples/IvItemWithIsDeductWithHoldingTax'
+        '400':
+          description: Bad Request
+      requestBody:
+        $ref: '#/components/requestBodies/ItemUpdateRequest'
+      tags:
+        - Item
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+    delete:
+      summary: Delete an item
+      description: 品目の削除
+      operationId: delete-items-id
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+      tags:
+        - Item
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  /billings:
+    get:
+      summary: Get billings
+      description: 請求書の取得
+      tags:
+        - Billing
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Billing'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationData'
+                required:
+                  - data
+                  - pagination
+      operationId: get-billings
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+          in: query
+          name: page
+          description: 'default: 1'
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          in: query
+          name: per_page
+          description: 'default: 100'
+        - schema:
+            type: string
+            enum:
+              - billing_date
+              - due_date
+              - sales_date
+              - created_at
+              - updated_at
+          in: query
+          name: range_key
+          description: 期間絞込対象
+        - schema:
+            type: string
+            format: date
+          in: query
+          name: from
+        - schema:
+            type: string
+            format: date
+          in: query
+          name: to
+        - schema:
+            type: string
+          in: query
+          name: q
+          description: 検索文字列。取引先(完全一致)、ステータス、件名etc
+        - schema:
+            type: string
+          in: query
+          name: partner_id
+        - schema:
+            type: string
+          in: query
+          name: document_number
+          description: |
+            請求書番号<br/>
+            ※qが指定されている場合、このパラメータは検索に使用されません
+        - schema:
+            type: string
+          in: query
+          name: status
+          description: |
+            ステータス。例：下書き, ロック中, 未ロック<br/>
+            ※qが指定されている場合、このパラメータは検索に使用されません
+        - schema:
+            type: string
+          in: query
+          name: partner_name
+          description: |
+            取引先<br/>
+            ※qが指定されている場合、このパラメータは検索に使用されません
+        - schema:
+            type: string
+          in: query
+          name: tags
+          description: |
+            タグ。例：タグ1, タグ2<br/>
+            ※qが指定されている場合、このパラメータは検索に使用されません
+  /invoice_template_billings:
+    post:
+      summary: Create new invoice template billing
+      description: インボイス制度に対応した形式の請求書の作成
+      operationId: post-invoice-template-billings
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Billing'
+              examples:
+                if-corporation-office:
+                  $ref: '#/components/examples/NewBillingWithoutDeductPrice'
+                if-individual-office:
+                  $ref: '#/components/examples/NewBillingWithDeductPrice'
+        '400':
+          description: Bad Request
+      requestBody:
+        $ref: '#/components/requestBodies/BillingNewTemplateCreateRequest'
+      tags:
+        - Billing
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/billings/{billing_id}':
+    parameters:
+      - schema:
+          type: string
+        name: billing_id
+        in: path
+        required: true
+    get:
+      summary: Get a billing
+      description: 請求書の取得
+      tags:
+        - Billing
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Billing'
+        '404':
+          description: Not Found
+      operationId: get-billings-id
+    put:
+      summary: Update a billing
+      description: 請求書の更新
+      operationId: put-billings-id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Billing'
+      requestBody:
+        $ref: '#/components/requestBodies/BillingUpdateRequest'
+      tags:
+        - Billing
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+    delete:
+      summary: Delete a billing
+      description: 請求書の削除
+      operationId: delete-billings-id
+      responses:
+        '204':
+          description: No Content
+      tags:
+        - Billing
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/billings/{billing_id}/items':
+    parameters:
+      - schema:
+          type: string
+        name: billing_id
+        in: path
+        required: true
+    get:
+      summary: Get BillingItems of a billing
+      description: 請求書に紐づく品目一覧の取得
+      tags:
+        - Billing
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BillingItem'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationData'
+                required:
+                  - data
+                  - pagination
+        '404':
+          description: A billing is not found
+      operationId: get-billings-id-items
+    post:
+      summary: Attach a BillingItem into a billing
+      description: 請求書に品目を追加
+      operationId: post-billings-id-items
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Bad Request
+        '404':
+          description: A billing is not found
+      requestBody:
+        $ref: '#/components/requestBodies/BillingItemAttachRequest'
+      tags:
+        - Billing
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/billings/{billing_id}/items/{item_id}':
+    parameters:
+      - schema:
+          type: string
+        name: billing_id
+        in: path
+        required: true
+      - schema:
+          type: string
+        name: item_id
+        in: path
+        required: true
+    get:
+      summary: Get a BillingItem if a billing has
+      description: 請求書に紐づく品目の取得
+      tags:
+        - Billing
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingItem'
+        '404':
+          description: |-
+            A billing is not found
+            An item is not found
+      operationId: get-billings-billing_id-items-id
+    delete:
+      summary: Detach a BillingItem from a billing
+      description: 請求書に紐づく品目の削除
+      operationId: delete-billings-billing_id-items-id
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+        '404':
+          description: A billing is not found
+      tags:
+        - Billing
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/billings/{billing_id}/payment_status':
+    parameters:
+      - schema:
+          type: string
+        name: billing_id
+        in: path
+        required: true
+    put:
+      summary: Update payment status of a billing
+      description: 請求書の入金ステータス変更
+      operationId: put-billings-billing_id-payment_status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Billing'
+        '400':
+          description: Bad Request
+        '404':
+          description: A billing is not found
+      requestBody:
+        $ref: '#/components/requestBodies/PaymentStatusUpdateRequest'
+      tags:
+        - Billing
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/billings/{billing_id}/posting':
+    parameters:
+      - schema:
+          type: string
+        name: billing_id
+        in: path
+        required: true
+    post:
+      summary: Apply to post the billing
+      description: 請求書の郵送依頼
+      operationId: post-billings-billing_id-posting
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Bad Request
+        '402':
+          description: Payment Required
+        '404':
+          description: Not Found
+        '422':
+          description: Unprocessable Entity
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                upload_to_cloud_box:
+                  type: boolean
+                  default: true
+                  description: |
+                    クラウドBoxに保存するかどうか
+                      * `true` - クラウドBoxに保存する
+                      * `false` - クラウドBoxに保存しない
+      tags:
+        - Billing
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+    delete:
+      summary: Cancel to post the billing
+      description: 請求書の郵送キャンセル
+      operationId: delete-billings-billing_id-posting
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+        '404':
+          description: Not Found
+      tags:
+        - Billing
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  /quotes:
+    get:
+      summary: Get quotes
+      description: 見積書一覧の取得
+      tags:
+        - Quote
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Quote'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationData'
+                required:
+                  - data
+                  - pagination
+      operationId: get-quotes
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+          in: query
+          name: page
+          description: 'default: 1'
+        - schema:
+            type: integer
+            maximum: 100
+            minimum: 1
+          in: query
+          name: per_page
+          description: 'default: 100'
+        - schema:
+            type: string
+            enum:
+              - quote_date
+              - expired_date
+              - created_at
+              - updated_at
+          in: query
+          name: range_key
+          description: 期間絞込対象
+        - schema:
+            type: string
+            format: date
+          in: query
+          name: from
+        - schema:
+            type: string
+            format: date
+          in: query
+          name: to
+        - schema:
+            type: string
+          in: query
+          name: q
+          description: 検索文字列。取引先(完全一致)、ステータス、件名etc
+        - schema:
+            type: string
+          in: query
+          name: partner_id
+        - schema:
+            type: string
+          in: query
+          name: document_number
+          description: |
+            請求書番号<br/>
+            ※qが指定されている場合、このパラメータは検索に使用されません
+        - schema:
+            type: string
+          in: query
+          name: status
+          description: |
+            ステータス。例：下書き, ロック中, 未ロック<br/>
+            ※qが指定されている場合、このパラメータは検索に使用されません
+        - schema:
+            type: string
+          in: query
+          name: partner_name
+          description: |
+            取引先<br/>
+            ※qが指定されている場合、このパラメータは検索に使用されません
+        - schema:
+            type: string
+          in: query
+          name: tags
+          description: |
+            タグ。例：タグ1, タグ2<br/>
+            ※qが指定されている場合、このパラメータは検索に使用されません
+    post:
+      summary: Create new quote
+      description: 見積書の作成
+      operationId: post-quotes
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+              examples:
+                if-corporation-office:
+                  $ref: '#/components/examples/QuoteWithoutDeductPrice'
+                if-individual-office:
+                  $ref: '#/components/examples/QuoteWithDeductPrice'
+        '400':
+          description: Bad Request
+      requestBody:
+        $ref: '#/components/requestBodies/QuoteCreateRequest'
+      tags:
+        - Quote
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/quotes/{quote_id}':
+    parameters:
+      - schema:
+          type: string
+        name: quote_id
+        in: path
+        required: true
+    get:
+      summary: Get a quote
+      description: 見積書の作成
+      tags:
+        - Quote
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/Quote'
+        '404':
+          description: Not Found
+      operationId: get-quotes-quote_id
+    put:
+      summary: Update a quote
+      description: 見積書の更新
+      operationId: put-quotes-quote_id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+        '400':
+          description: Bad Request
+        '404':
+          description: Not Found
+      requestBody:
+        $ref: '#/components/requestBodies/QuoteUpdateRequest'
+      tags:
+        - Quote
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+    delete:
+      summary: Delete a quote
+      description: 見積書の削除
+      operationId: delete-quotes-quote_id
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+        '404':
+          description: Not Found
+      tags:
+        - Quote
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/quotes/{quote_id}/items':
+    parameters:
+      - schema:
+          type: string
+        name: quote_id
+        in: path
+        required: true
+    get:
+      summary: Get items of a quote
+      description: 見積書に紐づく品目一覧の取得
+      tags:
+        - Quote
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Item'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationData'
+                required:
+                  - data
+                  - pagination
+        '404':
+          description: A quote is not found
+      operationId: get-quotes-id-items
+    post:
+      summary: Attach an item into a quote
+      description: 見積書に品目を追加
+      operationId: post-quotes-quote_id-items
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Bad Request
+        '404':
+          description: A quote is not found
+      requestBody:
+        $ref: '#/components/requestBodies/QuoteItemAttachRequest'
+      tags:
+        - Quote
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/quotes/{quote_id}/items/{item_id}':
+    parameters:
+      - schema:
+          type: string
+        name: quote_id
+        in: path
+        required: true
+      - schema:
+          type: string
+        name: item_id
+        in: path
+        required: true
+    get:
+      summary: Get an item if a quote has
+      description: 見積書に紐づく品目を取得
+      tags:
+        - Quote
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Item'
+      operationId: get-quotes-quote_id-items-id
+    delete:
+      summary: Detach the item from a quote
+      description: 見積書に紐づく品目を削除
+      operationId: delete-quotes-quote_id-items-id
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+        '404':
+          description: A quote is not found
+      tags:
+        - Quote
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/quotes/{quote_id}/posting':
+    parameters:
+      - schema:
+          type: string
+        name: quote_id
+        in: path
+        required: true
+    post:
+      summary: Apply to post the quote
+      description: 見積書の郵送依頼
+      operationId: post-quotes-quote_id-posting
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Bad Request
+        '402':
+          description: Payment Required
+        '404':
+          description: Not Found
+        '422':
+          description: Unprocessable Entity
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                upload_to_cloud_box:
+                  type: boolean
+                  default: true
+                  description: |
+                    クラウドBoxに保存するかどうか
+                      * `true` - クラウドBoxに保存する
+                      * `false` - クラウドBoxに保存しない
+      tags:
+        - Quote
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+    delete:
+      summary: Cancel to post the quote
+      description: 見積書の郵送キャンセル
+      operationId: delete-quotes-quote_id-posting
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+        '404':
+          description: Not Found
+      tags:
+        - Quote
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/quotes/{quote_id}/order_status':
+    parameters:
+      - schema:
+          type: string
+        name: quote_id
+        in: path
+        required: true
+    put:
+      summary: Update order status of the quote
+      description: 見積書のステータス更新
+      operationId: put-quote-quote_id-order_status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                order_status:
+                  type: string
+                  description: |
+                    受注ステータス:
+                    * `-1` - 失注
+                    * `0` -  未設定
+                    * `1` - 未受注
+                    * `2` -  受注済み
+                  enum:
+                    - '-1'
+                    - '0'
+                    - '1'
+                    - '2'
+              required:
+                - order_status
+      tags:
+        - Quote
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  '/quotes/{quote_id}/convert_to_billing':
+    parameters:
+      - schema:
+          type: string
+        name: quote_id
+        in: path
+        required: true
+    post:
+      summary: Convert the quote to billing
+      description: 見積書を請求書に変換
+      operationId: post-quotes-quote_id-convert_to_billing
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Billing'
+        '404':
+          description: Not Found
+      tags:
+        - Quote
+      security:
+        - AccessToken:
+            - mfc/invoice/data.write
+  /sent_histories:
+    get:
+      summary: Get sent histories
+      description: 送付履歴一覧の取得
+      tags:
+        - SentHistory
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SentHistory'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationData'
+                required:
+                  - data
+                  - pagination
+              examples:
+                Example:
+                  value:
+                    data:
+                      - id: 21
+                        type: メール
+                        operator_id: fbeo9WVrdW36B1CKP3KASg
+                        document_type: 請求書
+                        document_id: dLyLiVH5XrNW9OdUw4aYHQ
+                        from: do_not_reply@moneyforward.com
+                        to: to@moneyforward.com
+                        cc: ''
+                        sender_name: ''
+                        replay_to: ''
+                        sent_at: '2022-10-12T15:52:40.000+09:00'
+                    pagination:
+                      total_count: 3
+                      total_pages: 3
+                      per_page: 1
+                      current_page: 1
+      operationId: get-sent_histories
+      parameters:
+        - schema:
+            type: integer
+            minimum: 1
+          in: query
+          name: page
+          description: 'default: 1'
+        - schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          in: query
+          name: per_page
+          description: 'default: 100'
+components:
+  schemas:
+    Partner:
+      title: Partner
+      x-stoplight:
+        id: mnavdatyrxciq
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        name_kana:
+          type: string
+        name_suffix:
+          type: string
+        memo:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        departments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Department'
+      required:
+        - id
+        - name
+        - created_at
+        - updated_at
+        - departments
+    Office:
+      title: Office
+      type: object
+      description: ''
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        zip:
+          type: string
+        prefecture:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: string
+        tel:
+          type: string
+        fax:
+          type: string
+        office_type:
+          type: string
+        office_code:
+          type: string
+        registration_code:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - created_at
+        - updated_at
+    Department:
+      title: Department
+      x-stoplight:
+        id: bq8upk7nj10bc
+      type: object
+      properties:
+        id:
+          type: string
+        zip:
+          type: string
+        tel:
+          type: string
+        prefecture:
+          type: string
+        address1:
+          type: string
+        address2:
+          type: string
+        person_name:
+          type: string
+        person_title:
+          type: string
+        person_dept:
+          type: string
+        email:
+          type: string
+        cc_emails:
+          type: string
+        peppol_id:
+          type: string
+        office_member_id:
+          type: string
+        office_member_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+    Item:
+      title: Item
+      x-stoplight:
+        id: hw5km77y0ypvw
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        code:
+          type: string
+        detail:
+          type: string
+        unit:
+          type: string
+        price:
+          type: string
+        quantity:
+          type: string
+        is_deduct_withholding_tax:
+          type: boolean
+          description: |
+            源泉徴収税額の有り無し:
+              * 事業者が法人の時: null
+              * 事業者が個人事業主: true or false
+        excise:
+          type: string
+          description: |
+            税率:
+              * `untaxable` - 不課税
+              * `non_taxable` - 非課税
+              * `tax_exemption` - 免税
+              * `five_percent` - 5%
+              * `eight_percent` - 8%
+              * `eight_percent_as_reduced_tax_rate` - 8%(軽減税率)
+              * `ten_percent` - 10%
+          enum:
+            - untaxable
+            - non_taxable
+            - tax_exemption
+            - five_percent
+            - eight_percent
+            - eight_percent_as_reduced_tax_rate
+            - ten_percent
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - code
+        - created_at
+        - updated_at
+    BillingItem:
+      title: BillingItem
+      description: 請求書の品目
+      x-stoplight:
+        id: hw5km88y0ypvw
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        code:
+          type: string
+        detail:
+          type: string
+        unit:
+          type: string
+        price:
+          type: string
+        quantity:
+          type: string
+        is_deduct_withholding_tax:
+          type: boolean
+          description: |
+            源泉徴収税額の有り無し:
+              * 事業者が法人の時: null
+              * 事業者が個人事業主: true or false
+        excise:
+          type: string
+          description: |
+            税率:
+              * `untaxable` - 不課税
+              * `non_taxable` - 非課税
+              * `tax_exemption` - 免税
+              * `five_percent` - 5%
+              * `eight_percent` - 8%
+              * `eight_percent_as_reduced_tax_rate` - 8%(軽減税率)
+              * `ten_percent` - 10%
+          enum:
+            - untaxable
+            - non_taxable
+            - tax_exemption
+            - five_percent
+            - eight_percent
+            - eight_percent_as_reduced_tax_rate
+            - ten_percent
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        delivery_number:
+          type: string
+        delivery_date:
+          type: string
+          format: date
+          example: 2023/08/24
+      required:
+        - id
+        - name
+        - code
+        - created_at
+        - updated_at
+    BillingConfig:
+      title: BillingConfig
+      description: 請求書の詳細設定
+      x-stoplight:
+        id: hw5km88y0y1vw
+      type: object
+      properties:
+        rounding:
+          type: string
+          description: |
+            明細行ごとの端数処理:
+              * `round_down` - 切り捨て
+              * `round_up` - 切り上げ
+              * `round_off` - 四捨五入
+          enum:
+            - round_down
+            - round_up
+            - round_off
+        rounding_consumption_tax:
+          type: string
+          description: |
+            消費税の端数処理:
+              * `round_down` - 切り捨て
+              * `round_up` - 切り上げ
+              * `round_off` - 四捨五入
+          enum:
+            - round_down
+            - round_up
+            - round_off
+        consumption_tax_display_type:
+          type: string
+          description: |
+            消費税の表示方式:
+              * `internal` - 内税
+              * `external` - 外税
+          enum:
+            - internal
+            - external
+      required:
+        - rounding
+        - rounding_consumption_tax
+        - consumption_tax_display_type
+    Billing:
+      title: Billing
+      x-stoplight:
+        id: dg6xplhmlhjct
+      type: object
+      properties:
+        id:
+          type: string
+        pdf_url:
+          type: string
+        operator_id:
+          type: string
+        department_id:
+          type: string
+        member_id:
+          type: string
+        member_name:
+          type: string
+        partner_id:
+          type: string
+        partner_name:
+          type: string
+        office_id:
+          type: string
+        office_name:
+          type: string
+        office_detail:
+          type: string
+        title:
+          type: string
+        memo:
+          type: string
+        payment_condition:
+          type: string
+        billing_date:
+          type: string
+          format: date
+          example: 2023/08/24
+        due_date:
+          type: string
+          format: date
+          example: 2023/08/24
+        sales_date:
+          type: string
+          format: date
+          example: 2023/08/24
+        billing_number:
+          type: string
+        note:
+          type: string
+        document_name:
+          type: string
+        payment_status:
+          type: string
+          description: |
+            入金ステータス:
+              * `0` - 未設定
+              * `1` - 未入金
+              * `2` - 入金済み
+              * `3` - 未払い
+              * `4` - 振込済み
+          enum:
+            - 未設定
+            - 未入金
+            - 入金済み
+            - 未払い
+            - 振込済み
+        email_status:
+          type: string
+          description: |
+            メールステータス:
+              * `null` - 未送信
+              * `sent` - 送付済み
+              * `already_read` - 受領済み
+              * `received` - 受信
+          enum:
+            - 未送信
+            - 送付済み
+            - 受領済み
+            - 受信
+        posting_status:
+          type: string
+          description: |
+            郵送ステータス:
+              * `null` - 未郵送
+              * `request` - 郵送依頼
+              * `sent` - 郵送済み
+              * `cancel` - 郵送取消
+              * `error` - 郵送失敗
+          enum:
+            - 未郵送
+            - 郵送依頼
+            - 郵送済み
+            - 郵送取消
+            - 郵送失敗
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_downloaded:
+          type: boolean
+        is_locked:
+          type: boolean
+        deduct_price:
+          type: string
+          description: 'Only return if my office type is individual '
+        tag_names:
+          type: array
+          items:
+            type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillingItem'
+          description: 請求書の品目
+        excise_price:
+          type: string
+        excise_price_of_untaxable:
+          type: string
+        excise_price_of_non_taxable:
+          type: string
+        excise_price_of_tax_exemption:
+          type: string
+        excise_price_of_five_percent:
+          type: string
+        excise_price_of_eight_percent:
+          type: string
+        excise_price_of_eight_percent_as_reduced_tax_rate:
+          type: string
+        excise_price_of_ten_percent:
+          type: string
+        subtotal_price:
+          type: string
+        subtotal_of_untaxable_excise:
+          type: string
+        subtotal_of_non_taxable_excise:
+          type: string
+        subtotal_of_tax_exemption_excise:
+          type: string
+        subtotal_of_five_percent_excise:
+          type: string
+        subtotal_of_eight_percent_excise:
+          type: string
+        subtotal_of_eight_percent_as_reduced_tax_rate_excise:
+          type: string
+        subtotal_of_ten_percent_excise:
+          type: string
+        subtotal_with_tax_of_untaxable_excise:
+          type: string
+        subtotal_with_tax_of_non_taxable_excise:
+          type: string
+        subtotal_with_tax_of_tax_exemption_excise:
+          type: string
+        subtotal_with_tax_of_five_percent_excise:
+          type: string
+        subtotal_with_tax_of_eight_percent_excise:
+          type: string
+        subtotal_with_tax_of_eight_percent_as_reduced_tax_rate_excise:
+          type: string
+        subtotal_with_tax_of_ten_percent_excise:
+          type: string
+        total_price:
+          type: string
+        registration_code:
+          type: string
+        use_invoice_template:
+          type: boolean
+        config:
+          $ref: '#/components/schemas/BillingConfig'
+      required:
+        - id
+        - pdf_url
+        - operator_id
+        - department_id
+        - member_id
+        - member_name
+        - partner_id
+        - partner_name
+        - office_name
+        - office_detail
+        - title
+        - billing_date
+        - due_date
+        - created_at
+        - excise_price
+        - subtotal_price
+        - total_price
+        - use_invoice_template
+    Quote:
+      title: Quote
+      x-stoplight:
+        id: 1n11cz901hx4u
+      type: object
+      properties:
+        id:
+          type: string
+        pdf_url:
+          type: string
+        operator_id:
+          type: string
+        department_id:
+          type: string
+        member_id:
+          type: string
+        member_name:
+          type: string
+        partner_id:
+          type: string
+        partner_name:
+          type: string
+        partner_detail:
+          type: string
+        office_id:
+          type: string
+        office_name:
+          type: string
+        office_detail:
+          type: string
+        title:
+          type: string
+        memo:
+          type: string
+        quote_date:
+          type: string
+          format: date
+          example: 2023/08/24
+        quote_number:
+          type: string
+        note:
+          type: string
+        expired_date:
+          type: string
+          format: date
+          example: 2023/08/24
+        document_name:
+          type: string
+        order_status:
+          type: string
+          description: |
+            受注ステータス:
+            * `failure` - 失注
+            * `default` -  未設定
+            * `not_received` - 未受注
+            * `received` -  受注済み
+          enum:
+            - failure
+            - default
+            - not_received
+            - received
+        transmit_status:
+          type: string
+          description: |
+            メールステータス:
+              *  `default` - 未設定
+              * `sent` - 送付済み
+              * `already_read` - 受領済み
+              * `received` - 受信
+          enum:
+            - default
+            - sent
+            - already_read
+            - received
+        posting_status:
+          type: string
+          description: |
+            郵送ステータス:
+              * `default` - 未設定
+              * `request` - 郵送依頼
+              * `sent` - 郵送済み
+              * `cancel` - 郵送取消
+              * `error` - 郵送失敗
+          enum:
+            - default
+            - request
+            - sent
+            - cancel
+            - error
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        is_downloaded:
+          type: boolean
+        is_locked:
+          type: boolean
+        deduct_price:
+          type: string
+          description: 'Only return if my office type is individual '
+        tag_names:
+          type: array
+          items:
+            type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Item'
+        excise_price:
+          type: string
+        excise_price_of_untaxable:
+          type: string
+        excise_price_of_non_taxable:
+          type: string
+        excise_price_of_tax_exemption:
+          type: string
+        excise_price_of_five_percent:
+          type: string
+        excise_price_of_eight_percent:
+          type: string
+        excise_price_of_eight_percent_as_reduced_tax_rate:
+          type: string
+        excise_price_of_ten_percent:
+          type: string
+        subtotal_price:
+          type: string
+        subtotal_of_untaxable_excise:
+          type: string
+        subtotal_of_non_taxable_excise:
+          type: string
+        subtotal_of_tax_exemption_excise:
+          type: string
+        subtotal_of_five_percent_excise:
+          type: string
+        subtotal_of_eight_percent_excise:
+          type: string
+        subtotal_of_eight_percent_as_reduced_tax_rate_excise:
+          type: string
+        subtotal_of_ten_percent_excise:
+          type: string
+        total_price:
+          type: string
+      required:
+        - id
+        - pdf_url
+        - operator_id
+        - department_id
+        - member_id
+        - member_name
+        - partner_id
+        - partner_name
+        - office_name
+        - office_detail
+        - title
+        - quote_date
+        - expired_date
+        - created_at
+        - excise_price
+        - subtotal_price
+        - total_price
+    SentHistory:
+      title: SentHistory
+      x-stoplight:
+        id: lle67m3y8ul3v
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        operator_id:
+          type: string
+        document_type:
+          type: string
+        document_id:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+        cc:
+          type: string
+        sender_name:
+          type: string
+        replay_to:
+          type: string
+        sent_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - type
+        - operator_id
+        - document_type
+        - document_id
+        - from
+        - to
+        - cc
+        - sender_name
+        - replay_to
+        - sent_at
+    PaginationData:
+      title: PaginationData
+      type: object
+      properties:
+        total_count:
+          type: number
+        total_pages:
+          type: number
+        per_page:
+          type: number
+        current_page:
+          type: number
+      required:
+        - total_count
+        - total_pages
+        - per_page
+        - current_page
+  requestBodies:
+    PartnerCreateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              code:
+                type: string
+                maxLength: 30
+              name:
+                type: string
+                maxLength: 100
+              name_kana:
+                type: string
+                maxLength: 350
+              name_suffix:
+                type: string
+              memo:
+                type: string
+                maxLength: 500
+              departments:
+                description: >-
+                  Array of objects, maximum 10 items. Fill in at least one
+                  parameter
+                type: array
+                items:
+                  type: object
+                  properties:
+                    zip:
+                      type: string
+                      minLength: 7
+                      maxLength: 8
+                      pattern: '^\d{3}-?\d{4}$'
+                    tel:
+                      type: string
+                      pattern: '/\A(\+|＋)?[0-9０-９\-|－|ー|−]+\s*+\z/'
+                      minLength: 7
+                      maxLength: 30
+                    prefecture:
+                      type: string
+                    address1:
+                      type: string
+                      maxLength: 80
+                    address2:
+                      type: string
+                      maxLength: 80
+                    person_name:
+                      type: string
+                      maxLength: 35
+                    person_title:
+                      type: string
+                      maxLength: 35
+                    person_dept:
+                      type: string
+                      maxLength: 35
+                    office_member_name:
+                      type: string
+                      maxLength: 40
+                    email:
+                      type: string
+                      maxLength: 255
+                    cc_emails:
+                      type: string
+                      maxLength: 500
+                    peppol_id:
+                      type: string
+                      pattern: '/\A((0088|0188):[0-9]{13}|0221:T[0-9]{13})\z/'
+            required:
+              - name
+      description: Request body for creating a Partner
+    PartnerUpdateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              code:
+                type: string
+                maxLength: 30
+              name:
+                type: string
+                maxLength: 100
+              name_kana:
+                type: string
+                maxLength: 350
+              name_suffix:
+                type: string
+              memo:
+                type: string
+                maxLength: 500
+      description: Request body for updating a Partner
+    OfficeUpdateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+                maxLength: 35
+              zip:
+                type: string
+                minLength: 7
+                maxLength: 8
+                pattern: '^\d{3}-?\d{4}$'
+              prefecture:
+                type: string
+              address1:
+                type: string
+                maxLength: 35
+              address2:
+                type: string
+                maxLength: 35
+              tel:
+                type: string
+                pattern: '/\A(\+|＋)?[0-9０-９\-|－|ー|−]+\s*+\z/'
+                minLength: 7
+                maxLength: 30
+              fax:
+                type: string
+                minLength: 7
+                maxLength: 30
+                pattern: '/\A(\+|＋)?[0-9０-９\-|－|ー|−]+\s*+\z/'
+          examples: {}
+      description: Request body for updating a Office
+    DepartmentCreateRequest:
+      content:
+        application/json:
+          schema:
+            description: Fill in at least one parameter.
+            type: object
+            properties:
+              zip:
+                type: string
+                minLength: 7
+                maxLength: 8
+                pattern: '^\d{3}-?\d{4}$'
+              tel:
+                type: string
+                pattern: '/\A(\+|＋)?[0-9０-９\-|－|ー|−]+\s*+\z/'
+                minLength: 7
+                maxLength: 30
+              prefecture:
+                type: string
+              address1:
+                type: string
+                maxLength: 80
+              address2:
+                type: string
+                maxLength: 80
+              person_name:
+                type: string
+                maxLength: 35
+              person_title:
+                type: string
+                maxLength: 35
+              person_dept:
+                type: string
+                maxLength: 35
+              office_member_name:
+                type: string
+                maxLength: 40
+              email:
+                type: string
+                maxLength: 255
+              cc_emails:
+                type: string
+                maxLength: 500
+              peppol_id:
+                type: string
+                pattern: '/\A((0088|0188):[0-9]{13}|0221:T[0-9]{13})\z/'
+      description: Request body for creating a department
+    DepartmentUpdateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              zip:
+                type: string
+                minLength: 7
+                maxLength: 8
+                pattern: '^\d{3}-?\d{4}$'
+              tel:
+                type: string
+                pattern: '/\A(\+|＋)?[0-9０-９\-|－|ー|−]+\s*+\z/'
+                minLength: 7
+                maxLength: 30
+              prefecture:
+                type: string
+              address1:
+                type: string
+                maxLength: 80
+              address2:
+                type: string
+                maxLength: 80
+              person_name:
+                type: string
+                maxLength: 35
+              person_title:
+                type: string
+                maxLength: 35
+              person_dept:
+                type: string
+                maxLength: 35
+              office_member_name:
+                type: string
+                maxLength: 40
+              email:
+                type: string
+                maxLength: 255
+              cc_emails:
+                type: string
+                maxLength: 500
+              peppol_id:
+                type: string
+                pattern: '/\A((0088|0188):[0-9]{13}|0221:T[0-9]{13})\z/'
+      description: 'Request body for updating a department, Fill in at least one parameter.'
+    ItemCreateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 450
+              code:
+                type: string
+                minLength: 1
+                maxLength: 30
+              detail:
+                type: string
+                maxLength: 200
+              unit:
+                type: string
+                maxLength: 20
+              price:
+                type: number
+                minimum: '-10_000_000_000'
+                maximum: '10_000_000_000'
+              quantity:
+                type: number
+                minimum: '-10_000_000_000'
+                maximum: '10_000_000_000'
+              is_deduct_withholding_tax:
+                type: boolean
+                description: |
+                  源泉徴収税額の有り無し:
+                    * 事業者が法人の時: null
+                    * 事業者が個人事業主: true or false
+              excise:
+                type: string
+                description: |
+                  税率:
+                    * `untaxable` - 不課税
+                    * `non_taxable` - 非課税
+                    * `tax_exemption` - 免税
+                    * `five_percent` - 5%
+                    * `eight_percent` - 8%
+                    * `eight_percent_as_reduced_tax_rate` - 8%(軽減税率)
+                    * `ten_percent` - 10%
+                enum:
+                  - untaxable
+                  - non_taxable
+                  - tax_exemption
+                  - five_percent
+                  - eight_percent
+                  - eight_percent_as_reduced_tax_rate
+                  - ten_percent
+            required:
+              - name
+              - excise
+          examples:
+            Example:
+              $ref: '#/components/examples/IvItemRequestExample'
+      description: Request body for creating a Item
+    ItemUpdateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+                minLength: 1
+                maxLength: 450
+              code:
+                type: string
+                minLength: 1
+                maxLength: 30
+              detail:
+                type: string
+                maxLength: 200
+              unit:
+                type: string
+                maxLength: 20
+              price:
+                type: number
+                minimum: '-10_000_000_000'
+                maximum: '10_000_000_000'
+              quantity:
+                type: number
+                minimum: '-10_000_000_000'
+                maximum: '10_000_000_000'
+              is_deduct_withholding_tax:
+                type: boolean
+                description: |
+                  源泉徴収税額の有り無し:
+                    * 事業者が法人の時: null
+                    * 事業者が個人事業主: true or false
+              excise:
+                type: string
+                description: |
+                  税率:
+                    * `untaxable` - 不課税
+                    * `non_taxable` - 非課税
+                    * `tax_exemption` - 免税
+                    * `five_percent` - 5%
+                    * `eight_percent` - 8%
+                    * `eight_percent_as_reduced_tax_rate` - 8%(軽減税率)
+                    * `ten_percent` - 10%
+                enum:
+                  - untaxable
+                  - non_taxable
+                  - tax_exemption
+                  - five_percent
+                  - eight_percent
+                  - eight_percent_as_reduced_tax_rate
+                  - ten_percent
+          examples:
+            Example:
+              $ref: '#/components/examples/IvItemRequestExample'
+      description: Request body for updating a Item
+    BillingCreateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              department_id:
+                type: string
+              title:
+                type: string
+                maxLength: 200
+              memo:
+                type: string
+                maxLength: 450
+              payment_condition:
+                type: string
+                maxLength: 250
+              billing_date:
+                type: string
+                format: date
+                example: '2022-12-09'
+              due_date:
+                type: string
+                format: date
+                example: '2022-12-10'
+              sales_date:
+                type: string
+                format: date
+                example: '2022-12-09'
+              billing_number:
+                type: string
+                maxLength: 30
+              note:
+                type: string
+                maxLength: 2000
+              document_name:
+                type: string
+                maxLength: 25
+              tag_names:
+                type: array
+                items:
+                  type: string
+                  maxLength: 255
+            required:
+              - department_id
+              - billing_date
+              - due_date
+      description: Request body for creating a billing
+    BillingUpdateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              department_id:
+                type: string
+              title:
+                type: string
+                minLength: 1
+                maxLength: 200
+              memo:
+                type: string
+                maxLength: 450
+              payment_condition:
+                type: string
+                maxLength: 250
+              billing_date:
+                type: string
+                format: date
+                example: '2022-12-09'
+              due_date:
+                type: string
+                format: date
+                example: '2022-12-10'
+              sales_date:
+                type: string
+                format: date
+                example: '2022-12-09'
+              billing_number:
+                type: string
+                maxLength: 30
+              note:
+                type: string
+                maxLength: 2000
+              document_name:
+                type: string
+                maxLength: 25
+              tag_names:
+                type: array
+                items:
+                  type: string
+                  maxLength: 255
+      description: Request body for updating a billing
+    BillingNewTemplateCreateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              department_id:
+                type: string
+              title:
+                type: string
+                maxLength: 200
+              memo:
+                type: string
+                maxLength: 450
+              payment_condition:
+                type: string
+                maxLength: 250
+              billing_date:
+                type: string
+                format: date
+              due_date:
+                type: string
+                format: date
+              sales_date:
+                type: string
+                format: date
+              billing_number:
+                type: string
+                maxLength: 30
+              note:
+                type: string
+                maxLength: 2000
+              document_name:
+                type: string
+                maxLength: 25
+              tag_names:
+                type: array
+                items:
+                  type: string
+                  maxLength: 255
+              items:
+                type: array
+                description: '`item_id`を指定しない場合、`excise`は必須となります。'
+                items:
+                  type: object
+                  properties:
+                    item_id:
+                      type: string
+                    name:
+                      type: string
+                      description: >-
+                        `item_id`を指定した場合は、こちらの`name`を指定しても、`item_id`に紐づいたマスタitemのnameで登録します。
+                      minLength: 1
+                      maxLength: 450
+                    delivery_number:
+                      type: string
+                      maxLength: 30
+                    delivery_date:
+                      type: string
+                      format: date
+                    detail:
+                      type: string
+                      maxLength: 200
+                    unit:
+                      type: string
+                      maxLength: 20
+                    price:
+                      type: number
+                      minimum: '-10_000_000_000'
+                      maximum: '10_000_000_000'
+                    quantity:
+                      type: number
+                      minimum: '-10_000_000_000'
+                      maximum: '10_000_000_000'
+                    is_deduct_withholding_tax:
+                      type: boolean
+                      description: |
+                        源泉徴収税額の有り無し:
+                          * 事業者が法人の時: null
+                          * 事業者が個人事業主: true or false
+                    excise:
+                      type: string
+                      enum:
+                        - untaxable
+                        - non_taxable
+                        - tax_exemption
+                        - five_percent
+                        - eight_percent
+                        - eight_percent_as_reduced_tax_rate
+                        - ten_percent
+            required:
+              - department_id
+              - billing_date
+              - due_date
+          examples:
+            Example:
+              value:
+                department_id: string
+                title: string
+                memo: string
+                payment_condition: string
+                billing_date: '2019-08-24'
+                due_date: '2019-08-24'
+                sales_date: '2019-08-24'
+                billing_number: string
+                note: string
+                document_name: string
+                tag_names:
+                  - string
+                items:
+                  - item_id: string
+                    delivery_number: 1234Num567
+                    delivery_date: 2023/06/07
+                    name: string
+                    detail: string
+                    unit: string
+                    price: 10
+                    quantity: 10
+                    is_deduct_withholding_tax: false
+                    excise: untaxable
+      description: Request body for creating a billing
+    PaymentStatusUpdateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - payment_status
+            properties:
+              payment_status:
+                type: string
+                description: |
+                  入金ステータス::
+                    * `0` -  未設定
+                    * `1` -  未入金
+                    * `2` - 入金済み
+                enum:
+                  - '0'
+                  - '1'
+                  - '2'
+    QuoteCreateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              department_id:
+                type: string
+              quote_number:
+                type: string
+                maxLength: 30
+              title:
+                type: string
+                maxLength: 200
+              memo:
+                type: string
+                maxLength: 450
+              quote_date:
+                type: string
+                format: date
+                example: '2022-12-09'
+              expired_date:
+                type: string
+                format: date
+                example: '2022-12-10'
+              note:
+                type: string
+                maxLength: 2000
+              tag_names:
+                type: array
+                items:
+                  type: string
+                  maxLength: 255
+              document_name:
+                type: string
+                maxLength: 25
+              items:
+                type: array
+                description: '`item_id`を指定しない場合、`excise`は必須となります。'
+                items:
+                  type: object
+                  properties:
+                    item_id:
+                      type: string
+                    name:
+                      type: string
+                      description: >-
+                        `item_id`を指定した場合は、こちらの`name`を指定しても、`item_id`に紐づいたマスタitemのnameで登録します。
+                      minLength: 1
+                      maxLength: 450
+                    detail:
+                      type: string
+                      maxLength: 200
+                    unit:
+                      type: string
+                      maxLength: 20
+                    price:
+                      type: number
+                      minimum: '-10_000_000_000'
+                      maximum: '10_000_000_000'
+                    quantity:
+                      type: number
+                      minimum: '-10_000_000_000'
+                      maximum: '10_000_000_000'
+                    is_deduct_withholding_tax:
+                      type: boolean
+                      description: |
+                        源泉徴収税額の有り無し:
+                          * 事業者が法人の時: null
+                          * 事業者が個人事業主: true or false
+                    excise:
+                      type: string
+                      enum:
+                        - untaxable
+                        - non_taxable
+                        - tax_exemption
+                        - five_percent
+                        - eight_percent
+                        - eight_percent_as_reduced_tax_rate
+                        - ten_percent
+            required:
+              - department_id
+              - quote_date
+              - expired_date
+          examples:
+            Example:
+              value:
+                department_id: string
+                quote_number: string
+                title: string
+                memo: string
+                quote_date: '2022-12-09'
+                expired_date: '2022-12-10'
+                note: string
+                tag_names:
+                  - string
+                items:
+                  - item_id: string
+                    name: string
+                    detail: string
+                    unit: string
+                    price: 10
+                    quantity: 10
+                    is_deduct_withholding_tax: false
+                    excise: untaxable
+                document_name: string
+      description: Request body for creating a quote
+    QuoteUpdateRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              department_id:
+                type: string
+              quote_number:
+                type: string
+                maxLength: 30
+              title:
+                type: string
+                minLength: 1
+                maxLength: 200
+              memo:
+                type: string
+                maxLength: 450
+              quote_date:
+                type: string
+                format: date
+                example: '2022-12-09'
+              expired_date:
+                type: string
+                format: date
+                example: '2022-12-10'
+              note:
+                type: string
+                maxLength: 2000
+              tag_names:
+                type: array
+                items:
+                  type: string
+                  maxLength: 255
+              document_name:
+                type: string
+                maxLength: 25
+      description: Request body for updating a quote
+    QuoteItemAttachRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            description: '`item_id`を指定しない場合、`excise`は必須となります。'
+            properties:
+              item_id:
+                type: string
+              name:
+                type: string
+                description: >-
+                  `item_id`を指定した場合は、こちらの`name`を指定しても、`item_id`に紐づいたマスタitemのnameで登録します。
+                minLength: 1
+                maxLength: 450
+              detail:
+                type: string
+                maxLength: 200
+              unit:
+                type: string
+                maxLength: 20
+              price:
+                type: number
+                minimum: '-10_000_000_000'
+                maximum: '10_000_000_000'
+              quantity:
+                type: number
+                minimum: '-10_000_000_000'
+                maximum: '10_000_000_000'
+              is_deduct_withholding_tax:
+                type: boolean
+                description: |
+                  源泉徴収税額の有り無し:
+                    * 事業者が法人の時: null
+                    * 事業者が個人事業主: true or false
+              excise:
+                type: string
+                enum:
+                  - untaxable
+                  - non_taxable
+                  - tax_exemption
+                  - five_percent
+                  - eight_percent
+                  - eight_percent_as_reduced_tax_rate
+                  - ten_percent
+    BillingItemAttachRequest:
+      content:
+        application/json:
+          schema:
+            type: object
+            description: '`item_id`を指定しない場合、`excise`は必須となります。'
+            properties:
+              item_id:
+                type: string
+              name:
+                type: string
+                description: >-
+                  `item_id`を指定した場合は、こちらの`name`を指定しても、`item_id`に紐づいたマスタitemのnameで登録します。
+                minLength: 1
+                maxLength: 450
+              delivery_number:
+                type: string
+                maxLength: 30
+              delivery_date:
+                type: string
+                format: date
+              detail:
+                type: string
+                maxLength: 200
+              unit:
+                type: string
+                maxLength: 20
+              price:
+                type: number
+                minimum: '-10_000_000_000'
+                maximum: '10_000_000_000'
+              quantity:
+                type: number
+                minimum: '-10_000_000_000'
+                maximum: '10_000_000_000'
+              is_deduct_withholding_tax:
+                type: boolean
+                description: |
+                  源泉徴収税額の有り無し:
+                    * 事業者が法人の時: null
+                    * 事業者が個人事業主: true or false
+              excise:
+                type: string
+                enum:
+                  - untaxable
+                  - non_taxable
+                  - tax_exemption
+                  - five_percent
+                  - eight_percent
+                  - eight_percent_as_reduced_tax_rate
+                  - ten_percent
+  securitySchemes:
+    AccessToken:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: 'https://api.biz.moneyforward.com/authorize'
+          tokenUrl: 'https://api.biz.moneyforward.com/token'
+          scopes:
+            mfc/invoice/data.write: Grant read and write access to all your office's data
+            mfc/invoice/data.read: Grant read-only access to all your office's data
+          refreshUrl: 'https://api.biz.moneyforward.com/token'
+  parameters: {}
+  examples:
+    CorporationOffice:
+      value:
+        id: tZ7wyN9WVuTy7nsisjGsjA
+        name: My Office Corporation
+        zip: '1234567'
+        prefecture: 北海道
+        address1: Address 1
+        address2: Address 2
+        tel: 03-1234-5678
+        fax: 03-1234-5678
+        office_type: 法人
+        office_code: 1102-9829
+        created_at: '2022-07-14 13:10:10 +0900'
+        updated_at: '2023-03-20 12:48:33 +0900'
+        registration_code: T1234567891234
+    IndividualOffice:
+      value:
+        id: tZ7wyN9WVuTy7nsisjGsjA
+        name: My Office Individual
+        zip: '1234567'
+        prefecture: 北海道
+        address1: Address 1
+        address2: Address 2
+        tel: 03-1234-5678
+        fax: 03-1234-5678
+        office_type: 個人
+        office_code: 1103-9829
+        created_at: '2022-07-14 13:10:10 +0900'
+        updated_at: '2023-03-20 12:48:33 +0900'
+        registration_code: T1234567891234
+    IvItemWithoutIsDeductWithHoldingTax:
+      value:
+        id: t93_uqoFUT_EnX85CJ16XA
+        name: Name
+        code: Code
+        detail: Detal
+        unit: Unit
+        price: '1239.1'
+        quantity: '1'
+        excise: ten_percent
+        created_at: '2022-07-14 13:14:03 +0900'
+        updated_at: '2023-01-27 16:19:56 +0900'
+    PartnerWithoutDepartment:
+      value:
+        id: 95PHKI9_FeSw3coTj673Cg
+        code: p41uz1dyvw3cj71qrkja
+        name: Ryu p41uz1dyvw3cj71qrkja
+        name_kana: p41uz1dyvw3cj71qrkja
+        name_suffix: 御中
+        memo: p41uz1dyvw3cj71qrkja
+        created_at: '2023-03-20 13:39:28 +0900'
+        updated_at: '2023-03-20 13:39:28 +0900'
+        departments: []
+    PartnerWithDepartment:
+      value:
+        id: 95PHKI9_FeSw3coTj673Cg
+        code: p41uz1dyvw3cj71qrkja
+        name: Ryu p41uz1dyvw3cj71qrkja
+        name_kana: p41uz1dyvw3cj71qrkja
+        name_suffix: 御中
+        memo: p41uz1dyvw3cj71qrkja
+        created_at: '2023-03-20 13:39:28 +0900'
+        updated_at: '2023-03-20 13:39:28 +0900'
+        departments:
+          - id: qwc4iT7ZrywxipJCOqtZQg
+            zip: 123-4567
+            tel: '1234567'
+            prefecture: 山形県
+            address1: hb3m8kaxz9eex1czmpn2
+            address2: hb3m8kaxz9eex1czmpn2
+            person_name: hb3m8kaxz9eex1czmpn2
+            person_title: hb3m8kaxz9eex1czmpn2
+            person_dept: hb3m8kaxz9eex1czmpn2
+            email: hb3m8kaxz9eex1czmpn2@moneyforward.com
+            cc_emails: hb3m8kaxz9eex1czmpn2@moneyforward.com
+            peppol_id: '0088:0000000000001'
+            office_member_name: hb3m8kaxz9eex1czmpn2
+            office_member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+            created_at: '2023-03-20 13:44:52 +0900'
+            updated_at: '2023-03-20 13:44:52 +0900'
+    Department:
+      value:
+        id: qwc4iT7ZrywxipJCOqtZQg
+        zip: 123-4567
+        tel: '1234567'
+        prefecture: 山形県
+        address1: hb3m8kaxz9eex1czmpn2
+        address2: hb3m8kaxz9eex1czmpn2
+        person_name: hb3m8kaxz9eex1czmpn2
+        person_title: hb3m8kaxz9eex1czmpn2
+        person_dept: hb3m8kaxz9eex1czmpn2
+        email: hb3m8kaxz9eex1czmpn2@moneyforward.com
+        cc_emails: hb3m8kaxz9eex1czmpn2@moneyforward.com
+        peppol_id: '0088:0000000000001'
+        office_member_name: hb3m8kaxz9eex1czmpn2
+        office_member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+        created_at: '2023-03-20 13:44:52 +0900'
+        updated_at: '2023-03-20 13:44:52 +0900'
+    IvItemWithIsDeductWithHoldingTax:
+      value:
+        id: t93_uqoFUT_EnX85CJ16XA
+        name: Name
+        code: Code
+        detail: Detal
+        unit: Unit
+        price: '1239.1'
+        quantity: '1'
+        excise: ten_percent
+        is_deduct_withholding_tax: true
+        created_at: '2022-07-14 13:14:03 +0900'
+        updated_at: '2023-01-27 16:19:56 +0900'
+    OldBillingWithoutItemsAndDeductPrice:
+      value:
+        id: 4k1zMaonOMw9FKd5xWNqJg
+        pdf_url: >-
+          https://invoice.moneyforward.com/api/v3/billings/4k1zMaonOMw9FKd5xWNqJg.pdf
+        operator_id: fbeo9WVrdW36B1CKP3KASg
+        department_id: qwc4iT7ZrywxipJCOqtZQg
+        member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+        member_name: hb3m8kaxz9eex1czmpn2
+        partner_id: 95PHKI9_FeSw3coTj673Cg
+        partner_name: Name
+        office_id: tZ7wyN9WVuTy7nsisjGsjA
+        office_name: My Office Corporation
+        office_detail: |
+          〒123-4567
+          北海道Address 1
+          Address 2
+          TEL: 03-1234-5678
+          FAX: 03-1234-5678
+        title: create billing_v3vcbglozq
+        memo: memo_v3vcbglozq
+        payment_condition: payment_condition_v3vcbglozq
+        billing_date: 2022/12/09
+        due_date: 2022/12/10
+        sales_date: 2022/12/09
+        billing_number: billing num_v3vcbglozq
+        note: note_v3vcbglozq
+        document_name: doc name_v3vcbglozq
+        payment_status: 未設定
+        email_status: 未送信
+        posting_status: 未郵送
+        created_at: '2023-03-20 14:56:10 +0900'
+        updated_at: '2023-03-20 14:56:10 +0900'
+        is_downloaded: false
+        is_locked: false
+        tag_names:
+          - tag_v3vcbglozq
+        items: []
+        excise_price: '0.0'
+        excise_price_of_untaxable: '0.0'
+        excise_price_of_non_taxable: '0.0'
+        excise_price_of_tax_exemption: '0.0'
+        excise_price_of_five_percent: '0.0'
+        excise_price_of_eight_percent: '0.0'
+        excise_price_of_eight_percent_as_reduced_tax_rate: '0.0'
+        excise_price_of_ten_percent: '0.0'
+        subtotal_price: '0.0'
+        subtotal_of_untaxable_excise: '0.0'
+        subtotal_of_non_taxable_excise: '0.0'
+        subtotal_of_tax_exemption_excise: '0.0'
+        subtotal_of_five_percent_excise: '0.0'
+        subtotal_of_eight_percent_excise: '0.0'
+        subtotal_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_of_ten_percent_excise: '0.0'
+        subtotal_with_tax_of_untaxable_excise: '0.0'
+        subtotal_with_tax_of_non_taxable_excise: '0.0'
+        subtotal_with_tax_of_tax_exemption_excise: '0.0'
+        subtotal_with_tax_of_five_percent_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_with_tax_of_ten_percent_excise: '0.0'
+        total_price: '0.0'
+        registration_code: null
+        use_invoice_template: false
+        config:
+          rounding: round_down
+          rounding_consumption_tax: round_up
+          consumption_tax_display_type: internal
+    OldBillingWithoutItemsAndHasDeductPrice:
+      value:
+        id: 4k1zMaonOMw9FKd5xWNqJg
+        pdf_url: >-
+          https://invoice.moneyforward.com/api/v3/billings/4k1zMaonOMw9FKd5xWNqJg.pdf
+        operator_id: fbeo9WVrdW36B1CKP3KASg
+        department_id: qwc4iT7ZrywxipJCOqtZQg
+        member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+        member_name: hb3m8kaxz9eex1czmpn2
+        partner_id: 95PHKI9_FeSw3coTj673Cg
+        partner_name: p41uz1dyvw3cj71qrkja
+        office_id: tZ7wyN9WVuTy7nsisjGsjA
+        office_name: My Office Individual
+        office_detail: |
+          〒123-4567
+          北海道Address 1
+          Address 2
+          TEL: 03-1234-5678
+          FAX: 03-1234-5678
+        title: create billing_v3vcbglozq
+        memo: memo_v3vcbglozq
+        payment_condition: payment_condition_v3vcbglozq
+        billing_date: 2022/12/09
+        due_date: 2022/12/10
+        sales_date: 2022/12/09
+        billing_number: billing num_v3vcbglozq
+        note: note_v3vcbglozq
+        document_name: doc name_v3vcbglozq
+        payment_status: 未設定
+        email_status: 未送信
+        posting_status: 未郵送
+        created_at: '2023-03-20 14:56:10 +0900'
+        updated_at: '2023-03-20 14:56:10 +0900'
+        is_downloaded: false
+        is_locked: false
+        deduct_price: '0.0'
+        tag_names:
+          - tag_v3vcbglozq
+        items: []
+        excise_price: '0.0'
+        excise_price_of_untaxable: '0.0'
+        excise_price_of_non_taxable: '0.0'
+        excise_price_of_tax_exemption: '0.0'
+        excise_price_of_five_percent: '0.0'
+        excise_price_of_eight_percent: '0.0'
+        excise_price_of_eight_percent_as_reduced_tax_rate: '0.0'
+        excise_price_of_ten_percent: '0.0'
+        subtotal_price: '0.0'
+        subtotal_of_untaxable_excise: '0.0'
+        subtotal_of_non_taxable_excise: '0.0'
+        subtotal_of_tax_exemption_excise: '0.0'
+        subtotal_of_five_percent_excise: '0.0'
+        subtotal_of_eight_percent_excise: '0.0'
+        subtotal_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_of_ten_percent_excise: '0.0'
+        subtotal_with_tax_of_untaxable_excise: '0.0'
+        subtotal_with_tax_of_non_taxable_excise: '0.0'
+        subtotal_with_tax_of_tax_exemption_excise: '0.0'
+        subtotal_with_tax_of_five_percent_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_with_tax_of_ten_percent_excise: '0.0'
+        total_price: '0.0'
+        registration_code: null
+        use_invoice_template: false
+    QuoteWithoutDeductPrice:
+      value:
+        id: OfEG-jR-EH4gZoBfDcz1xg
+        pdf_url: >-
+          https:/invoice.moneyforward.com/api/v3/quotes/OfEG-jR-EH4gZoBfDcz1xg.pdf
+        operator_id: fbeo9WVrdW36B1CKP3KASg
+        department_id: qwc4iT7ZrywxipJCOqtZQg
+        member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+        member_name: hb3m8kaxz9eex1czmpn2
+        partner_id: 95PHKI9_FeSw3coTj673Cg
+        partner_name: p41uz1dyvw3cj71qrkja
+        partner_detail: |-
+          〒123-4567
+          山形県hb3m8kaxz9eex1czmpn2
+          hb3m8kaxz9eex1czmpn2
+          hb3m8kaxz9eex1czmpn2
+          hb3m8kaxz9eex1czmpn2
+          hb3m8kaxz9eex1czmpn2様
+        office_id: tZ7wyN9WVuTy7nsisjGsjA
+        office_name: My Office Corporation
+        office_detail: |
+          〒123-4567
+          北海道Address 1
+          Address 2
+          TEL: 03-1234-5678
+          FAX: 03-1234-5678
+        title: title_149fedb5bq
+        memo: memo_149fedb5bq
+        quote_date: 2022/12/01
+        quote_number: quote num_149fedb5bq
+        note: note_149fedb5bq
+        expired_date: 2023/12/30
+        document_name: 見積書
+        order_status: default
+        transmit_status: default
+        posting_status: default
+        created_at: '2023-03-20 15:56:27 +0900'
+        updated_at: '2023-03-20 15:56:27 +0900'
+        is_downloaded: false
+        is_locked: false
+        tag_names:
+          - tags
+        items:
+          - id: Z12BKLtb0x4IoBHTDY4y5Q
+            name: name_0snq9xx1mv
+            code: code_0snq9xx1mv
+            detail: detail_0snq9xx1mv
+            unit: unit_0snq9xx1mv
+            price: '10'
+            quantity: '10'
+            excise: untaxable
+            created_at: '2023-06-07 16:00:19 +0900'
+            updated_at: '2023-06-07 16:00:19 +0900'
+        excise_price: '0.0'
+        excise_price_of_untaxable: '0.0'
+        excise_price_of_non_taxable: '0.0'
+        excise_price_of_tax_exemption: '0.0'
+        excise_price_of_five_percent: '0.0'
+        excise_price_of_eight_percent: '0.0'
+        excise_price_of_eight_percent_as_reduced_tax_rate: '0.0'
+        excise_price_of_ten_percent: '0.0'
+        subtotal_price: '100.0'
+        subtotal_of_untaxable_excise: '100.0'
+        subtotal_of_non_taxable_excise: '0.0'
+        subtotal_of_tax_exemption_excise: '0.0'
+        subtotal_of_five_percent_excise: '0.0'
+        subtotal_of_eight_percent_excise: '0.0'
+        subtotal_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_of_ten_percent_excise: '0.0'
+        subtotal_with_tax_of_untaxable_excise: '100.0'
+        subtotal_with_tax_of_non_taxable_excise: '0.0'
+        subtotal_with_tax_of_five_percent_excise: '0.0'
+        subtotal_with_tax_of_tax_exemption_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_with_tax_of_ten_percent_excise: '100.0'
+        total_price: '100.0'
+    QuoteWithDeductPrice:
+      value:
+        id: OfEG-jR-EH4gZoBfDcz1xg
+        pdf_url: >-
+          https:/invoice.moneyforward.com/api/v3/quotes/OfEG-jR-EH4gZoBfDcz1xg.pdf
+        operator_id: fbeo9WVrdW36B1CKP3KASg
+        department_id: qwc4iT7ZrywxipJCOqtZQg
+        member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+        member_name: hb3m8kaxz9eex1czmpn2
+        partner_id: 95PHKI9_FeSw3coTj673Cg
+        partner_name: p41uz1dyvw3cj71qrkja
+        partner_detail: |-
+          〒123-4567
+          山形県hb3m8kaxz9eex1czmpn2
+          hb3m8kaxz9eex1czmpn2
+          hb3m8kaxz9eex1czmpn2
+          hb3m8kaxz9eex1czmpn2
+          hb3m8kaxz9eex1czmpn2様
+        office_id: tZ7wyN9WVuTy7nsisjGsjA
+        office_name: My Office Individual
+        office_detail: |
+          〒123-4567
+          北海道Address 1
+          Address 2
+          TEL: 03-1234-5678
+          FAX: 03-1234-5678
+        title: title_149fedb5bq
+        memo: memo_149fedb5bq
+        quote_date: 2022/12/01
+        quote_number: quote num_149fedb5bq
+        note: note_149fedb5bq
+        expired_date: 2023/12/30
+        document_name: 見積書
+        order_status: default
+        transmit_status: default
+        posting_status: default
+        created_at: '2023-03-20 15:56:27 +0900'
+        updated_at: '2023-03-20 15:56:27 +0900'
+        is_downloaded: false
+        is_locked: false
+        tag_names:
+          - tag
+        items:
+          - id: Z12BKLtb0x4IoBHTDY4y5Q
+            name: name_0snq9xx1mv
+            code: code_0snq9xx1mv
+            detail: detail_0snq9xx1mv
+            unit: unit_0snq9xx1mv
+            is_deduct_withholding_tax: false
+            price: '10'
+            quantity: '10'
+            excise: untaxable
+            created_at: '2023-06-07 16:00:19 +0900'
+            updated_at: '2023-06-07 16:00:19 +0900'
+        excise_price: '0.0'
+        excise_price_of_untaxable: '0.0'
+        excise_price_of_non_taxable: '0.0'
+        excise_price_of_tax_exemption: '0.0'
+        excise_price_of_five_percent: '0.0'
+        excise_price_of_eight_percent: '0.0'
+        excise_price_of_eight_percent_as_reduced_tax_rate: '0.0'
+        excise_price_of_ten_percent: '0.0'
+        subtotal_price: '0.0'
+        subtotal_of_untaxable_excise: '0.0'
+        subtotal_of_non_taxable_excise: '0.0'
+        subtotal_of_tax_exemption_excise: '0.0'
+        subtotal_of_five_percent_excise: '0.0'
+        subtotal_of_eight_percent_excise: '0.0'
+        subtotal_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_of_ten_percent_excise: '0.0'
+        subtotal_with_tax_of_untaxable_excise: '100.0'
+        subtotal_with_tax_of_non_taxable_excise: '0.0'
+        subtotal_with_tax_of_five_percent_excise: '0.0'
+        subtotal_with_tax_of_tax_exemption_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_with_tax_of_ten_percent_excise: '100.0'
+        total_price: '100.0'
+        deduct_price: '0.0'
+    NewBillingWithDeductPrice:
+      value:
+        id: 4k1zMaonOMw9FKd5xWNqJL
+        pdf_url: >-
+          https://invoice.moneyforward.com/api/v3/billings/4k1zMaonOMw9FKd5xWNqJL.pdf
+        operator_id: fbeo9WVrdW36B1CKP3KASg
+        department_id: qwc4iT7ZrywxipJCOqtZQg
+        member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+        member_name: hb3m8kaxz9eex1czmpn2
+        partner_id: 95PHKI9_FeSw3coTj673Cg
+        partner_name: p41uz1dyvw3cj71qrkja
+        office_id: tZ7wyN9WVuTy7nsisjGsjA
+        office_name: My Office Individual
+        office_detail: |
+          〒123-4567
+          北海道Address 1
+          Address 2
+          TEL: 03-1234-5678
+          FAX: 03-1234-5678
+        title: create billing_v3vcbglozq
+        memo: memo_v3vcbglozq
+        payment_condition: payment_condition_v3vcbglozq
+        billing_date: 2022/12/09
+        due_date: 2022/12/10
+        sales_date: 2022/12/09
+        billing_number: billing num_v3vcbglozq
+        note: note_v3vcbglozq
+        document_name: doc name_v3vcbglozq
+        payment_status: 未設定
+        email_status: 未送信
+        posting_status: 未郵送
+        created_at: '2023-03-20 14:56:10 +0900'
+        updated_at: '2023-03-20 14:56:10 +0900'
+        is_downloaded: false
+        is_locked: false
+        deduct_price: '0.0'
+        tag_names:
+          - tag_v3vcbglozq
+        items:
+          - id: Z12BKLtb0x4IoBHTDY4y5Q
+            name: name_0snq9xx1mv
+            code: code_0snq9xx1mv
+            detail: detail_0snq9xx1mv
+            unit: unit_0snq9xx1mv
+            price: '10'
+            quantity: '10'
+            excise: untaxable
+            delivery_date: 2023/06/07
+            delivery_number: 1234Num567
+            is_deduct_withholding_tax: false
+            created_at: '2023-06-07 16:00:19 +0900'
+            updated_at: '2023-06-07 16:00:19 +0900'
+        excise_price: '0.0'
+        excise_price_of_untaxable: '0.0'
+        excise_price_of_non_taxable: '0.0'
+        excise_price_of_tax_exemption: '0.0'
+        excise_price_of_five_percent: '0.0'
+        excise_price_of_eight_percent: '0.0'
+        excise_price_of_eight_percent_as_reduced_tax_rate: '0.0'
+        excise_price_of_ten_percent: '0.0'
+        subtotal_price: '100.0'
+        subtotal_of_untaxable_excise: '100.0'
+        subtotal_of_non_taxable_excise: '0.0'
+        subtotal_of_tax_exemption_excise: '0.0'
+        subtotal_of_five_percent_excise: '0.0'
+        subtotal_of_eight_percent_excise: '0.0'
+        subtotal_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_of_ten_percent_excise: '0.0'
+        subtotal_with_tax_of_untaxable_excise: '100.0'
+        subtotal_with_tax_of_non_taxable_excise: '0.0'
+        subtotal_with_tax_of_five_percent_excise: '0.0'
+        subtotal_with_tax_of_tax_exemption_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_with_tax_of_ten_percent_excise: '100.0'
+        total_price: '100.0'
+        registration_code: T1234567890812
+        use_invoice_template: true
+    NewBillingWithoutDeductPrice:
+      value:
+        id: 4k1zMaonOMw9FKd5xWNqJK
+        pdf_url: >-
+          https://invoice.moneyforward.com/api/v3/billings/4k1zMaonOMw9FKd5xWNqJK.pdf
+        operator_id: fbeo9WVrdW36B1CKP3KASg
+        department_id: qwc4iT7ZrywxipJCOqtZQg
+        member_id: '-UNhHGbLKnWH5xlrFhj2ow'
+        member_name: hb3m8kaxz9eex1czmpn2
+        partner_id: 95PHKI9_FeSw3coTj673Cg
+        partner_name: Name
+        office_id: tZ7wyN9WVuTy7nsisjGsjA
+        office_name: My Office Corporation
+        office_detail: |
+          〒123-4567
+          北海道Address 1
+          Address 2
+          TEL: 03-1234-5678
+          FAX: 03-1234-5678
+        title: create billing_v3vcbglozq
+        memo: memo_v3vcbglozq
+        payment_condition: payment_condition_v3vcbglozq
+        billing_date: 2022/12/09
+        due_date: 2022/12/10
+        sales_date: 2022/12/09
+        billing_number: billing num_v3vcbglozq
+        note: note_v3vcbglozq
+        document_name: doc name_v3vcbglozq
+        payment_status: 未設定
+        email_status: 未送信
+        posting_status: 未郵送
+        created_at: '2023-03-20 14:56:10 +0900'
+        updated_at: '2023-03-20 14:56:10 +0900'
+        is_downloaded: false
+        is_locked: false
+        tag_names:
+          - tag_v3vcbglozq
+        items:
+          - id: Z12BKLtb0x4IoBHTDY4y5Q
+            name: name_0snq9xx1mv
+            code: code_0snq9xx1mv
+            detail: detail_0snq9xx1mv
+            unit: unit_0snq9xx1mv
+            price: '10'
+            quantity: '10'
+            excise: untaxable
+            delivery_date: 2023/06/07
+            delivery_number: 1234Num567
+            created_at: '2023-06-07 16:00:19 +0900'
+            updated_at: '2023-06-07 16:00:19 +0900'
+        excise_price: '0.0'
+        excise_price_of_untaxable: '0.0'
+        excise_price_of_non_taxable: '0.0'
+        excise_price_of_tax_exemption: '0.0'
+        excise_price_of_five_percent: '0.0'
+        excise_price_of_eight_percent: '0.0'
+        excise_price_of_eight_percent_as_reduced_tax_rate: '0.0'
+        excise_price_of_ten_percent: '0.0'
+        subtotal_price: '100.0'
+        subtotal_of_untaxable_excise: '100.0'
+        subtotal_of_non_taxable_excise: '0.0'
+        subtotal_of_tax_exemption_excise: '0.0'
+        subtotal_of_five_percent_excise: '0.0'
+        subtotal_of_eight_percent_excise: '0.0'
+        subtotal_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_of_ten_percent_excise: '0.0'
+        subtotal_with_tax_of_untaxable_excise: '100.0'
+        subtotal_with_tax_of_non_taxable_excise: '0.0'
+        subtotal_with_tax_of_five_percent_excise: '0.0'
+        subtotal_with_tax_of_tax_exemption_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_excise: '0.0'
+        subtotal_with_tax_of_eight_percent_as_reduced_tax_rate_excise: '0.0'
+        subtotal_with_tax_of_ten_percent_excise: '100.0'
+        total_price: '100.0'
+        registration_code: T1234567890812
+        use_invoice_template: true
+        config:
+          rounding: round_down
+          rounding_consumption_tax: round_up
+          consumption_tax_display_type: internal
+    IvItemRequestExample:
+      value:
+        name: string
+        code: string
+        detail: string
+        unit: string
+        price: 10000000
+        quantity: 10000000
+        is_deduct_withholding_tax: true
+        excise: untaxable
+security:
+  - AccessToken:
+      - mfc/invoice/data.write
+      - mfc/invoice/data.read

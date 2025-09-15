@@ -26,17 +26,23 @@ class ProductRequest extends FormRequest
             'sku' => [
                 'required',
                 'string',
-                'max:255',
+                'max:30',
                 Rule::unique('products')->ignore($this->route('product')),
             ],
-            'name' => 'required|string|max:255',
-            'category_id' => 'nullable|exists:product_categories,id',
-            'unit' => 'nullable|string|max:255',
-            'price' => 'nullable|integer|min:0',
-            'cost' => 'nullable|integer|min:0',
-            'tax_category' => 'nullable|string|max:255',
+            'name' => 'required|string|max:450',
+            
+            'unit' => 'nullable|string|max:20',
+            'price' => 'nullable|numeric|min:0',
+            'quantity' => 'nullable|numeric',
+            'cost' => 'nullable|numeric|min:0',
+            'tax_category' => [
+                'nullable',
+                'string',
+                Rule::in(['untaxable', 'non_taxable', 'tax_exemption', 'five_percent', 'eight_percent', 'eight_percent_as_reduced_tax_rate', 'ten_percent'])
+            ],
+            'is_deduct_withholding_tax' => 'nullable|boolean',
             'is_active' => 'boolean',
-            'description' => 'nullable|string',
+            'description' => 'nullable|string|max:200',
             'attributes' => 'nullable|array',
         ];
     }

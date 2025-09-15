@@ -17,16 +17,43 @@ class BillingController extends Controller
     {
         $moneyForwardConfig = [
             'client_id' => config('services.money_forward.client_id'),
-            'redirect_uri' => config('services.money_forward.redirect_uri'),
+            'redirect_uri' => env('MONEY_FORWARD_BILLING_REDIRECT_URI', route('money-forward.callback')),
             'authorization_url' => config('services.money_forward.authorization_url'),
             'scope' => 'mfc/invoice/data.read', // Adjust scope as per Money Forward API docs
         ];
 
         $billings = Billing::with('items')->get();
 
+        // Merge local invoices for display convenience
+        $local = \App\Models\LocalInvoice::query()->get();
+        $localMapped = $local->map(function ($inv) {
+            return [
+                'id' => 'local-' . $inv->id,
+                'local_invoice_id' => $inv->id,
+                'source' => 'local',
+                'billing_number' => $inv->billing_number,
+                'partner_name' => $inv->customer_name,
+                'title' => $inv->title,
+                'billing_date' => optional($inv->billing_date)->format('Y-m-d'),
+                'due_date' => optional($inv->due_date)->format('Y-m-d'),
+                'total_price' => $inv->total_amount,
+                'email_status' => '未設定',
+                'posting_status' => '未郵送',
+                'payment_status' => '未設定',
+                'is_locked' => false,
+                'is_downloaded' => false,
+                'updated_at' => optional($inv->updated_at)->format('Y-m-d'),
+                // Add MF linkage status so UI can show PDF instead of "MF未生成"
+                'mf_billing_id' => $inv->mf_billing_id,
+                'mf_pdf_url' => $inv->mf_pdf_url,
+            ];
+        });
+
+        $merged = collect($billings)->map->toArray()->concat($localMapped)->values();
+
         return Inertia::render('Billing/Index', [
             'moneyForwardConfig' => $moneyForwardConfig,
-            'moneyForwardInvoices' => ['data' => $billings->toArray()],
+            'moneyForwardInvoices' => ['data' => $merged],
             'error' => session('error'), // Pass error message from session
         ]);
     }
@@ -35,7 +62,7 @@ class BillingController extends Controller
     {
         $clientId = config('services.money_forward.client_id');
         $clientSecret = config('services.money_forward.client_secret');
-        $redirectUri = config('services.money_forward.redirect_uri');
+        $redirectUri = env('MONEY_FORWARD_BILLING_REDIRECT_URI', route('money-forward.callback'));
         $tokenUrl = config('services.money_forward.token_url');
         $apiUrl = config('services.money_forward.api_url');
 
@@ -72,9 +99,13 @@ class BillingController extends Controller
             $invoices = json_decode($invoicesResponse->getBody()->getContents(), true);
 
             foreach ($invoices['data'] as $invoiceData) {
-                $billing = Billing::updateOrCreate(
-                    ['id' => $invoiceData['id']],
-                    [
+                // Upsert strategy: prefer MF id, otherwise fall back to billing_number to avoid unique violations
+                $lookup = Billing::where('id', $invoiceData['id'])->first();
+                if (!$lookup && !empty($invoiceData['billing_number'])) {
+                    $lookup = Billing::where('billing_number', $invoiceData['billing_number'])->first();
+                }
+
+                $payload = [
                         'pdf_url' => $invoiceData['pdf_url'] ?? null,
                         'operator_id' => $invoiceData['operator_id'] ?? null,
                         'department_id' => $invoiceData['department_id'] ?? null,
@@ -128,8 +159,24 @@ class BillingController extends Controller
                         'registration_code' => $invoiceData['registration_code'] ?? null,
                         'use_invoice_template' => $invoiceData['use_invoice_template'] ?? false,
                         'config' => $invoiceData['config'] ?? null,
-                    ]
-                );
+                    ];
+
+                if ($lookup) {
+                    // Update existing record (keep existing primary key)
+                    $lookup->fill($payload);
+                    // If the record didn't have the MF id saved yet, set it when IDs differ and it's safe
+                    if ($lookup->id !== $invoiceData['id'] && empty(Billing::find($invoiceData['id']))) {
+                        // Avoid PK conflicts; usually we keep the existing PK
+                    }
+                    $lookup->save();
+                    $billing = $lookup;
+                } else {
+                    // Create new with MF id as primary key
+                    $billing = new Billing();
+                    $billing->id = $invoiceData['id'];
+                    $billing->fill($payload);
+                    $billing->save();
+                }
 
                 if (isset($invoiceData['items'])) {
                     foreach ($invoiceData['items'] as $itemData) {

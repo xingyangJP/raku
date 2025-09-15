@@ -5,7 +5,10 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Estimate;
+use App\Models\Partner;
+use App\Services\MoneyForwardApiService;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\Schema;
 
 class DashboardController extends Controller
 {
@@ -98,5 +101,76 @@ class DashboardController extends Controller
         return Inertia::render('Dashboard', [
             'toDoEstimates' => $toDoEstimates,
         ]);
+    }
+
+    public function syncPartners(Request $request, MoneyForwardApiService $apiService)
+    {
+        if ($token = $apiService->getValidAccessToken()) {
+            return $this->doPartnerSync($token, $apiService);
+        } else {
+            $request->session()->put('mf_redirect_action', 'sync_partners');
+            return redirect()->route('partners.auth.start');
+        }
+    }
+
+    public function redirectToAuthForPartners(Request $request)
+    {
+        $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
+            'response_type' => 'code',
+            'client_id' => config('services.money_forward.client_id'),
+            'redirect_uri' => env('MONEY_FORWARD_PARTNER_AUTH_REDIRECT_URI', route('partners.auth.callback')),
+            'scope' => 'mfc/invoice/data.read',
+        ]);
+        return \Inertia\Inertia::location($authUrl);
+    }
+
+    public function handlePartnersCallback(Request $request, MoneyForwardApiService $apiService)
+    {
+        if (!$request->has('code')) {
+            return redirect()->route('dashboard')->with('error', 'Authorization failed.');
+        }
+
+        $tokenData = $apiService->getAccessTokenFromCode($request->code, env('MONEY_FORWARD_PARTNER_AUTH_REDIRECT_URI', route('partners.auth.callback')));
+        if (!$tokenData) {
+            return redirect()->route('dashboard')->with('error', 'Failed to get access token.');
+        }
+
+        $apiService->storeToken($tokenData, Auth::id());
+        $token = $tokenData['access_token'];
+
+        return $this->doPartnerSync($token, $apiService);
+    }
+
+    private function doPartnerSync(string $token, MoneyForwardApiService $apiService)
+    {
+        if (!Schema::hasTable('partners')) {
+            return redirect()->route('dashboard')->with('error', 'partners table does not exist. Please run `php artisan migrate`.');
+        }
+
+        $partners = $apiService->fetchAllPartners($token);
+        if (!is_array($partners)) {
+            return redirect()->route('dashboard')->with('error', 'Could not fetch partners. Please check permissions (scope) and settings.');
+        }
+
+        $count = 0;
+        foreach ($partners as $p) {
+            $mfId = $p['id'] ?? null;
+            if (!$mfId) { continue; }
+
+            $detail = $apiService->fetchPartnerDetail($mfId, $token);
+            $merged = is_array($detail) ? array_merge($detail, $p) : $p;
+
+            Partner::updateOrCreate(
+                ['mf_partner_id' => $mfId],
+                [
+                    'code' => $merged['code'] ?? null,
+                    'name' => $merged['name'] ?? null,
+                    'payload' => $merged,
+                ]
+            );
+            $count++;
+        }
+
+        return redirect()->route('dashboard')->with('success', "{$count}件の顧客情報を更新しました");
     }
 }

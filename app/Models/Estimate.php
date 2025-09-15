@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 
 class Estimate extends Model
 {
@@ -43,9 +44,24 @@ class Estimate extends Model
 
     public static function generateReadableEstimateNumber($staffId, $clientId, bool $is_draft): string
     {
-        $date = now()->format('ydm');
+        // Spec: EST[-D]-{staff}-{client}-{yyddmm}-{seq}
+        $date = now()->format('ydm'); // yy dd mm
         $staff = $staffId ?: 'X';
-        $client = $clientId ?: 'X';
+
+        // Prefer short partner code from DB; fallback to leading 6 of partner_id
+        $client = 'X';
+        if (!empty($clientId)) {
+            $client = (string)$clientId;
+            if (Schema::hasTable('partners')) {
+                try {
+                    $code = \DB::table('partners')->where('mf_partner_id', (string)$clientId)->value('code');
+                    if (!empty($code)) { $client = $code; }
+                } catch (\Throwable $e) {}
+            }
+            if (strlen($client) > 12 && strpos($client, 'CRM-') !== 0) {
+                $client = substr($client, 0, 6);
+            }
+        }
         $kind = $is_draft ? 'EST-D' : 'EST';
         $prefix = "$kind-$staff-$client-$date-";
 

@@ -3,14 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\Estimate;
+use App\Models\Partner;
 use App\Models\User;
 use App\Services\MoneyForwardApiService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+use Carbon\Carbon;
 
 class EstimateController extends Controller
 {
@@ -20,15 +25,9 @@ class EstimateController extends Controller
             return DB::table('products')
                 ->where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'name', 'price', 'cost', 'unit', 'sku', 'description']);
+                ->get(['id', 'name', 'price', 'cost', 'unit', 'sku as code', 'description']);
         }
-        return [
-            ['id' => 1, 'name' => 'システム設計', 'price' => 100000, 'cost' => 50000, 'unit' => '式'],
-            ['id' => 2, 'name' => 'インフラ構築', 'price' => 200000, 'cost' => 100000, 'unit' => '式'],
-            ['id' => 3, 'name' => 'DB設計', 'price' => 150000, 'cost' => 75000, 'unit' => '式'],
-            ['id' => 4, 'name' => '要件定義', 'price' => 80000, 'cost' => 40000, 'unit' => '式'],
-            ['id' => 5, 'name' => 'テスト', 'price' => 60000, 'cost' => 30000, 'unit' => '式'],
-        ];
+        return [];
     }
 
     public function index()
@@ -45,7 +44,6 @@ class EstimateController extends Controller
     public function create()
     {
         $products = $this->loadProducts();
-
         return Inertia::render('Estimates/Create', [
             'products' => $products,
         ]);
@@ -53,21 +51,21 @@ class EstimateController extends Controller
 
     public function saveDraft(Request $request)
     {
+        // This method's content is restored from previous versions.
         $clientId = $request->input('client_id');
         if (!is_null($clientId) && !is_string($clientId)) {
             $request->merge(['client_id' => (string) $clientId]);
         }
 
-        // If an ID is present, it's an update of an existing draft.
         if ($request->has('id') && $request->id) {
             $estimate = Estimate::findOrFail($request->id);
-            // Make sure we are only updating a draft.
             if ($estimate->status !== 'draft') {
                 return response()->json(['message' => 'Only drafts can be updated via saveDraft.'], 422);
             }
             $validated = $request->validate([
                 'customer_name' => 'required|string|max:255',
                 'client_id' => 'nullable|string|max:255',
+                'mf_department_id' => 'nullable|string|max:255',
                 'title' => 'required|string|max:255',
                 'issue_date' => 'nullable|date',
                 'due_date' => 'nullable|date',
@@ -83,12 +81,11 @@ class EstimateController extends Controller
             ]);
             $estimate->update(array_merge($validated, ['status' => 'draft']));
             return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Draft updated successfully.');
-
         } else {
-            // It's a new draft.
             $validated = $request->validate([
                 'customer_name' => 'required|string|max:255',
                 'client_id' => 'nullable|string|max:255',
+                'mf_department_id' => 'nullable|string|max:255',
                 'title' => 'required|string|max:255',
                 'issue_date' => 'nullable|date',
                 'due_date' => 'nullable|date',
@@ -107,7 +104,7 @@ class EstimateController extends Controller
                 $validated['estimate_number'] = Estimate::generateReadableEstimateNumber(
                     $validated['staff_id'] ?? null,
                     $validated['client_id'] ?? null,
-                    true // is_draft = true
+                    true
                 );
             }
             
@@ -118,6 +115,7 @@ class EstimateController extends Controller
 
     public function store(Request $request)
     {
+        // This method's content is restored from previous versions.
         $clientId = $request->input('client_id');
         if (!is_null($clientId) && !is_string($clientId)) {
             $request->merge(['client_id' => (string) $clientId]);
@@ -126,6 +124,7 @@ class EstimateController extends Controller
         $validated = $request->validate([
             'customer_name' => 'required|string|max:255',
             'client_id' => 'nullable|string|max:255',
+            'mf_department_id' => 'required|string|max:255',
             'title' => 'required|string|max:255',
             'issue_date' => 'required|date',
             'due_date' => 'nullable|date',
@@ -192,11 +191,10 @@ class EstimateController extends Controller
         $products = $this->loadProducts();
         $is_fully_approved = $estimate->status === 'sent';
 
-        // Manually attach a 'customer' object for frontend compatibility
         $estimate->customer = (object)[
             'id' => $estimate->client_id,
-            'mf_partner_id' => $estimate->client_id, // Assuming client_id is mf_partner_id
-            'customer_name' => $estimate->customer_name, // Include customer_name for consistency
+            'mf_partner_id' => $estimate->client_id,
+            'customer_name' => $estimate->customer_name,
         ];
 
         return Inertia::render('Estimates/Create', [
@@ -208,6 +206,9 @@ class EstimateController extends Controller
 
     public function update(Request $request, Estimate $estimate)
     {
+        if ($estimate->status === 'sent' && $request->input('status') === 'pending') {
+            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'This estimate is already approved.');
+        }
         $clientId = $request->input('client_id');
         if (!is_null($clientId) && !is_string($clientId)) {
             $request->merge(['client_id' => (string) $clientId]);
@@ -216,6 +217,7 @@ class EstimateController extends Controller
         $validated = $request->validate([
             'customer_name' => 'required|string|max:255',
             'client_id' => 'nullable|string|max:255',
+            'mf_department_id' => 'required|string|max:255',
             'title' => 'required|string|max:255',
             'issue_date' => 'required|date',
             'due_date' => 'nullable|date',
@@ -282,12 +284,11 @@ class EstimateController extends Controller
             $validated['approval_started'] = false;
         }
 
-        // ステータスが 'draft' から変更され、かつ下書き番号を持つ場合に番号を再生成
         if ($estimate->status === 'draft' && $status !== 'draft') {
             $validated['estimate_number'] = Estimate::generateReadableEstimateNumber(
                 $validated['staff_id'] ?? $estimate->staff_id,
                 $validated['client_id'] ?? $estimate->client_id,
-                false // Not a draft anymore
+                false
             );
         }
 
@@ -305,52 +306,6 @@ class EstimateController extends Controller
         $estimate->save();
 
         return redirect()->route('estimates.edit', $estimate->id)->with('success', '承認申請を取り消しました。');
-    }
-
-    public function redirectToAuthForQuoteCreation(Estimate $estimate)
-    {
-        session(['estimate_id_for_quote_creation' => $estimate->id]);
-        $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
-            'response_type' => 'code',
-            'client_id' => config('services.money_forward.client_id'),
-            'redirect_uri' => route('estimates.createQuote.callback'),
-            'scope' => 'mfc/quote/data.write',
-        ]);
-        return redirect()->away($authUrl);
-    }
-
-    public function handleQuoteCreationCallback(Request $request, MoneyForwardApiService $apiService)
-    {
-        if (!$request->has('code')) {
-            return redirect()->route('quotes.index')->with('error', 'Authorization failed.');
-        }
-
-        $estimateId = session('estimate_id_for_quote_creation');
-        if (!$estimateId) {
-            return redirect()->route('quotes.index')->with('error', 'Estimate not found in session.');
-        }
-
-        $estimate = Estimate::find($estimateId);
-        if (!$estimate) {
-            return redirect()->route('quotes.index')->with('error', 'Estimate not found.');
-        }
-
-        $token = $apiService->getAccessToken($request->code);
-        if (!$token) {
-            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to get access token.');
-        }
-
-        // Call the new method in MoneyForwardApiService to create a quote
-        $result = $apiService->createQuoteFromEstimate($estimate, $token);
-
-        if ($result && isset($result['id']) && isset($result['pdf_url'])) {
-            $estimate->mf_quote_id = $result['id'];
-            $estimate->mf_quote_pdf_url = $result['pdf_url'];
-            $estimate->save();
-            return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Successfully created quote in Money Forward.');
-        } else {
-            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to create quote in Money Forward.');
-        }
     }
 
     public function destroy(Estimate $estimate)
@@ -458,48 +413,164 @@ class EstimateController extends Controller
         return redirect()->back()->with('success', count($request->ids) . '件の見積書の担当者付替を処理しました。');
     }
 
-    public function redirectToAuthForBillingConversion(Estimate $estimate)
+    // --- Money Forward Integration (New Refresh Token Flow) ---
+
+    public function createMfQuote(Estimate $estimate, Request $request, MoneyForwardApiService $apiService)
     {
-        session(['estimate_id_for_billing_conversion' => $estimate->id]);
+        if ($token = $apiService->getValidAccessToken()) {
+            return $this->_doCreateMfQuote($estimate, $token, $apiService);
+        } else {
+            $request->session()->put('mf_redirect_action', 'create_quote');
+            $request->session()->put('mf_estimate_id', $estimate->id);
+            return redirect()->route('estimates.auth.start');
+        }
+    }
+
+    public function viewMfQuotePdf(Estimate $estimate, Request $request, MoneyForwardApiService $apiService)
+    {
+        if (empty($estimate->mf_quote_id)) {
+            return redirect()->back()->with('error', 'Money Forward quote has not been created yet.');
+        }
+        if ($token = $apiService->getValidAccessToken()) {
+            return $this->_doViewMfQuotePdf($estimate, $token, $apiService);
+        } else {
+            $request->session()->put('mf_redirect_action', 'view_quote_pdf');
+            $request->session()->put('mf_estimate_id', $estimate->id);
+            return redirect()->route('estimates.auth.start');
+        }
+    }
+
+    public function convertMfQuoteToBilling(Estimate $estimate, Request $request, MoneyForwardApiService $apiService)
+    {
+        if (empty($estimate->mf_quote_id)) {
+            return redirect()->back()->with('error', 'Money Forward quote has not been created yet.');
+        }
+        if ($token = $apiService->getValidAccessToken()) {
+            return $this->_doConvertMfQuoteToBilling($estimate, $token, $apiService);
+        } else {
+            $request->session()->put('mf_redirect_action', 'convert_to_billing');
+            $request->session()->put('mf_estimate_id', $estimate->id);
+            return redirect()->route('estimates.auth.start');
+        }
+    }
+
+    public function redirectToAuth(Request $request)
+    {
+        $action = $request->session()->get('mf_redirect_action');
+        $scope = 'mfc/invoice/data.read'; // Default scope
+        if (in_array($action, ['create_quote', 'convert_to_billing'])) {
+            $scope = 'mfc/invoice/data.write';
+        }
+
         $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
             'response_type' => 'code',
             'client_id' => config('services.money_forward.client_id'),
-            'redirect_uri' => route('estimates.convertToBilling.callback'),
-            'scope' => 'mfc/invoice/data.write',
+            'redirect_uri' => route('estimates.auth.callback'),
+            'scope' => $scope,
         ]);
-        return redirect()->away($authUrl);
+        return Inertia::location($authUrl);
     }
 
-    public function handleBillingConversionCallback(Request $request, MoneyForwardApiService $apiService)
+    public function handleCallback(Request $request, MoneyForwardApiService $apiService)
     {
         if (!$request->has('code')) {
             return redirect()->route('quotes.index')->with('error', 'Authorization failed.');
         }
 
-        $estimateId = session('estimate_id_for_billing_conversion');
-        if (!$estimateId) {
+        $tokenData = $apiService->getAccessTokenFromCode($request->code, route('estimates.auth.callback'));
+        if (!$tokenData) {
+            return redirect()->route('quotes.index')->with('error', 'Failed to get access token.');
+        }
+
+        $apiService->storeToken($tokenData, Auth::id());
+        $token = $tokenData['access_token'];
+
+        $action = $request->session()->get('mf_redirect_action');
+        $estimateId = $request->session()->get('mf_estimate_id');
+        $estimate = Estimate::find($estimateId);
+
+        if (!$estimate) {
             return redirect()->route('quotes.index')->with('error', 'Estimate not found in session.');
         }
 
-        $estimate = Estimate::find($estimateId);
-        if (!$estimate) {
-            return redirect()->route('quotes.index')->with('error', 'Estimate not found.');
+        switch ($action) {
+            case 'create_quote':
+                return $this->_doCreateMfQuote($estimate, $token, $apiService);
+            case 'view_quote_pdf':
+                return $this->_doViewMfQuotePdf($estimate, $token, $apiService);
+            case 'convert_to_billing':
+                return $this->_doConvertMfQuoteToBilling($estimate, $token, $apiService);
+            default:
+                return redirect()->route('quotes.index')->with('error', 'Unknown action for callback.');
         }
+    }
 
-        $token = $apiService->getAccessToken($request->code);
-        if (!$token) {
-            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to get access token.');
+    private function _doCreateMfQuote(Estimate $estimate, string $token, MoneyForwardApiService $apiService)
+    {
+        $result = $apiService->createQuoteFromEstimate($estimate, $token);
+
+        if ($result && isset($result['id'])) {
+            $estimate->mf_quote_id = $result['id'];
+            if (isset($result['pdf_url'])) {
+                $estimate->mf_quote_pdf_url = $result['pdf_url'];
+            }
+            $estimate->save();
+            return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Successfully created quote in Money Forward.');
+        } else {
+            Log::error('MF create quote failed', ['response' => $result]);
+            $msg = 'Failed to create quote in Money Forward.';
+            if (is_array($result) && isset($result['error_message'])) {
+                $msg .= ' ' . $result['error_message'];
+            }
+            return redirect()->route('estimates.edit', $estimate->id)->with('error', $msg);
         }
+    }
 
+    private function _doViewMfQuotePdf(Estimate $estimate, string $token, MoneyForwardApiService $apiService)
+    {
+        try {
+            $client = new \GuzzleHttp\Client();
+            $pdfResp = $client->get(config('services.money_forward.api_url') . "/quotes/{$estimate->mf_quote_id}.pdf", [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $token,
+                    'Accept' => 'application/pdf',
+                ],
+            ]);
+
+            $tempRelativePath = 'temp/mf_quote_' . $estimate->id . '.pdf';
+            Storage::put($tempRelativePath, $pdfResp->getBody()->getContents());
+
+            $tempAbsolutePath = Storage::path($tempRelativePath);
+
+            $headers = [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="quote.pdf"',
+            ];
+
+            return response()->download($tempAbsolutePath, 'quote.pdf', $headers)->deleteFileAfterSend(true);
+
+        } catch (\Throwable $e) {
+            Log::error('Failed to fetch MF quote PDF: ' . $e->getMessage(), ['estimate_id' => $estimate->id]);
+            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to get quote PDF.');
+        }
+    }
+
+    private function _doConvertMfQuoteToBilling(Estimate $estimate, string $token, MoneyForwardApiService $apiService)
+    {
         $result = $apiService->convertQuoteToBilling($estimate->mf_quote_id, $token);
 
-        if ($result && isset($result['id']) && isset($result['pdf_url'])) {
+        if (is_array($result) && isset($result['id'])) {
             $estimate->mf_invoice_id = $result['id'];
-            //            $estimate->mf_invoice_pdf_url = $result['pdf_url']; // mf_invoice_pdf_url is not a column in estimates table
+            if (isset($result['pdf_url']) && Schema::hasColumn('estimates', 'mf_invoice_pdf_url')) {
+                $estimate->mf_invoice_pdf_url = $result['pdf_url'];
+            }
             $estimate->save();
-            return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Successfully converted quote to invoice in Money Forward.');
+            return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Successfully converted to invoice.');
         } else {
-            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'Failed to convert quote to invoice in Money Forward.');
+            Log::error('MF convert_to_billing failed', ['response' => $result]);
+            $msg = 'Failed to convert to invoice.';
+            if (is_array($result) && isset($result['message'])) { $msg .= ' ' . $result['message']; }
+            return redirect()->route('estimates.edit', $estimate->id)->with('error', $msg);
         }
     }
 }

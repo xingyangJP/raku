@@ -30,7 +30,6 @@ import {
     Target
 } from 'lucide-react';
 import { Checkbox } from '@/Components/ui/checkbox';
-import axios from 'axios';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog';
@@ -131,36 +130,7 @@ export default function QuoteIndex({ auth, estimates }) {
         }
     };
 
-    const handlePdfPreview = (estimate) => {
-        const estimateData = {
-            customer_name: estimate.customer_name,
-            title: estimate.title,
-            issue_date: estimate.issue_date,
-            due_date: estimate.due_date,
-            estimate_number: estimate.estimate_number,
-            lineItems: estimate.items,
-            subtotal: estimate.total_amount - estimate.tax_amount,
-            tax: estimate.tax_amount,
-            total: estimate.total_amount,
-            notes: estimate.notes,
-        };
-
-        axios.post('/estimates/preview-pdf', estimateData)
-            .then(response => {
-                const previewHtml = response.data;
-                const newWindow = window.open("", "_blank");
-                if (newWindow) {
-                    newWindow.document.write(previewHtml);
-                    newWindow.document.close();
-                } else {
-                    alert("ポップアップがブロックされました。プレビューを表示するには、ポップアップを許可してください。");
-                }
-            })
-            .catch(error => {
-                console.error('Error generating web preview:', error);
-                alert('プレビューの生成中にエラーが発生しました。');
-            });
-    };
+    // 一覧ではプレビューを廃止。MF見積PDFがある場合のみ「PDF表示」を提供します。
 
     const calculateAmount = (item) => item.qty * item.price;
     const calculateCostAmount = (item) => item.qty * item.cost;
@@ -483,13 +453,15 @@ export default function QuoteIndex({ auth, estimates }) {
                                                                     <Copy className="h-4 w-4" />
                                                                     複製
                                                                 </DropdownMenuItem>
-                                                                <DropdownMenuItem 
-                                                                    onClick={() => handlePdfPreview(estimate)}
-                                                                    className="flex items-center gap-2"
-                                                                >
-                                                                    <FileText className="h-4 w-4" />
-                                                                    プレビュー
-                                                                </DropdownMenuItem>
+                                                                {estimate.mf_quote_id && (
+                                                                    <DropdownMenuItem 
+                                                                        onClick={() => window.location.href = route('estimates.viewQuote.start', { estimate: estimate.id })}
+                                                                        className="flex items-center gap-2"
+                                                                    >
+                                                                        <FileText className="h-4 w-4" />
+                                                                        PDFダウンロード
+                                                                    </DropdownMenuItem>
+                                                                )}
                                                                 <DropdownMenuItem 
                                                                     onClick={() => handleDelete(estimate.id)}
                                                                     className="flex items-center gap-2 text-red-600 focus:text-red-600"

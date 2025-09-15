@@ -18,7 +18,7 @@ class UserSeeder extends Seeder
     {
         $created = 0; $updated = 0; $reset = 0; $bound = 0;
 
-        // 可能であれば外部APIからユーザー一覧を取得し、emailで突合→作成/更新
+        // 可能であれば外部APIからユーザー一覧を取得し、emailで突合→なければ作成
         $synced = false;
         try {
             $base = rtrim(env('EXTERNAL_API_BASE', 'https://api.xerographix.co.jp/api'), '/');
@@ -43,17 +43,18 @@ class UserSeeder extends Seeder
                     if ($u) {
                         $u->name = $name ?: ($u->name ?: 'ユーザー');
                         if ($extId) { $u->external_user_id = $extId; $bound++; }
-                        $u->password = Hash::make('00000000');
+                        // パスワードはローカルDBのみで管理。初期化は DevUserPasswordSeeder に委譲。
                         $u->save();
-                        $updated++; $reset++;
+                        $updated++;
                     } else {
+                        // 新規作成（初期PWは00000000。ローカルでは後段の DevUserPasswordSeeder で再上書き）
                         User::create([
                             'name' => $name ?: 'ユーザー',
                             'email' => $email,
                             'external_user_id' => $extId ?: null,
                             'password' => Hash::make('00000000'),
                         ]);
-                        $created++; $reset++;
+                        $created++;
                         if ($extId) { $bound++; }
                     }
                 }
@@ -63,21 +64,15 @@ class UserSeeder extends Seeder
             // ignore and fallback
         }
 
-        // 外部同期が失敗/無効の場合、既存ユーザー全員のパスワードを00000000にリセット
+        // 外部同期が失敗/無効の場合は何もしない（手元の既存データのみ）
         if (!$synced) {
-            $all = User::all();
-            foreach ($all as $u) {
-                $u->password = Hash::make('00000000');
-                $u->save();
-                $reset++;
-                $updated++;
-            }
+            // no-op
         }
 
         $total = User::count();
         $this->command?->info(sprintf(
-            'ユーザー: 作成%d件／更新%d件／初期PW設定%d件（合計%d件、外部ID紐付け%d件%s）',
-            $created, $updated, $reset, $total, $bound, $synced ? '・外部同期あり' : '・外部同期なし'
+            'ユーザー: 作成%d件／更新%d件（PWは未変更）／合計%d件、外部ID紐付け%d件%s',
+            $created, $updated, $total, $bound, $synced ? '・外部同期あり' : '・外部同期なし'
         ));
     }
 }

@@ -1,6 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, useForm, router } from '@inertiajs/react';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Textarea } from '@/Components/ui/textarea';
@@ -86,6 +86,101 @@ function CustomerCombobox({ selectedCustomer, onCustomerChange }) {
     )
 }
 
+function DepartmentCombobox({ partnerId, selectedDepartment, onDepartmentChange, initialDepartmentId }) {
+    const [open, setOpen] = useState(false);
+    const [departments, setDepartments] = useState([]);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        if (!partnerId) {
+            setDepartments([]);
+            return;
+        }
+        let ignore = false;
+        const fetchDepartments = async () => {
+            setLoading(true);
+            try {
+                const res = await axios.get(`/api/partners/${encodeURIComponent(partnerId)}/departments`);
+                let arr = Array.isArray(res.data) ? res.data : [];
+                // クライアント側フォールバック（サーバで拾えないケースの保険）
+                if (!arr || arr.length === 0) {
+                    arr = [];
+                }
+                if (!ignore) setDepartments(arr);
+            } catch (e) {
+                console.error('Failed to fetch departments:', e);
+                if (!ignore) setDepartments([]);
+            } finally {
+                if (!ignore) setLoading(false);
+            }
+        };
+        fetchDepartments();
+        return () => { ignore = true; };
+    }, [partnerId]);
+
+    // Auto-select initial by id if provided and exists
+    useEffect(() => {
+        if (initialDepartmentId && (!selectedDepartment || selectedDepartment.id !== initialDepartmentId)) {
+            const found = departments.find(d => String(d.id) === String(initialDepartmentId));
+            if (found) onDepartmentChange(found);
+        }
+    }, [initialDepartmentId, departments]);
+
+    // 部門候補が1件のみの場合は自動選択
+    useEffect(() => {
+        if (!selectedDepartment && departments.length === 1) {
+            onDepartmentChange(departments[0]);
+        }
+    }, [departments, selectedDepartment]);
+
+    const displaySelectedDepartment = () => {
+        if (!selectedDepartment) return null;
+        if (selectedDepartment.name || selectedDepartment.person_dept) return selectedDepartment;
+        // Try resolve from fetched list
+        const found = departments.find(d => String(d.id) === String(selectedDepartment.id));
+        return found || selectedDepartment;
+    };
+
+    const selectedDeptForView = displaySelectedDepartment();
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={open}
+                    disabled={!partnerId || loading}
+                    className="w-full justify-between"
+                >
+                    {selectedDeptForView ? (selectedDeptForView.name || selectedDeptForView.person_dept || selectedDeptForView.id) : (loading ? '読込中...' : '部門を選択...')}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-full p-0">
+                <Command>
+                    <CommandEmpty>{loading ? '読込中...' : '部門が見つかりません。'}</CommandEmpty>
+                    <CommandGroup>
+                        {departments.map((d) => (
+                            <CommandItem
+                                key={d.id}
+                                value={d.id}
+                                onSelect={() => {
+                                    onDepartmentChange(d);
+                                    setOpen(false);
+                                }}
+                            >
+                                <Check className={cn("mr-2 h-4 w-4", selectedDepartment?.id === d.id ? "opacity-100" : "opacity-0")} />
+                                {d.name || d.person_dept || d.id}
+                            </CommandItem>
+                        ))}
+                    </CommandGroup>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+}
+
 function StaffCombobox({ selectedStaff, onStaffChange }) {
     const [open, setOpen] = useState(false);
     const [staff, setStaff] = useState([]);
@@ -161,6 +256,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     );
     const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
     const [approvers, setApprovers] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
+    const [selectedDepartment, setSelectedDepartment] = useState(() => (estimate?.mf_department_id ? { id: estimate.mf_department_id, name: null } : null));
     const [openApproval, setOpenApproval] = useState(false);
     const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
     const [approvalStatus, setApprovalStatus] = useState('');
@@ -187,14 +283,20 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return dateString;
     };
 
+    const today = new Date();
+    const issueDateDefault = new Date(today).toISOString().slice(0, 10);
+    const futureDate = new Date(today);
+    futureDate.setDate(today.getDate() + 30);
+    const dueDateDefault = futureDate.toISOString().slice(0, 10);
+
     const { data, setData, post, patch, processing, errors, reset } = useForm({
         id: estimate?.id || null,
         customer_name: estimate?.customer_name || '',
         client_id: estimate?.client_id || null,
         mf_department_id: estimate?.mf_department_id || null,
         title: estimate?.title || '',
-        issue_date: isEditMode ? formatDate(estimate?.issue_date) : new Date().toISOString().slice(0, 10),
-        due_date: isEditMode ? formatDate(estimate?.due_date) : '',
+        issue_date: isEditMode ? formatDate(estimate?.issue_date) : issueDateDefault,
+        due_date: isEditMode ? formatDate(estimate?.due_date) : dueDateDefault,
         total_amount: estimate?.total_amount || 0,
         tax_amount: estimate?.tax_amount || 0,
         notes: estimate?.notes || '',
@@ -208,6 +310,10 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         status: estimate?.status || 'draft',
     });
 
+    
+
+    const [submitErrors, setSubmitErrors] = useState([]);
+
     // data.status を直接参照して、現在のUIの状態を正しく判定する
     const isInApproval = useMemo(() => {
         if (approvalLocal) return true; // 申請直後は即座に取消へ
@@ -215,39 +321,19 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return data.status === 'pending';
     }, [approvalLocal, data.status]);
 
-    useEffect(() => {
-        if (estimate) {
-            setData({
-                id: estimate.id,
-                customer_name: estimate.customer_name || '',
-                client_id: estimate.client_id || null,
-                mf_department_id: estimate.mf_department_id || null,
-                title: estimate.title || '',
-                issue_date: formatDate(estimate.issue_date),
-                due_date: formatDate(estimate.due_date),
-                total_amount: estimate.total_amount || 0,
-                tax_amount: estimate.tax_amount || 0,
-                notes: estimate.notes || '',
-                internal_memo: estimate.internal_memo || '',
-                delivery_location: estimate.delivery_location || '',
-                items: estimate.items || [],
-                estimate_number: estimate.estimate_number || '',
-                staff_id: estimate.staff_id || null,
-                staff_name: estimate.staff_name || null,
-                approval_flow: Array.isArray(estimate.approval_flow) ? estimate.approval_flow : [],
-                status: estimate.status || 'draft',
-            });
-            setLineItems(estimate.items || []);
-            setSelectedStaff((estimate.staff_id && estimate.staff_name) ? { id: estimate.staff_id, name: estimate.staff_name } : null);
-            setSelectedCustomer(estimate.customer_name ? { customer_name: estimate.customer_name, id: estimate.client_id || null, department_id: estimate.mf_department_id || null } : null);
-            setApprovers(Array.isArray(estimate.approval_flow) ? estimate.approval_flow : []);
-        }
-    }, [estimate]);
+    
 
+    const prevPartnerIdRef = useRef(estimate?.client_id || null);
     useEffect(() => {
+        const newId = selectedCustomer?.id || null;
         setData('customer_name', selectedCustomer?.customer_name || '');
-        setData('client_id', selectedCustomer?.id || null);
-        setData('mf_department_id', selectedCustomer?.department_id || null);
+        setData('client_id', newId);
+        // ユーザー操作で実際に取引先が変わった時のみ部門をリセット
+        if (prevPartnerIdRef.current !== newId) {
+            setSelectedDepartment(null);
+            setData('mf_department_id', null);
+            prevPartnerIdRef.current = newId;
+        }
     }, [selectedCustomer]);
 
     // Keep staff_id/staff_name in sync when selected
@@ -255,6 +341,11 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         setData('staff_id', selectedStaff?.id || null);
         setData('staff_name', selectedStaff?.name || null);
     }, [selectedStaff]);
+
+    // 部門選択の同期
+    useEffect(() => {
+        setData('mf_department_id', selectedDepartment?.id || null);
+    }, [selectedDepartment]);
 
     // These useEffects cause issues in edit mode by overwriting data. 
     // It's better to manage form state directly with setData in onChange handlers.
@@ -289,6 +380,27 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }, [approvers]);
 
 
+    const handleDueDateBlur = (e) => {
+        const newDueDateString = e.target.value;
+        if (data.issue_date && newDueDateString) {
+            const issueDate = new Date(data.issue_date);
+            const newDueDate = new Date(newDueDateString);
+
+            issueDate.setHours(0, 0, 0, 0);
+            newDueDate.setHours(0, 0, 0, 0);
+
+            const diffTime = newDueDate.getTime() - issueDate.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays <= 7) {
+                alert('有効期間は発行日から7日以上離れている必要があります。');
+                const validDueDate = new Date(issueDate);
+                validDueDate.setDate(issueDate.getDate() + 30);
+                setData('due_date', validDueDate.toISOString().slice(0, 10));
+            }
+        }
+    };
+
     const handlePdfPreview = () => {
         // This function needs to be adapted to use `data` from useForm
         const estimateData = {
@@ -312,6 +424,22 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                 console.error('Error generating web preview:', error);
                 alert('プレビューの生成中にエラーが発生しました。');
             });
+    };
+
+    // 共通エラーバナー（フィールド別の下にも出すが、まとめて表示してわかりやすく）
+    const ErrorBanner = () => {
+        const keys = Object.keys(errors || {});
+        if (keys.length === 0 && submitErrors.length === 0) return null;
+        const allMsgs = [
+            ...keys.map(k => errors[k]).filter(Boolean),
+            ...submitErrors.filter(Boolean),
+        ];
+        if (allMsgs.length === 0) return null;
+        return (
+            <div className="mb-4 rounded border border-red-300 bg-red-50 text-red-800 p-3 text-sm">
+                {allMsgs.map((m, i) => <div key={i}>・{String(m)}</div>)}
+            </div>
+        );
     };
 
     const addLineItem = () => {
@@ -386,9 +514,15 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
 
     const saveDraft = () => {
         post(route('estimates.saveDraft'), {
-            onSuccess: () => alert('下書きが保存されました。'),
+            onSuccess: () => {
+                if (!isEditMode) {
+                    // 新規作成時のみ、ページをリロードしてサーバーから最新の状態を読み込む
+                    window.location.reload();
+                } else {
+                    alert('下書きが保存されました。');
+                }
+            },
             onError: (e) => console.error('下書き保存エラー:', e),
-            preserveScroll: true,
         });
     };
 
@@ -418,10 +552,12 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                 // 成功時もこのダイアログを開いたまま「申請取消」を出せるようにする
                 setOpenApproval(true);
                 setApprovalLocal(true); // 即座にフッターボタンを申請取消に切替
+                setSubmitErrors([]);
             },
             onError: (errors) => {
                 console.error('承認申請エラー:', errors);
-                alert('承認申請エラー: ' + JSON.stringify(errors));
+                const msgs = Object.values(errors || {}).map(e => String(e));
+                setSubmitErrors(msgs.length ? msgs : ['送信に失敗しました。入力内容をご確認ください。']);
                 setApprovalStatus('error');
             },
             preserveState: true,
@@ -499,6 +635,8 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                             </div>
                         </div>
 
+                        <ErrorBanner />
+
                         {/* 承認フロー概要は明細下の合計の隣に移動 */}
 
                         <Card>
@@ -510,6 +648,16 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                     <Label htmlFor="customer">顧客名</Label>
                                     <CustomerCombobox selectedCustomer={selectedCustomer} onCustomerChange={setSelectedCustomer} />
                                     {errors.customer_name && <p className="text-sm text-red-600 mt-1">{errors.customer_name}</p>}
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="department">取引先部門</Label>
+                                    <DepartmentCombobox
+                                        partnerId={selectedCustomer?.id || null}
+                                        selectedDepartment={selectedDepartment}
+                                        onDepartmentChange={setSelectedDepartment}
+                                        initialDepartmentId={estimate?.mf_department_id || null}
+                                    />
+                                    {errors.mf_department_id && <p className="text-sm text-red-600 mt-1">{errors.mf_department_id}</p>}
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="staff">自社担当者</Label>
@@ -530,11 +678,28 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="issue-date">発行日</Label>
-                                    <Input type="date" id="issue-date" value={data.issue_date} onChange={(e) => setData('issue_date', e.target.value)} />
+                                    <Input
+                                        type="date"
+                                        id="issue-date"
+                                        value={data.issue_date}
+                                        onChange={(e) => {
+                                            const newIssueDate = e.target.value;
+                                            setData(prevData => {
+                                                const issueDate = new Date(newIssueDate);
+                                                const newDueDate = new Date(issueDate);
+                                                newDueDate.setDate(issueDate.getDate() + 30);
+                                                return {
+                                                    ...prevData,
+                                                    issue_date: newIssueDate,
+                                                    due_date: newDueDate.toISOString().slice(0, 10)
+                                                };
+                                            });
+                                        }}
+                                    />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="due-date">有効期間</Label>
-                                    <Input type="date" id="due-date" value={data.due_date || ''} onChange={(e) => setData('due_date', e.target.value)} />
+                                    <Input type="date" id="due-date" value={data.due_date || ''} onChange={(e) => setData('due_date', e.target.value)} onBlur={handleDueDateBlur} />
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="payment-terms">支払条件</Label>
@@ -861,24 +1026,24 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                     <Button variant="outline"><History className="mr-2 h-4 w-4" />変更履歴</Button>
                                 </div>
                                 <div className="space-x-2">
-                                    {isEditMode && estimate.status === 'sent' && estimate.client_id && !estimate.mf_quote_id && (
+                                    {isEditMode && is_fully_approved && estimate.client_id && !estimate.mf_quote_id && (
                                         <Button type="button" onClick={() => setOpenIssueMFQuoteConfirm(true)}>
                                             マネーフォワードで見積書発行
                                         </Button>
                                     )}
 
-                                    {isEditMode && estimate.mf_quote_id && !estimate.mf_invoice_id && (
-                                        <Button type="button" onClick={() => setOpenConvertToInvoiceConfirm(true)}>
-                                            請求書に変換
+                                    
+
+                                    {isEditMode && estimate.mf_quote_id && (
+                                        <Button type="button" onClick={() => window.location.href = route('estimates.viewQuote.start', { estimate: estimate.id })}>
+                                            PDFダウンロード
                                         </Button>
                                     )}
 
-                                    {isEditMode && estimate.mf_quote_pdf_url && (
-                                        <a href={estimate.mf_quote_pdf_url} target="_blank" rel="noopener noreferrer">
-                                            <Button type="button">
-                                                MF見積書を確認
-                                            </Button>
-                                        </a>
+                                    {isEditMode && is_fully_approved && (
+                                        <Button type="button" onClick={() => router.post(route('invoices.fromEstimate', { estimate: estimate.id }))}>
+                                            自社請求書に変換
+                                        </Button>
                                     )}
 
                                     {isEditMode && estimate.mf_invoice_pdf_url && (
@@ -895,7 +1060,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                                     {data.status === 'draft' && (
                                         <Button type="button" variant="secondary" onClick={saveDraft}>下書き保存</Button>
                                     )}
-                                    <Button type="button" variant="secondary" onClick={handlePdfPreview}>プレビュー</Button>
+                                    {/* プレビューは廃止（MFのPDF表示に統一） */}
                                     {isInApproval ? (
                                         <Button type="button" variant="destructive" onClick={cancelApproval}>申請取消</Button>
                                     ) : (

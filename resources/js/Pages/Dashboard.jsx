@@ -1,6 +1,6 @@
 
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { Badge } from "@/Components/ui/badge";
@@ -10,7 +10,17 @@ import { DollarSign, ShoppingCart, Users, ListChecks, BarChart3 } from 'lucide-r
 import EstimateDetailSheet from '@/Components/EstimateDetailSheet';
 import { useState, useMemo } from 'react';
 
+const formatDate = (dateString) => {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}年${month}月${day}日`;
+};
+
 export default function Dashboard({ auth, toDoEstimates = [] }) {
+    const { flash } = usePage().props;
     // Mock data based on requirements
     const summaryData = {
         receivables: { title: "当月売掛サマリ", amount: "¥1,250,000", change: "+5.2%", icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
@@ -45,6 +55,10 @@ export default function Dashboard({ auth, toDoEstimates = [] }) {
         }
     };
 
+    const handleFetchPartners = () => {
+        router.get(route('partners.sync'));
+    };
+
     return (
         <AuthenticatedLayout
             user={auth.user}
@@ -53,6 +67,21 @@ export default function Dashboard({ auth, toDoEstimates = [] }) {
             <Head title="Dashboard" />
 
             <div className="space-y-6">
+                {flash?.success && (
+                    <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
+                        <span className="block sm:inline">{flash.success}</span>
+                    </div>
+                )}
+                {flash?.error && (
+                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                        <span className="block sm:inline">{flash.error}</span>
+                    </div>
+                )}
+                <div className="flex justify-end">
+                    <Button onClick={handleFetchPartners}>取引先取得</Button>
+                </div>
+
+                
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {Object.values(summaryData).map((item, index) => (
                         <Card key={index}>
@@ -127,7 +156,7 @@ export default function Dashboard({ auth, toDoEstimates = [] }) {
                                     )}
                                     {filteredTasks.map((task) => (
                                         <TableRow key={task.id} className="hover:bg-slate-50">
-                                            <TableCell className="font-medium">{task.issue_date}</TableCell>
+                                            <TableCell className="font-medium">{formatDate(task.issue_date)}</TableCell>
                                             <TableCell className="max-w-[260px] truncate">{task.title}</TableCell>
                                             <TableCell>
                                                 {task.status_for_dashboard === '確認して承認' ? (

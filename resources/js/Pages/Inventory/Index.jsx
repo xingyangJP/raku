@@ -13,13 +13,13 @@ import { ToggleGroup, ToggleGroupItem } from "@/Components/ui/toggle-group";
 import { AlertCircle, Boxes, FileDown, Filter, PackagePlus, Search, SlidersHorizontal, Warehouse } from 'lucide-react';
 
 export default function InventoryIndex({ auth }) {
-    const inventory = [
-        { id: 'SKU-001', name: '高性能ノートPC 14インチ', type: '物理', warehouse: 'メイン倉庫', location: 'A-01-01', onHand: 50, reserved: 10, available: 40, minQty: 10, lastActivity: '2025-08-20', status: 'OK' },
-        { id: 'SKU-002', name: 'ビジネスソフトウェア ライセンス', type: 'ライセンス', warehouse: 'デジタル', location: 'N/A', onHand: 200, reserved: 50, available: 150, minQty: 20, lastActivity: '2025-08-22', status: 'OK' },
-        { id: 'SKU-003', name: 'USB-C ハブ', type: '物理', warehouse: 'メイン倉庫', location: 'B-03-05', onHand: 5, reserved: 2, available: 3, minQty: 10, lastActivity: '2025-08-15', status: '不足' },
-        { id: 'SKU-004', name: 'クラウドストレージ 1TBプラン', type: 'サービス', warehouse: 'デジタル', location: 'N/A', onHand: 999, reserved: 120, available: 879, minQty: 100, lastActivity: '2025-08-23', status: 'OK' },
-        { id: 'SKU-005', name: 'ゲーミングマウス', type: '物理', warehouse: 'サテライト倉庫', location: 'S-01-02', onHand: 25, reserved: 5, available: 20, minQty: 5, lastActivity: '2025-08-19', status: '予約あり' },
-    ];
+    const mockInventory = [
+    { code: 'PROD-001', name: '高性能ノートPC 14インチ', type: '物理', warehouse: 'メイン倉庫', location: 'A-01-01', onHand: 50, reserved: 10, available: 40, minQty: 10, lastActivity: '2025-08-20', status: 'OK' },
+    { code: 'PROD-002', name: 'ビジネスソフトウェア ライセンス', type: 'ライセンス', warehouse: 'デジタル', location: 'N/A', onHand: 200, reserved: 50, available: 150, minQty: 20, lastActivity: '2025-08-22', status: 'OK' },
+    { code: 'PROD-003', name: 'USB-C ハブ', type: '物理', warehouse: 'メイン倉庫', location: 'B-03-05', onHand: 5, reserved: 2, available: 3, minQty: 10, lastActivity: '2025-08-15', status: '不足' },
+    { code: 'PROD-004', name: 'クラウドストレージ 1TBプラン', type: 'サービス', warehouse: 'デジタル', location: 'N/A', onHand: 999, reserved: 120, available: 879, minQty: 100, lastActivity: '2025-08-23', status: 'OK' },
+    { code: 'PROD-005', name: 'ゲーミングマウス', type: '物理', warehouse: 'サテライト倉庫', location: 'S-01-02', onHand: 25, reserved: 5, available: 20, minQty: 5, lastActivity: '2025-08-19', status: '予約あり' },
+];
 
     const getStatusBadge = (item) => {
         if (item.status === '不足') return <Badge variant="destructive" className="flex items-center gap-1"><AlertCircle className="h-3 w-3"/>不足</Badge>;
@@ -38,7 +38,7 @@ export default function InventoryIndex({ auth }) {
                         <AccordionContent>
                             <CardContent className="pt-4">
                                 <div className="flex gap-4 items-start">
-                                    <Input placeholder="SKU, 名称, 型番..." className="max-w-xs" />
+                                    <Input placeholder="商品コード, 名称..." className="max-w-xs" />
                                     <ToggleGroup type="multiple" variant="outline">
                                         <ToggleGroupItem value="shortage">不足</ToggleGroupItem>
                                         <ToggleGroupItem value="reserved">予約あり</ToggleGroupItem>
@@ -62,7 +62,7 @@ export default function InventoryIndex({ auth }) {
                     </CardHeader>
                     <CardContent>
                         <Table>
-                            <TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>名称</TableHead><TableHead>種別</TableHead><TableHead>倉庫/ロケ</TableHead><TableHead>在庫</TableHead><TableHead>予約</TableHead><TableHead>利用可能</TableHead><TableHead>最終入出庫日</TableHead><TableHead>状態</TableHead></TableRow></TableHeader>
+                            <TableHeader>                                <TableHeader><TableRow><TableHead>商品コード</TableHead><TableHead>名称</TableHead><TableHead>種別</TableHead><TableHead>倉庫/ロケ</TableHead><TableHead>在庫</TableHead><TableHead>予約</TableHead><TableHead>利用可能</TableHead><TableHead>最終入出庫日</TableHead><TableHead>状態</TableHead></TableRow></TableHeader></TableHeader>
                             <TableBody>
                                 {inventory.map((item) => (
                                     <Sheet key={item.id}>

@@ -414,9 +414,15 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                                     <input type="checkbox" className="rounded" />
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                    <Link href={`/billing/${billing.id}`} className="text-indigo-600 hover:text-indigo-900">
-                                                        {billing.billing_number}
-                                                    </Link>
+                                        {billing.source === 'local' ? (
+                                          <Link href={route('invoices.edit', { invoice: billing.local_invoice_id })} className="text-indigo-600 hover:text-indigo-900">
+                                            {billing.billing_number}
+                                          </Link>
+                                        ) : (
+                                          <Link href={`/billing/${billing.id}`} className="text-indigo-600 hover:text-indigo-900">
+                                            {billing.billing_number}
+                                          </Link>
+                                        )}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                     {billing.partner_name}<br/>{billing.title}
@@ -425,7 +431,7 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                                     {formatDate(billing.billing_date)}<br/>{formatDate(billing.due_date)}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                                                    {formatCurrency(billing.total_price)}
+                                                    {formatCurrency(billing.total_price || billing.total_amount || 0)}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeColor('email_status', billing.email_status)}`}>{billing.email_status}</span><br/>
@@ -439,8 +445,24 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                                     {formatDate(billing.updated_at)}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                    <a href={route('billing.downloadPdf', { billing: billing.id })} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-900 ml-2">詳細</a>
-                                                    <a href={`https://invoice.moneyforward.com/billings/${billing.id}/edit`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-900 ml-2">編集</a>
+                                                    {billing.source === 'local' ? (
+                                                      <>
+                                                        <Link href={route('invoices.edit', { invoice: billing.local_invoice_id })} className="text-indigo-600 hover:text-indigo-900 ml-2">確認</Link>
+                                                        {billing.mf_billing_id ? (
+                                                          <>
+                                                            <a href={`https://invoice.moneyforward.com/billings/${billing.mf_billing_id}/edit`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-900 ml-2">MFで編集</a>
+                                                            <Link href={route('invoices.viewPdf.start', { invoice: billing.local_invoice_id })} className="text-indigo-600 hover:text-indigo-900 ml-2">PDFを確認</Link>
+                                                          </>
+                                                        ) : (
+                                                          <span className="text-gray-400 ml-2">MF未生成</span>
+                                                        )}
+                                                      </>
+                                                    ) : (
+                                                      <>
+                                                        <a href={route('billing.downloadPdf', { billing: billing.id })} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-900 ml-2">詳細</a>
+                                                        <a href={`https://invoice.moneyforward.com/billings/${billing.id}/edit`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-900 ml-2">編集</a>
+                                                      </>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}
