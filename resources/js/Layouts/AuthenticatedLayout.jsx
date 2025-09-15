@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { router } from '@inertiajs/core';
 import { Link, usePage } from '@inertiajs/react';
-import { Bell, Home, Package2, ShoppingCart, Users, LineChart, Settings, Package, FileText, Landmark, Boxes } from 'lucide-react';
+import { Bell, Home, Package2, ShoppingCart, Users, LineChart, Settings, Package, FileText, Landmark, Boxes, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 console.log('AuthenticatedLayout rendered');
 
@@ -16,6 +16,7 @@ export default function AuthenticatedLayout({ header, children }) {
     const { auth: { user }, appVersion } = usePage().props;
     console.log('Inertia Page Props:', usePage().props);
     const [loading, setLoading] = useState(false);
+    const [isSidebarOpen, setSidebarOpen] = useState(true);
 
     useEffect(() => {
         const removeStartListener = router.on('start', () => setLoading(true));
@@ -31,7 +32,6 @@ export default function AuthenticatedLayout({ header, children }) {
         { name: 'ダッシュボード', href: route('dashboard'), icon: Home, current: route().current('dashboard') },
         { name: '見積管理', href: route('quotes.index'), icon: FileText, current: route().current('quotes.index') },
         { name: '売上管理', href: route('sales.index'), icon: ShoppingCart, current: route().current('sales.index') },
-        { name: '入金管理', href: route('deposits.index'), icon: Landmark, current: route().current('deposits.index') },
         { name: '請求・売掛管理', href: route('billing.index'), icon: FileText, current: route().current('billing.index') },
         // { name: '在庫管理', href: route('inventory.index'), icon: Boxes, current: route().current('inventory.index') },
         { name: '商品管理', href: route('products.index'), icon: Package, current: route().current('products.index') },
@@ -41,33 +41,41 @@ export default function AuthenticatedLayout({ header, children }) {
     return (
         <>
             {loading && <Loading />}
-            <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
+            <div className={`grid min-h-screen w-full transition-all duration-300 ${isSidebarOpen ? 'md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]' : 'md:grid-cols-[70px_1fr] lg:grid-cols-[80px_1fr]'}`}>
                 <div className="hidden border-r bg-muted/40 md:block">
-                    <div className="flex h-full max-h-screen flex-col gap-2">
+                    <div className="flex h-full max-h-screen flex-col gap-2 relative">
                         <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
                             <Link href="/" className="flex items-center gap-2 font-semibold">
                                 <Package2 className="h-6 w-6" />
-                                <span className="">ラクシルcloud</span>
+                                {isSidebarOpen && <span className="">ラクシルcloud</span>}
                             </Link>
                         </div>
                         <div className="flex-1">
-                            <nav className="grid items-start px-2 text-sm font-medium lg:px-4">
+                            <nav className={`grid items-start px-2 text-sm font-medium lg:px-4 ${!isSidebarOpen ? 'justify-center' : ''}`}>
                                 {menuItems.map((item) => (
                                     <Link
                                         key={item.name}
                                         href={item.href}
                                         className={`flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary ${
                                             item.current ? 'bg-muted text-primary' : ''
-                                        }`}
+                                        } ${!isSidebarOpen ? 'justify-center' : ''}`}
                                     >
                                         <item.icon className="h-4 w-4" />
-                                        {item.name}
+                                        {isSidebarOpen && item.name}
                                     </Link>
                                 ))}
                             </nav>
                         </div>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute -right-5 top-1/2 -translate-y-1/2 rounded-full bg-muted hover:bg-muted-foreground/20"
+                            onClick={() => setSidebarOpen(!isSidebarOpen)}
+                        >
+                            {isSidebarOpen ? <ChevronsLeft className="h-4 w-4" /> : <ChevronsRight className="h-4 w-4" />}
+                        </Button>
                         <div className="mt-auto p-4 text-center text-xs text-muted-foreground">
-                            Version: {appVersion}
+                            {isSidebarOpen && `Version: ${appVersion}`}
                         </div>
                     </div>
                 </div>

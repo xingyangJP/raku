@@ -31,6 +31,10 @@ class ProductController extends Controller
             $query->where('tax_category', $request->input('search_tax_category'));
         }
 
+        if ($request->filled('search_category_id') && $request->input('search_category_id') !== 'all') {
+            $query->where('category_id', (int) $request->input('search_category_id'));
+        }
+
         $products = $query->orderBy('updated_at', 'desc')->paginate(10)->withQueryString();
 
         // Provide categories list for filters/UI, if table exists
@@ -59,8 +63,49 @@ class ProductController extends Controller
 
     public function store(ProductRequest $request)
     {
-        $product = Product::create($request->validated());
-        return redirect()->route('products.index')->with('success', 'Product created successfully. You can now sync it to Money Forward.');
+        $data = $request->validated();
+
+        // Server-side SKU auto-generation using categories.last_item_seq
+        $product = DB::transaction(function () use ($data) {
+            $category = DB::table('categories')
+                ->where('id', $data['category_id'])
+                ->lockForUpdate()
+                ->first(['id', 'code', 'last_item_seq']);
+
+            if (!$category) {
+                abort(422, 'Invalid category selected.');
+            }
+
+            $nextSeq = ((int) $category->last_item_seq) + 1;
+            $sku = sprintf('%s-%03d', $category->code, $nextSeq);
+
+            // Create product with generated SKU and seq
+            $product = Product::create([
+                'sku' => $sku,
+                'seq' => $nextSeq,
+                'category_id' => $category->id,
+                'name' => $data['name'],
+                'unit' => $data['unit'] ?? '式',
+                'price' => $data['price'] ?? 0,
+                'quantity' => $data['quantity'] ?? null,
+                'cost' => $data['cost'] ?? 0,
+                'tax_category' => $data['tax_category'] ?? 'ten_percent',
+                'is_deduct_withholding_tax' => $data['is_deduct_withholding_tax'] ?? null,
+                'is_active' => $data['is_active'] ?? true,
+                'description' => $data['description'] ?? null,
+                'attributes' => $data['attributes'] ?? null,
+            ]);
+
+            // Update last_item_seq after successful insert
+            DB::table('categories')->where('id', $category->id)->update([
+                'last_item_seq' => $nextSeq,
+                'updated_at' => now(),
+            ]);
+
+            return $product;
+        });
+
+        return redirect()->route('products.index')->with('success', '商品を作成しました。コードは自動採番されました。');
     }
 
     public function edit(Product $product)
@@ -77,8 +122,67 @@ class ProductController extends Controller
 
     public function update(ProductRequest $request, Product $product)
     {
-        $product->update($request->validated());
-        return redirect()->route('products.index')->with('success', 'Product updated successfully.');
+        $data = $request->validated();
+
+        // If category changes, re-number in the new category
+        $newCategoryId = (int) $data['category_id'];
+        if ($product->category_id !== $newCategoryId) {
+            DB::transaction(function () use ($data, $product, $newCategoryId) {
+                $category = DB::table('categories')
+                    ->where('id', $newCategoryId)
+                    ->lockForUpdate()
+                    ->first(['id', 'code', 'last_item_seq']);
+
+                if (!$category) {
+                    abort(422, 'Invalid category selected.');
+                }
+
+                $nextSeq = ((int) $category->last_item_seq) + 1;
+                $sku = sprintf('%s-%03d', $category->code, $nextSeq);
+
+                $product->fill([
+                    'sku' => $sku,
+                    'seq' => $nextSeq,
+                    'category_id' => $category->id,
+                ]);
+
+                $product->fill([
+                    'name' => $data['name'],
+                    'unit' => $data['unit'] ?? '式',
+                    'price' => $data['price'] ?? 0,
+                    'quantity' => $data['quantity'] ?? null,
+                    'cost' => $data['cost'] ?? 0,
+                    'tax_category' => $data['tax_category'] ?? 'ten_percent',
+                    'is_deduct_withholding_tax' => $data['is_deduct_withholding_tax'] ?? null,
+                    'is_active' => $data['is_active'] ?? true,
+                    'description' => $data['description'] ?? null,
+                    'attributes' => $data['attributes'] ?? null,
+                ]);
+
+                $product->save();
+
+                DB::table('categories')->where('id', $category->id)->update([
+                    'last_item_seq' => $nextSeq,
+                    'updated_at' => now(),
+                ]);
+            });
+        } else {
+            // No category change; just update other fields (SKU stays the same)
+            $product->update([
+                'name' => $data['name'],
+                'unit' => $data['unit'] ?? '式',
+                'price' => $data['price'] ?? 0,
+                'quantity' => $data['quantity'] ?? null,
+                'cost' => $data['cost'] ?? 0,
+                'tax_category' => $data['tax_category'] ?? 'ten_percent',
+                'is_deduct_withholding_tax' => $data['is_deduct_withholding_tax'] ?? null,
+                'is_active' => $data['is_active'] ?? true,
+                'description' => $data['description'] ?? null,
+                'attributes' => $data['attributes'] ?? null,
+            ]);
+        }
+
+        return redirect()->route('products.index')->with('success', '商品を更新しました。必要に応じてコードを再採番しました。');
     }
 
     public function destroy(Product $product)

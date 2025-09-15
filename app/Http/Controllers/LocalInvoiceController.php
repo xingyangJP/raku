@@ -8,6 +8,7 @@ use App\Models\Partner;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Auth;
 
 class LocalInvoiceController extends Controller
 {
@@ -116,6 +117,61 @@ class LocalInvoiceController extends Controller
 
     public function handleSendCallback(Request $request, \App\Services\MoneyForwardApiService $api)
     {
+        // まずPDF閲覧要求のコールバックかを判定
+        $pdfInvoiceId = session('local_invoice_id_for_pdf');
+        $stateParam = (string) $request->input('state', '');
+        if (!$pdfInvoiceId && $stateParam) {
+            $decoded = json_decode(base64_decode(strtr($stateParam, '-_', '+/')) ?: 'null', true);
+            if (is_array($decoded) && ($decoded['k'] ?? '') === 'pdf' && !empty($decoded['i'])) {
+                $pdfInvoiceId = (int) $decoded['i'];
+            }
+        }
+        if ($pdfInvoiceId) {
+            if (!$request->has('code')) {
+                session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+                return redirect()->route('invoices.edit', $pdfInvoiceId)->with('error', 'Authorization failed.');
+            }
+            $sent = session('mf_invoice_pdf_state');
+            $recv = $request->input('state');
+            if ($sent && $recv && !hash_equals($sent, $recv)) {
+                session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+                return redirect()->route('invoices.edit', $pdfInvoiceId)->with('error', 'State mismatch. Please try again.');
+            }
+            $invoice = LocalInvoice::find($pdfInvoiceId);
+            if (!$invoice || empty($invoice->mf_pdf_url)) {
+                session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+                return redirect()->route('invoices.edit', $pdfInvoiceId)->with('error', 'PDF URL が見つかりません。');
+            }
+            $redirectUsed = env('MONEY_FORWARD_INVOICE_REDIRECT_URI', route('invoices.send.callback'));
+            $tokenData = $api->getAccessTokenFromCode($request->code, $redirectUsed);
+            if (!$tokenData || empty($tokenData['access_token'])) {
+                session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+                return redirect()->route('invoices.edit', $pdfInvoiceId)->with('error', 'トークン取得に失敗しました。');
+            }
+            try {
+                $client = new \GuzzleHttp\Client();
+                $res = $client->get($invoice->mf_pdf_url, [
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . $tokenData['access_token'],
+                        'Accept' => 'application/pdf',
+                    ],
+                    'http_errors' => false,
+                ]);
+                session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+                if ($res->getStatusCode() !== 200) {
+                    return redirect()->route('invoices.edit', $pdfInvoiceId)->with('error', 'PDF取得に失敗しました。');
+                }
+                $content = (string) $res->getBody()->getContents();
+                $path = 'public/billings/local-' . $pdfInvoiceId . '.pdf';
+                \Illuminate\Support\Facades\Storage::put($path, $content);
+                return redirect()->route('invoices.downloadPdf', $pdfInvoiceId);
+            } catch (\Throwable $e) {
+                session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+                return redirect()->route('invoices.edit', $pdfInvoiceId)->with('error', 'PDF表示時にエラーが発生しました。');
+            }
+        }
+
+        // ここからは送信（作成）フロー
         $invoiceId = session('local_invoice_id_for_sending');
         // Validate presence of authorization code
         if (!$request->has('code')) {
@@ -148,11 +204,14 @@ class LocalInvoiceController extends Controller
         try {
             // Use the exact redirect_uri used during authorization for token exchange
             $redirectUsed = env('MONEY_FORWARD_INVOICE_REDIRECT_URI', route('invoices.send.callback'));
-            $accessToken = $api->getAccessToken($request->code, $redirectUsed);
-
-            if (!$accessToken) {
+            // Exchange authorization code for tokens
+            $tokenData = $api->getAccessTokenFromCode($request->code, $redirectUsed);
+            if (!$tokenData || empty($tokenData['access_token'])) {
                 return redirect()->route('invoices.edit', $invoice->id)->with('error', 'トークン取得に失敗しました。');
             }
+            // Persist tokens for 2回目以降の自動実行
+            try { if (Auth::id()) { $api->storeToken($tokenData, Auth::id()); } } catch (\Throwable $e) {}
+            $accessToken = $tokenData['access_token'];
 
             // Validate/repair department_id against MF partner detail before creating invoice
             if (empty($invoice->client_id)) {
@@ -218,21 +277,125 @@ class LocalInvoiceController extends Controller
         }
     }
 
-    public function redirectToAuthForPdf(LocalInvoice $invoice)
+    public function redirectToAuthForPdf(LocalInvoice $invoice, \App\Services\MoneyForwardApiService $api)
     {
         if (empty($invoice->mf_billing_id)) {
             return redirect()->route('invoices.edit', $invoice->id)->with('error', 'MF請求書がまだ作成されていません。');
         }
-        session(['local_invoice_id_for_pdf' => $invoice->id]);
-        $state = bin2hex(random_bytes(16));
-        session(['mf_invoice_pdf_state' => $state]);
+        // 2回目以降は有効なアクセストークンがあれば直取得
+        if ($token = $api->getValidAccessToken()) {
+            try {
+                $client = new \GuzzleHttp\Client();
+                $res = $client->get($invoice->mf_pdf_url, [
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . $token,
+                        'Accept' => 'application/pdf',
+                    ],
+                    'http_errors' => false,
+                ]);
+                if ($res->getStatusCode() === 200) {
+                    $content = (string) $res->getBody()->getContents();
+                    return response($content, 200, [
+                        'Content-Type' => 'application/pdf',
+                        'Content-Disposition' => 'inline; filename="invoice-' . $invoice->id . '.pdf"',
+                    ]);
+                }
+            } catch (\Throwable $e) {
+                // フォールバックでOAuthへ遷移
+            }
+        }
+
+        // フォールバック: OAuth 認可 → コールバックでPDFストリーム
+        $rand = bin2hex(random_bytes(8));
+        $stateObj = ['k' => 'pdf', 'i' => (int) $invoice->id, 's' => $rand];
+        $state = rtrim(strtr(base64_encode(json_encode($stateObj)), '+/', '-_'), '=');
+        session(['mf_invoice_pdf_state' => $state, 'local_invoice_id_for_pdf' => $invoice->id]);
         $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
             'response_type' => 'code',
             'client_id' => config('services.money_forward.client_id'),
-            'redirect_uri' => env('MONEY_FORWARD_ESTIMATE_REDIRECT_URI', route('estimates.createQuote.callback')),
-            'scope' => env('MONEY_FORWARD_QUOTE_SCOPE', 'mfc/invoice/data.write'),
+            'redirect_uri' => env('MONEY_FORWARD_INVOICE_REDIRECT_URI', route('invoices.send.callback')),
+            'scope' => 'mfc/invoice/data.read',
             'state' => $state,
         ]);
         return \Inertia\Inertia::location($authUrl);
+    }
+
+    public function handleViewPdfCallback(Request $request, \App\Services\MoneyForwardApiService $api)
+    {
+        $invoiceId = session('local_invoice_id_for_pdf');
+        if (!$request->has('code')) {
+            return $invoiceId
+                ? redirect()->route('invoices.edit', $invoiceId)->with('error', 'Authorization failed.')
+                : redirect()->route('billing.index')->with('error', 'Authorization failed.');
+        }
+        // CSRF state check
+        $sent = session('mf_invoice_pdf_state');
+        $recv = $request->input('state');
+        if ($sent && $recv && !hash_equals($sent, $recv)) {
+            session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+            return $invoiceId
+                ? redirect()->route('invoices.edit', $invoiceId)->with('error', 'State mismatch. Please try again.')
+                : redirect()->route('billing.index')->with('error', 'State mismatch.');
+        }
+        if (!$invoiceId) {
+            return redirect()->route('billing.index')->with('error', 'Invoice not found in session.');
+        }
+        $invoice = LocalInvoice::find($invoiceId);
+        if (!$invoice || empty($invoice->mf_pdf_url)) {
+            session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+            return redirect()->route('invoices.edit', $invoiceId)->with('error', 'PDF URL が見つかりません。');
+        }
+
+        try {
+            $redirectUsed = env('MONEY_FORWARD_INVOICE_PDF_REDIRECT_URI', route('invoices.viewPdf.callback'));
+            $tokenData = $api->getAccessTokenFromCode($request->code, $redirectUsed);
+            if (!$tokenData || empty($tokenData['access_token'])) {
+                session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+                return redirect()->route('invoices.edit', $invoiceId)->with('error', 'トークン取得に失敗しました。');
+            }
+
+            // 直接PDFを取得してストリーム返却
+            $client = new \GuzzleHttp\Client();
+            $res = $client->get($invoice->mf_pdf_url, [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $tokenData['access_token'],
+                    'Accept' => 'application/pdf',
+                ],
+                'http_errors' => false,
+            ]);
+
+            session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+
+            if ($res->getStatusCode() !== 200) {
+                return redirect()->route('invoices.edit', $invoiceId)->with('error', 'PDF取得に失敗しました。');
+            }
+
+            $content = $res->getBody()->getContents();
+            return response($content, 200, [
+                'Content-Type' => 'application/pdf',
+                'Content-Disposition' => 'inline; filename="invoice-' . $invoiceId . '.pdf"',
+            ]);
+        } catch (\Throwable $e) {
+            session()->forget(['mf_invoice_pdf_state', 'local_invoice_id_for_pdf']);
+            return redirect()->route('invoices.edit', $invoiceId)->with('error', 'PDF表示時にエラーが発生しました。');
+        }
+    }
+
+    public function destroy(LocalInvoice $invoice)
+    {
+        $invoice->delete();
+        return redirect()->route('billing.index')->with('success', '請求書を削除しました。');
+    }
+
+    public function downloadPdf(LocalInvoice $invoice)
+    {
+        $path = 'public/billings/local-' . $invoice->id . '.pdf';
+        if (!\Illuminate\Support\Facades\Storage::exists($path)) {
+            return redirect()->route('invoices.edit', $invoice->id)->with('error', '保存済みPDFが見つかりません。「PDFを確認」で取得してください。');
+        }
+        return \Illuminate\Support\Facades\Storage::response($path, 'invoice-' . $invoice->id . '.pdf', [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="invoice-' . $invoice->id . '.pdf"',
+        ]);
     }
 }

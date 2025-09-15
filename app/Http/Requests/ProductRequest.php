@@ -22,15 +22,19 @@ class ProductRequest extends FormRequest
      */
     public function rules(): array
     {
+        $productId = optional($this->route('product'))->id ?? null;
+
         return [
-            'sku' => [
-                'required',
-                'string',
-                'max:30',
-                Rule::unique('products')->ignore($this->route('product')),
-            ],
+            // SKU is server-generated. Do not accept from UI.
             'name' => 'required|string|max:450',
-            
+
+            // Category is required to generate SKU. Must exist in categories.
+            'category_id' => [
+                'required',
+                'integer',
+                'exists:categories,id',
+            ],
+
             'unit' => 'nullable|string|max:20',
             'price' => 'nullable|numeric|min:0',
             'quantity' => 'nullable|numeric',

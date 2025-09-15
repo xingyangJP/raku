@@ -22,14 +22,33 @@ class ItemSeeder extends Seeder
             return;
         }
 
+        // 明示仕様に基づく投入データ
         $plan = [
-            'コンサル'   => ['要件定義'],
-            '開発'     => ['開発', 'テスト'],
-            '設計'     => ['設計', 'テスト設計', 'UI設計'],
-            '管理'     => ['プロジェクトマネジメント'],
-            'ハードウェア' => ['ディスプレイ', 'パソコン本体', 'プリンタ'],
-            'サプライ'   => ['伝票', 'コピー用紙'],
-            'ライセンス' => ['Magic XPA'],
+            'コンサル' => [
+                ['name' => '要件定義', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
+            ],
+            '開発' => [
+                ['name' => '開発', 'price' => 600000, 'cost' => 400000, 'unit' => '人月'],
+                ['name' => 'テスト', 'price' => 600000, 'cost' => 400000, 'unit' => '人月'],
+            ],
+            '設計' => [
+                ['name' => '設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
+                ['name' => 'テスト設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
+                ['name' => 'UI設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
+            ],
+            '管理' => [
+                ['name' => 'プロジェクトマネジメント', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
+            ],
+            'ハードウェア' => [
+                ['name' => 'ハードウェア', 'price' => 200000, 'cost' => 100000, 'unit' => '台'],
+            ],
+            'サプライ' => [
+                ['name' => '伝票', 'price' => 200000, 'cost' => 100000, 'unit' => '式'],
+                ['name' => 'コピー用紙', 'price' => 200000, 'cost' => 100000, 'unit' => '式'],
+            ],
+            'ライセンス' => [
+                ['name' => 'Magic XPA', 'price' => 200000, 'cost' => 100000, 'unit' => '個'],
+            ],
         ];
 
         foreach ($plan as $catName => $items) {
@@ -40,24 +59,29 @@ class ItemSeeder extends Seeder
                 continue;
             }
 
-            foreach ($items as $name) {
+            foreach ($items as $item) {
+                $name = $item['name'];
+                $price = $item['price'];
+                $cost = $item['cost'];
+                $unit = $item['unit'];
+
                 // Idempotent: skip if a product by this name already exists
                 $existsByName = DB::table('products')->where('name', $name)->exists();
                 if ($existsByName) continue;
 
-                $this->createProductWithIncrementedSku($category->id, $category->code, $name);
+                $this->createProductWithIncrementedSku($category->id, $category->code, $name, $price, $cost, $unit);
             }
         }
     }
 
-    private function createProductWithIncrementedSku(int $categoryId, string $categoryCode, string $name): void
+    private function createProductWithIncrementedSku(int $categoryId, string $categoryCode, string $name, int $price, int $cost, string $unit): void
     {
         $attempts = 0;
         $maxAttempts = 7;
         while ($attempts < $maxAttempts) {
             $attempts++;
             try {
-                DB::transaction(function () use ($categoryId, $categoryCode, $name) {
+                DB::transaction(function () use ($categoryId, $categoryCode, $name, $price, $cost, $unit) {
                     // lock this category row and fetch updated seq
                     $row = DB::table('categories')->where('id', $categoryId)->lockForUpdate()->first(['id', 'last_item_seq']);
                     $seq = (int) $row->last_item_seq + 1;
@@ -65,11 +89,13 @@ class ItemSeeder extends Seeder
 
                     // create product (sku is unique)
                     DB::table('products')->insert([
+                        'category_id' => $categoryId,
+                        'seq' => $seq,
                         'sku' => $sku,
                         'name' => $name,
-                        'unit' => '式',
-                        'price' => $this->suggestPrice($categoryCode, $name),
-                        'cost' => $this->suggestCost($categoryCode, $name),
+                        'unit' => $unit,
+                        'price' => $price,
+                        'cost' => $cost,
                         'tax_category' => 'ten_percent',
                         'is_active' => true,
                         'description' => null,
@@ -93,29 +119,5 @@ class ItemSeeder extends Seeder
         $this->command?->warn("ItemSeeder: failed to create product '$name' after retries.");
     }
 
-    private function suggestPrice(string $categoryCode, string $name): int
-    {
-        // rough heuristics by name; rounded to 100 yen
-        $p = 10000; // default for services
-        if (str_contains($name, '要件') || str_contains($name, '設計')) $p = 12000;
-        if ($name === '開発') $p = 10000;
-        if ($name === 'テスト' || str_contains($name, 'テスト')) $p = 8000;
-        if ($name === 'プロジェクトマネジメント') $p = 13000;
-        if ($name === 'ディスプレイ') $p = 50000;
-        if ($name === 'パソコン本体') $p = 150000;
-        if ($name === 'プリンタ') $p = 30000;
-        if ($name === '伝票') $p = 1000;
-        if ($name === 'コピー用紙') $p = 500;
-        if ($name === 'Magic XPA') $p = 60000;
-        return (int) (round($p / 100) * 100);
-    }
-
-    private function suggestCost(string $categoryCode, string $name): int
-    {
-        $price = $this->suggestPrice($categoryCode, $name);
-        // 70% of price, rounded to 100
-        $cost = (int) round($price * 0.7 / 100) * 100;
-        return max(0, $cost);
-    }
+    // 価格推定関数は明示指定に置き換えたため不要
 }
-

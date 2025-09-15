@@ -66,9 +66,8 @@ export default function InvoiceEdit({ auth, invoice }) {
     );
   }
 
-  const viewPdf = () => {
-    router.visit(route('invoices.viewPdf.start', { invoice: data.id }));
-  }
+  // PDFは通常遷移（新規タブ）で開く。Inertia経由だとバイナリが文字化け表示されるため。
+  const pdfUrl = route('invoices.viewPdf.start', { invoice: data.id });
 
   return (
     <AuthenticatedLayout user={auth.user} header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">請求書編集</h2>}>
@@ -152,13 +151,22 @@ export default function InvoiceEdit({ auth, invoice }) {
               </CardContent>
             </Card>
           </form>
-          <div className="mt-6 flex justify-end gap-2">
+          <div className="mt-6 flex justify-between items-center gap-2">
+            <div>
+              <Button type="button" variant="destructive" onClick={() => {
+                if (confirm('この請求書を削除しますか？')) {
+                  router.delete(route('invoices.destroy', { invoice: data.id }), { preserveScroll: true });
+                }
+              }}>削除</Button>
+            </div>
             {data.mf_billing_id ? (
               <>
                 <a href={`https://invoice.moneyforward.com/billings/${data.mf_billing_id}/edit`} target="_blank" rel="noopener noreferrer">
                     <Button type="button">MFで請求書を編集する</Button>
                 </a>
-                <Button type="button" onClick={viewPdf}>PDFを確認</Button>
+                <a href={pdfUrl} target="_blank" rel="noopener noreferrer">
+                  <Button type="button" variant="secondary">PDFを確認</Button>
+                </a>
               </>
             ) : (
               <Button type="button" onClick={sendToMF}>MFで請求書を作成する</Button>

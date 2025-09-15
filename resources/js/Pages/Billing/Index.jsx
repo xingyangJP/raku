@@ -419,9 +419,9 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                             {billing.billing_number}
                                           </Link>
                                         ) : (
-                                          <Link href={`/billing/${billing.id}`} className="text-indigo-600 hover:text-indigo-900">
+                                          <a href={`https://invoice.moneyforward.com/billings/${billing.id}/edit`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-900">
                                             {billing.billing_number}
-                                          </Link>
+                                          </a>
                                         )}
                                                 </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -451,7 +451,7 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                                         {billing.mf_billing_id ? (
                                                           <>
                                                             <a href={`https://invoice.moneyforward.com/billings/${billing.mf_billing_id}/edit`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-900 ml-2">MFで編集</a>
-                                                            <Link href={route('invoices.viewPdf.start', { invoice: billing.local_invoice_id })} className="text-indigo-600 hover:text-indigo-900 ml-2">PDFを確認</Link>
+                                                            <a href={route('invoices.viewPdf.start', { invoice: billing.local_invoice_id })} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-900 ml-2">PDFを確認</a>
                                                           </>
                                                         ) : (
                                                           <span className="text-gray-400 ml-2">MF未生成</span>

@@ -1,4 +1,8 @@
-トーストの実装要件
+# アラート
+https://ui.shadcn.com/docs/components/alert-dialog
+
+
+# トーストの実装要件
 
 採用方針
 	•	Sonner を採用（shadcn/uiが現在こちらを推奨）。<Toaster /> をアプリ共通レイアウトの最上位で1回だけ設置し、どこからでも toast() を呼べる構成にする。 ￼

@@ -8,6 +8,7 @@ use Inertia\Inertia;
 use App\Models\Estimate; // Add this import
 use Illuminate\Support\Facades\Auth; // Add this import
 use App\Http\Controllers\BillingController;
+use App\Http\Controllers\SalesController;
 use App\Http\Controllers\CategoryController;
 
 Route::get('/', function () {
@@ -47,8 +48,8 @@ Route::middleware('auth')->group(function () {
     Route::put('categories/{id}', [CategoryController::class, 'update'])->whereNumber('id')->name('categories.update');
     Route::delete('categories/{id}', [CategoryController::class, 'destroy'])->whereNumber('id')->name('categories.destroy');
 
-    Route::get('/sales', fn () => Inertia::render('Sales/Index'))->name('sales.index');
-    Route::get('/deposits', fn () => Inertia::render('Deposits/Index'))->name('deposits.index');
+    Route::get('/sales', [SalesController::class, 'index'])->name('sales.index');
+    
     Route::get('/billing', [BillingController::class, 'index'])->name('billing.index');
     Route::get('/billing/{billing}/pdf', [BillingController::class, 'downloadPdf'])->name('billing.downloadPdf');
     Route::get('/inventory', fn () => Inertia::render('Inventory/Index'))->name('inventory.index');
@@ -85,6 +86,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/invoices/{invoice}/send', [App\Http\Controllers\LocalInvoiceController::class, 'redirectToAuthForSending'])->whereNumber('invoice')->name('invoices.send.start');
     Route::get('/invoices/send/callback', [App\Http\Controllers\LocalInvoiceController::class, 'handleSendCallback'])->name('invoices.send.callback'); // This was pointing to the correct controller but the auth redirect was wrong. Let's fix the controller side.
     Route::get('/invoices/{invoice}/view-pdf', [App\Http\Controllers\LocalInvoiceController::class, 'redirectToAuthForPdf'])->whereNumber('invoice')->name('invoices.viewPdf.start');
+    Route::get('/invoices/view-pdf/callback', [App\Http\Controllers\LocalInvoiceController::class, 'handleViewPdfCallback'])->name('invoices.viewPdf.callback');
+    Route::get('/invoices/{invoice}/pdf', [App\Http\Controllers\LocalInvoiceController::class, 'downloadPdf'])->whereNumber('invoice')->name('invoices.downloadPdf');
+    Route::delete('/invoices/{invoice}', [App\Http\Controllers\LocalInvoiceController::class, 'destroy'])->whereNumber('invoice')->name('invoices.destroy');
     
 
     // View MF Quote PDF via OAuth
