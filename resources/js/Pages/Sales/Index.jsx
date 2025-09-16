@@ -4,17 +4,38 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { DollarSign, CreditCard } from 'lucide-react';
 
-export default function SalesIndex({ auth, summary, items }) {
+export default function SalesIndex({ auth, summary, items, filters }) {
     const fmt = (n) => `¥${(n ?? 0).toLocaleString()}`;
 
     const overdue = (items || []).filter(i => i.category === '期日超過売掛');
     const current = (items || []).filter(i => i.category === '売掛');
+    const qs = (p) => new URLSearchParams(p).toString();
+    const defFrom = filters?.from || new Date(new Date().setMonth(new Date().getMonth()-1)).toISOString().slice(0,7);
+    const defTo = filters?.to || new Date().toISOString().slice(0,7);
 
     return (
         <AuthenticatedLayout user={auth?.user} header={<h2 className="font-semibold text-xl text-gray-800 leading-tight">売掛</h2>}>
             <Head title="売掛" />
 
             <div className="space-y-6">
+                {/* 月範囲フィルタ（8月〜9月のように月のみ） */}
+                <Card>
+                    <CardContent className="pt-6">
+                        <form method="get" className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
+                            <div>
+                                <label className="block text-sm text-gray-600 mb-1">月 From</label>
+                                <input type="month" name="from" defaultValue={defFrom} className="border rounded h-10 px-2 w-full" />
+                            </div>
+                            <div>
+                                <label className="block text-sm text-gray-600 mb-1">月 To</label>
+                                <input type="month" name="to" defaultValue={defTo} className="border rounded h-10 px-2 w-full" />
+                            </div>
+                            <div>
+                                <button type="submit" className="inline-flex items-center justify-center h-10 px-4 rounded bg-blue-600 text-white">適用</button>
+                            </div>
+                        </form>
+                    </CardContent>
+                </Card>
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
