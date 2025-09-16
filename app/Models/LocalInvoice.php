@@ -10,7 +10,7 @@ class LocalInvoice extends Model
 {
     protected $fillable = [
         'estimate_id', 'customer_name', 'client_id', 'department_id', 'title',
-        'billing_number', 'billing_date', 'due_date', 'notes', 'items',
+        'billing_number', 'billing_date', 'due_date', 'sales_date', 'notes', 'items',
         'total_amount', 'tax_amount', 'staff_id', 'staff_name', 'status',
         'mf_billing_id', 'mf_pdf_url',
     ];
@@ -19,6 +19,7 @@ class LocalInvoice extends Model
         'items' => 'array',
         'billing_date' => 'date',
         'due_date' => 'date',
+        'sales_date' => 'date',
     ];
 
     public static function generateReadableBillingNumber($staffId, $clientId): string

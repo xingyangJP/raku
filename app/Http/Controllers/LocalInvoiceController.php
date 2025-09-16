@@ -52,6 +52,7 @@ class LocalInvoiceController extends Controller
             'billing_number' => LocalInvoice::generateReadableBillingNumber($estimate->staff_id, $clientId),
             'billing_date' => now()->format('Y-m-d'),
             'due_date' => now()->addDays(30)->format('Y-m-d'),
+            'sales_date' => now()->format('Y-m-d'),
             'notes' => $estimate->notes,
             'items' => $estimate->items,
             'total_amount' => $estimate->total_amount,
@@ -66,6 +67,81 @@ class LocalInvoiceController extends Controller
 
     public function edit(LocalInvoice $invoice)
     {
+        // 明細の品目名などをローカル商品マスタから補完（表示用のみ、DBは更新しない）
+        try {
+            $items = is_array($invoice->items) ? $invoice->items : [];
+            if (!empty($items) && \Illuminate\Support\Facades\Schema::hasTable('products')) {
+                // 参照候補の id/sku/code を収集（旧データの互換: productId, product.id も拾う）
+                $ids = [];
+                $codes = [];
+                foreach ($items as $it) {
+                    // snake_case
+                    if (!empty($it['product_id'])) { $ids[] = (int) $it['product_id']; }
+                    // camelCase（旧データ互換）
+                    if (!empty($it['productId'])) { $ids[] = (int) $it['productId']; }
+                    // nested object (e.g. { product: { id, name, ... } })
+                    if (!empty($it['product']) && is_array($it['product']) && !empty($it['product']['id'])) {
+                        $ids[] = (int) $it['product']['id'];
+                    }
+
+                    if (!empty($it['sku'])) { $codes[] = (string) $it['sku']; }
+                    if (!empty($it['code'])) { $codes[] = (string) $it['code']; }
+                }
+                $ids = array_values(array_unique(array_filter($ids)));
+                $codes = array_values(array_unique(array_filter($codes)));
+
+                $byId = [];
+                $bySku = [];
+                if (!empty($ids)) {
+                    $byId = \App\Models\Product::query()
+                        ->whereIn('id', $ids)
+                        ->get(['id','sku','name','unit','price','description','cost'])
+                        ->keyBy('id');
+                }
+                if (!empty($codes)) {
+                    $bySku = \App\Models\Product::query()
+                        ->whereIn('sku', $codes)
+                        ->get(['id','sku','name','unit','price','description','cost'])
+                        ->keyBy('sku');
+                }
+
+                $items = array_map(function ($it) use ($byId, $bySku) {
+                    $p = null;
+                    // Try resolving product by multiple keys
+                    if (!empty($it['product_id']) && isset($byId[$it['product_id']])) {
+                        $p = $byId[$it['product_id']];
+                    } elseif (!empty($it['productId']) && isset($byId[$it['productId']])) {
+                        $p = $byId[$it['productId']];
+                    } elseif (!empty($it['product']) && is_array($it['product']) && !empty($it['product']['id']) && isset($byId[$it['product']['id']])) {
+                        $p = $byId[$it['product']['id']];
+                    } elseif (!empty($it['sku']) && isset($bySku[$it['sku']])) {
+                        $p = $bySku[$it['sku']];
+                    } elseif (!empty($it['code']) && isset($bySku[$it['code']])) {
+                        $p = $bySku[$it['code']];
+                    }
+
+                    if ($p) {
+                        // name/description/unit/price が欠けていれば商品マスタから補完
+                        $it['name'] = $it['name'] ?? $p->name;
+                        if (empty($it['description']) && !empty($p->description)) { $it['description'] = $p->description; }
+                        if (empty($it['unit']) && !empty($p->unit)) { $it['unit'] = $p->unit; }
+                        if (!isset($it['price']) && isset($p->price)) { $it['price'] = (float) $p->price; }
+                    }
+
+                    // 最後のフォールバック（旧データで name が空のままの場合、description を name に映す）
+                    if (empty($it['name']) && !empty($it['description'])) {
+                        $it['name'] = $it['description'];
+                    }
+                    return $it;
+                }, $items);
+
+                // 表示用に差し替え（保存はしない）
+                $invoice->setAttribute('items', $items);
+            }
+        } catch (\Throwable $e) {
+            // 補完失敗時も表示は継続
+        }
+
         return Inertia::render('Invoices/Edit', [
             'invoice' => $invoice,
         ]);
@@ -81,6 +157,7 @@ class LocalInvoiceController extends Controller
             'billing_number' => 'required|string|max:255|unique:local_invoices,billing_number,' . $invoice->id,
             'billing_date' => 'required|date',
             'due_date' => 'required|date',
+            'sales_date' => 'nullable|date',
             'notes' => 'nullable|string',
             'items' => 'nullable|array',
             'total_amount' => 'required|integer',
@@ -90,6 +167,8 @@ class LocalInvoiceController extends Controller
             'status' => 'nullable|string|in:draft,final',
         ]);
 
+        // 請求番号は編集禁止（サーバ側でも強制維持）
+        $validated['billing_number'] = $invoice->billing_number;
         $invoice->update($validated);
 
         return redirect()->route('invoices.edit', $invoice->id)->with('success', '請求書を更新しました。');

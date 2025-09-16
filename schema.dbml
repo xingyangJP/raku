@@ -229,6 +229,7 @@ Table "local_invoices" {
   "billing_number" varchar(255) [default: NULL]
   "billing_date" date [default: NULL]
   "due_date" date [default: NULL]
+  "sales_date" date [default: NULL]
   "notes" text
   "items" json [default: NULL]
   "total_amount" int [not null, default: '0']
@@ -289,9 +290,9 @@ Table "password_reset_tokens" {
 
 Table "products" {
   "id" bigint [pk, not null, increment]
-  "category_id" bigint [not null]
   "mf_id" varchar(255) [default: NULL]
-  "code" varchar(255) [not null]
+  "sku" varchar(255) [not null]
+  "category_id" bigint [default: NULL]
   "seq" int [default: NULL]
   "name" varchar(255) [not null]
   "unit" varchar(255) [not null, default: '式']
@@ -308,7 +309,7 @@ Table "products" {
   "mf_updated_at" timestamp [default: NULL]
 
   Indexes {
-    code [unique, name: "products_sku_unique"]
+    sku [unique, name: "products_sku_unique"]
     mf_id [unique, name: "products_mf_id_unique"]
     (category_id, seq) [unique, name: "products_category_id_seq_unique"]
   }
@@ -361,5 +362,7 @@ Table "users" {
 Ref "billing_items_billing_id_foreign":"billings"."id" < "billing_items"."billing_id" [delete: cascade]
 
 Ref "mf_tokens_user_id_foreign":"users"."id" < "mf_tokens"."user_id" [delete: cascade]
+
+Ref "products_category_id_foreign":"categories"."id" < "products"."category_id" [delete: set null]
 
 Ref "settings_permissions_user_id_foreign":"users"."id" < "settings_permissions"."user_id" [delete: cascade]

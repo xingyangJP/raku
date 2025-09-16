@@ -182,22 +182,23 @@ class MoneyForwardApiService
                 }
             }
             $mapped = [
-                'name' => $item['name'] ?? '',
+                'name' => ($item['name'] ?? $item['product_name'] ?? $item['code'] ?? $item['sku'] ?? ''),
                 'price' => $item['price'] ?? 0,
                 'quantity' => $item['qty'] ?? 1,
                 'unit' => $item['unit'] ?? '式',
-                'detail' => $item['description'] ?? '',
+                'detail' => $item['description'] ?? $item['detail'] ?? '',
             ];
-            if (empty($item['item_id'])) {
-                $mapped['excise'] = $excise;
-            } else {
-                $mapped['item_id'] = $item['item_id'];
+            if (!empty($item['delivery_date'])) {
+                $mapped['delivery_date'] = $item['delivery_date'];
             }
+            // Always prefer local name/detail over master item by not binding item_id
+            $mapped['excise'] = $excise;
             $items[] = $mapped;
         }
 
         $issue = $invoice->billing_date ? Carbon::parse($invoice->billing_date) : Carbon::now();
         $due = $invoice->due_date ? Carbon::parse($invoice->due_date) : (clone $issue)->addMonth();
+        $sales = $invoice->sales_date ? Carbon::parse($invoice->sales_date) : $issue;
 
         // Build payload by BillingNewTemplateCreateRequest (top-level fields)
         $payload = [
@@ -208,7 +209,7 @@ class MoneyForwardApiService
             'payment_condition' => null,
             'billing_date' => $issue->format('Y-m-d'),
             'due_date' => $due->format('Y-m-d'),
-            'sales_date' => $issue->format('Y-m-d'),
+            'sales_date' => $sales->format('Y-m-d'),
             'billing_number' => $invoice->billing_number,
             'note' => $invoice->notes,
             'document_name' => '請求書',

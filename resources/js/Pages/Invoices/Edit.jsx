@@ -8,6 +8,21 @@ import { Textarea } from '@/Components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/Components/ui/card';
 import axios from 'axios';
 
+const normalizeItems = (items) => {
+  if (!Array.isArray(items)) return [];
+  return items.map((it) => {
+    const description = it?.description ?? it?.detail ?? '';
+    // 品目名はDB解決の結果（name, product_name, product.name, code/sku）を優先し、
+    // それでも空なら description を最終フォールバックとして表示する
+    const name = it?.name || it?.product_name || it?.product?.name || it?.code || it?.sku || description || '';
+    const unit = it?.unit || '式';
+    const qty = Number(it?.qty ?? it?.quantity ?? 1);
+    const price = Number(it?.price ?? 0);
+    const delivery_date = it?.delivery_date || '';
+    return { ...it, name, description, unit, qty, price, delivery_date };
+  });
+};
+
 export default function InvoiceEdit({ auth, invoice }) {
   // Normalize possible ISO strings from backend (e.g., 2025-09-10T00:00:00Z)
   const norm = (v) => {
@@ -20,10 +35,17 @@ export default function InvoiceEdit({ auth, invoice }) {
     ...invoice,
     billing_date: norm(invoice?.billing_date),
     due_date: norm(invoice?.due_date),
+    sales_date: norm(invoice?.sales_date),
   });
   const [departments, setDepartments] = useState([]);
-  const [items, setItems] = useState(invoice.items || []);
+  const [items, setItems] = useState(normalizeItems(invoice.items || []));
   const isMfCreated = !!data.mf_billing_id;
+
+  useEffect(() => {
+    setItems(normalizeItems(invoice.items || []));
+  }, [invoice.items]);
+
+  const fmt = (n) => Number(n || 0).toLocaleString('ja-JP');
 
   useEffect(() => {
     if (data.client_id) {
@@ -46,6 +68,15 @@ export default function InvoiceEdit({ auth, invoice }) {
     setData('total_amount', subtotal + tax);
     setData('tax_amount', tax);
   }, [items]);
+
+  // Auto-fill line delivery_date from header sales_date when set, without overriding existing values
+  useEffect(() => {
+    if (!data.sales_date) return;
+    setItems(prev => prev.map(it => (
+      it.delivery_date ? it : { ...it, delivery_date: data.sales_date }
+    )));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.sales_date]);
 
   const onSubmit = (e) => {
     e.preventDefault();
@@ -97,11 +128,15 @@ export default function InvoiceEdit({ auth, invoice }) {
                 </div>
                 <div>
                   <Label>請求番号</Label>
-                  <Input value={data.billing_number || ''} onChange={(e)=>setData('billing_number', e.target.value)} disabled={isMfCreated} />
+                  <Input value={data.billing_number || ''} readOnly className="bg-gray-100" />
                 </div>
                 <div>
                   <Label>請求日</Label>
                   <Input type="date" value={data.billing_date || ''} onChange={(e)=>setData('billing_date', e.target.value)} disabled={isMfCreated} />
+                </div>
+                <div>
+                  <Label>納品日</Label>
+                  <Input type="date" value={data.sales_date || ''} onChange={(e)=>setData('sales_date', e.target.value)} disabled={isMfCreated} />
                 </div>
                 <div>
                   <Label>支払期限</Label>
@@ -117,7 +152,9 @@ export default function InvoiceEdit({ auth, invoice }) {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left border-b">
-                        <th className="p-2">品目名</th>
+                        {/* 品目名ヘッダは削除し、詳細列内でラベル表示 */}
+                        <th className="p-2">納品日</th>
+                        <th className="p-2">詳細</th>
                         <th className="p-2">数量</th>
                         <th className="p-2">単位</th>
                         <th className="p-2">単価</th>
@@ -128,19 +165,29 @@ export default function InvoiceEdit({ auth, invoice }) {
                     <tbody>
                       {items.map((it, idx) => (
                         <tr key={it.id || idx} className="border-b">
-                          <td className="p-2"><Input value={it.name || ''} onChange={(e)=>setItems(prev=>prev.map((p,i)=>i===idx?{...p,name:e.target.value}:p))} disabled={isMfCreated} /></td>
+                          <td className="p-2 w-40">
+                            <Input type="date" value={norm(it.delivery_date) || ''} onChange={(e)=>setItems(prev=>prev.map((p,i)=>i===idx?{...p,delivery_date:e.target.value}:p))} disabled={isMfCreated} />
+                          </td>
+                          <td className="p-2 w-64">
+                            {/* 1行目: 品目名（ラベル表示、編集不可） */}
+                            <div className="text-xs text-gray-600 mb-1">
+                              {it.name || it.product_name || (it.product && it.product.name) || it.code || it.sku || ''}
+                            </div>
+                            {/* 2行目: 詳細 */}
+                            <Input value={it.description || it.detail || ''} readOnly className="bg-gray-100" />
+                          </td>
                           <td className="p-2 w-24"><Input type="number" value={it.qty ?? 1} onChange={(e)=>setItems(prev=>prev.map((p,i)=>i===idx?{...p,qty:Number(e.target.value)}:p))} disabled={isMfCreated} /></td>
                           <td className="p-2 w-24"><Input value={it.unit || ''} onChange={(e)=>setItems(prev=>prev.map((p,i)=>i===idx?{...p,unit:e.target.value}:p))} disabled={isMfCreated} /></td>
                           <td className="p-2 w-32"><Input type="number" value={it.price ?? 0} onChange={(e)=>setItems(prev=>prev.map((p,i)=>i===idx?{...p,price:Number(e.target.value)}:p))} disabled={isMfCreated} /></td>
-                          <td className="p-2 w-32 text-right">{Number(it.qty||0)*Number(it.price||0)}</td>
+                          <td className="p-2 w-32 text-right">¥{fmt(Number(it.qty||0)*Number(it.price||0))}</td>
                           <td className="p-2 w-16"><Button type="button" variant="destructive" onClick={()=>setItems(prev=>prev.filter((_,i)=>i!==idx))}>削除</Button></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                <div className="mt-3"><Button type="button" onClick={()=>setItems(prev=>[...prev,{id:Date.now(),name:'',qty:1,unit:'式',price:0}])} disabled={isMfCreated}>行を追加</Button></div>
-                <div className="mt-4 text-right">小計+税: {data.total_amount || 0}（税額: {data.tax_amount || 0}）</div>
+                {/* 行を追加ボタンは非表示 */}
+                <div className="mt-4 text-right">小計+税: ¥{fmt(data.total_amount)}（税額: ¥{fmt(data.tax_amount)}）</div>
               </CardContent>
             </Card>
 

@@ -25,29 +25,29 @@ class ItemSeeder extends Seeder
         // 明示仕様に基づく投入データ
         $plan = [
             'コンサル' => [
-                ['name' => '要件定義', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
+                ['name' => '要件定義', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '業務要件の整理支援'],
             ],
             '開発' => [
-                ['name' => '開発', 'price' => 600000, 'cost' => 400000, 'unit' => '人月'],
-                ['name' => 'テスト', 'price' => 600000, 'cost' => 400000, 'unit' => '人月'],
+                ['name' => '開発', 'price' => 600000, 'cost' => 400000, 'unit' => '人月', 'description' => '実装と動作確認作業'],
+                ['name' => 'テスト', 'price' => 600000, 'cost' => 400000, 'unit' => '人月', 'description' => '実装と動作確認作業'],
             ],
             '設計' => [
-                ['name' => '設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
-                ['name' => 'テスト設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
-                ['name' => 'UI設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
+                ['name' => '設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '仕様設計と画面設計'],
+                ['name' => 'テスト設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '仕様設計と画面設計'],
+                ['name' => 'UI設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '仕様設計と画面設計'],
             ],
             '管理' => [
-                ['name' => 'プロジェクトマネジメント', 'price' => 700000, 'cost' => 500000, 'unit' => '人月'],
+                ['name' => 'プロジェクトマネジメント', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '進行管理と品質保証'],
             ],
             'ハードウェア' => [
-                ['name' => 'ハードウェア', 'price' => 200000, 'cost' => 100000, 'unit' => '台'],
+                ['name' => 'ハードウェア', 'price' => 200000, 'cost' => 100000, 'unit' => '台', 'description' => '機器提供と設置支援'],
             ],
             'サプライ' => [
-                ['name' => '伝票', 'price' => 200000, 'cost' => 100000, 'unit' => '式'],
-                ['name' => 'コピー用紙', 'price' => 200000, 'cost' => 100000, 'unit' => '式'],
+                ['name' => '伝票', 'price' => 200000, 'cost' => 100000, 'unit' => '式', 'description' => '事務消耗品の供給'],
+                ['name' => 'コピー用紙', 'price' => 200000, 'cost' => 100000, 'unit' => '式', 'description' => '事務消耗品の供給'],
             ],
             'ライセンス' => [
-                ['name' => 'Magic XPA', 'price' => 200000, 'cost' => 100000, 'unit' => '個'],
+                ['name' => 'Magic XPA', 'price' => 200000, 'cost' => 100000, 'unit' => '個', 'description' => '開発環境用ライセンス'],
             ],
         ];
 
@@ -64,33 +64,32 @@ class ItemSeeder extends Seeder
                 $price = $item['price'];
                 $cost = $item['cost'];
                 $unit = $item['unit'];
+                $description = $item['description'] ?? null;
 
                 // Idempotent: skip if a product by this name already exists
                 $existsByName = DB::table('products')->where('name', $name)->exists();
                 if ($existsByName) continue;
 
-                $this->createProductWithIncrementedSku($category->id, $category->code, $name, $price, $cost, $unit);
+                $this->createProductWithIncrementedSku($category->id, $category->code, $name, $price, $cost, $unit, $description);
             }
         }
     }
 
-    private function createProductWithIncrementedSku(int $categoryId, string $categoryCode, string $name, int $price, int $cost, string $unit): void
+    private function createProductWithIncrementedSku(int $categoryId, string $categoryCode, string $name, int $price, int $cost, string $unit, ?string $description): void
     {
         $attempts = 0;
         $maxAttempts = 7;
         while ($attempts < $maxAttempts) {
             $attempts++;
             try {
-                DB::transaction(function () use ($categoryId, $categoryCode, $name, $price, $cost, $unit) {
+                DB::transaction(function () use ($categoryId, $categoryCode, $name, $price, $cost, $unit, $description) {
                     // lock this category row and fetch updated seq
                     $row = DB::table('categories')->where('id', $categoryId)->lockForUpdate()->first(['id', 'last_item_seq']);
                     $seq = (int) $row->last_item_seq + 1;
                     $sku = sprintf('%s-%03d', $categoryCode, $seq);
 
                     // create product (sku is unique)
-                    DB::table('products')->insert([
-                        'category_id' => $categoryId,
-                        'seq' => $seq,
+                    $payload = [
                         'sku' => $sku,
                         'name' => $name,
                         'unit' => $unit,
@@ -98,11 +97,19 @@ class ItemSeeder extends Seeder
                         'cost' => $cost,
                         'tax_category' => 'ten_percent',
                         'is_active' => true,
-                        'description' => null,
+                        'description' => $description,
                         'attributes' => null,
                         'created_at' => now(),
                         'updated_at' => now(),
-                    ]);
+                    ];
+                    // Optional columns when schema supports
+                    if (\Illuminate\Support\Facades\Schema::hasColumn('products', 'category_id')) {
+                        $payload['category_id'] = $categoryId;
+                    }
+                    if (\Illuminate\Support\Facades\Schema::hasColumn('products', 'seq')) {
+                        $payload['seq'] = $seq;
+                    }
+                    DB::table('products')->insert($payload);
 
                     // bump seq only after successful insert
                     DB::table('categories')->where('id', $categoryId)->update([
