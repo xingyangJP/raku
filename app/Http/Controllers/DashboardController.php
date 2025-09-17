@@ -119,7 +119,7 @@ class DashboardController extends Controller
             'response_type' => 'code',
             'client_id' => config('services.money_forward.client_id'),
             'redirect_uri' => env('MONEY_FORWARD_PARTNER_AUTH_REDIRECT_URI', route('partners.auth.callback')),
-            'scope' => 'mfc/invoice/data.read',
+            'scope' => 'mfc/invoice/data.read mfc/invoice/data.write',
         ]);
         return \Inertia\Inertia::location($authUrl);
     }
