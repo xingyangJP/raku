@@ -457,10 +457,13 @@ class EstimateController extends Controller
     public function redirectToAuth(Request $request)
     {
         $action = $request->session()->get('mf_redirect_action');
+        Log::info('MF Auth Redirect: action from session', ['action' => $action]);
+
         $scope = 'mfc/invoice/data.read'; // Default scope
         if (in_array($action, ['create_quote', 'convert_to_billing'])) {
             $scope = 'mfc/invoice/data.write';
         }
+        Log::info('MF Auth Redirect: final scope', ['scope' => $scope]);
 
         $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
             'response_type' => 'code',
