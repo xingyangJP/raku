@@ -1,5 +1,5 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link, useForm, router, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
@@ -11,11 +11,12 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/Components/ui/dropdown-menu";
 import { DotsHorizontalIcon } from "@radix-ui/react-icons";
-import { 
-    FileText, 
-    PlusCircle, 
-    Search, 
+import {
+    FileText,
+    PlusCircle,
+    Search,
     Filter,
+    RefreshCw,
     Users,
     TrendingUp,
     Calendar,
@@ -34,11 +35,134 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog';
 
-export default function QuoteIndex({ auth, estimates }) {
+const computeDefaultQuoteMonth = (value) => {
+    if (value) return value;
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    return `${now.getFullYear()}-${month}`;
+};
+
+const filterEstimatesList = (source, filters) => {
+    let temp = [...source];
+
+    if (filters.title) {
+        const lower = filters.title.toLowerCase();
+        temp = temp.filter((e) => (e.title || '').toLowerCase().includes(lower));
+    }
+
+    if (filters.issue_month_from || filters.issue_month_to) {
+        const fromMonth = filters.issue_month_from ? new Date(`${filters.issue_month_from}-01`) : null;
+        const toMonth = filters.issue_month_to ? new Date(`${filters.issue_month_to}-01`) : null;
+
+        temp = temp.filter((e) => {
+            if (!e.issue_date) return false;
+            const issueDate = new Date(e.issue_date);
+            if (Number.isNaN(issueDate.getTime())) return false;
+
+            const monthStart = new Date(issueDate.getFullYear(), issueDate.getMonth(), 1);
+            const monthEnd = new Date(issueDate.getFullYear(), issueDate.getMonth() + 1, 0, 23, 59, 59, 999);
+
+            const afterFrom = fromMonth ? monthEnd >= fromMonth : true;
+            const beforeTo = toMonth
+                ? monthStart <= new Date(toMonth.getFullYear(), toMonth.getMonth() + 1, 0, 23, 59, 59, 999)
+                : true;
+
+            return afterFrom && beforeTo;
+        });
+    }
+
+    if (filters.partner) {
+        const partnerLower = filters.partner.toLowerCase();
+        temp = temp.filter((e) => (e.customer_name || '').toLowerCase().includes(partnerLower));
+    }
+
+    if (filters.status) {
+        temp = temp.filter((e) => (e.status || '') === filters.status);
+    }
+
+    return temp;
+};
+
+export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncStatus, error, defaultRange, initialFilters }) {
     const { props } = usePage();
     const [selectedEstimates, setSelectedEstimates] = useState([]);
     const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
     const [approverNames, setApproverNames] = useState([]);
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    const defaultFromMonth = computeDefaultQuoteMonth(initialFilters?.from ?? defaultRange?.from);
+    const defaultToMonth = computeDefaultQuoteMonth(initialFilters?.to ?? defaultRange?.to);
+
+    const initialFilterState = {
+        title: initialFilters?.title ?? '',
+        issue_month_from: defaultFromMonth,
+        issue_month_to: defaultToMonth,
+        partner: initialFilters?.partner ?? '',
+        status: initialFilters?.status ?? '',
+    };
+
+    const [filters, setFilters] = useState(initialFilterState);
+    const [filteredEstimates, setFilteredEstimates] = useState(() => filterEstimatesList(estimates, initialFilterState));
+
+    const moneyForwardAuthUrl = (() => {
+        if (!moneyForwardConfig) return null;
+        const params = new URLSearchParams({
+            response_type: 'code',
+            client_id: moneyForwardConfig.client_id ?? '',
+            redirect_uri: moneyForwardConfig.redirect_uri ?? '',
+            scope: moneyForwardConfig.scope ?? '',
+            state: Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15),
+        });
+        return `${moneyForwardConfig.authorization_url}?${params.toString()}`;
+    })();
+
+    const authStartRoute = moneyForwardConfig?.auth_start_route ?? null;
+    const canTriggerAuth = Boolean(moneyForwardAuthUrl || authStartRoute);
+
+    const lastSyncedAt = syncStatus?.synced_at ? new Date(syncStatus.synced_at).toLocaleString('ja-JP') : null;
+
+    const headerStatusText = (() => {
+        if (!syncStatus) {
+            return '同期情報未取得';
+        }
+        switch (syncStatus.status) {
+            case 'synced':
+                return lastSyncedAt ? `最終同期: ${lastSyncedAt}` : '同期完了';
+            case 'skipped':
+                return lastSyncedAt ? `前回同期: ${lastSyncedAt}` : '同期済み';
+            case 'error':
+                return '同期エラー';
+            case 'unauthorized':
+                return '認証が必要です';
+            case 'locked':
+                return '同期中';
+            default:
+                return `同期状態: ${syncStatus.status}`;
+        }
+    })();
+
+    const triggerMoneyForwardAuth = () => {
+        if (authStartRoute) {
+            window.location.href = authStartRoute;
+            return;
+        }
+        if (moneyForwardAuthUrl) {
+            window.location.href = moneyForwardAuthUrl;
+        }
+    };
+
+    const handleManualSync = () => {
+        if (isSyncing) return;
+        if ((syncStatus?.status ?? '') === 'unauthorized') {
+            triggerMoneyForwardAuth();
+            return;
+        }
+        setIsSyncing(true);
+        router.post(route('quotes.sync'), {}, {
+            preserveScroll: true,
+            onFinish: () => setIsSyncing(false),
+        });
+    };
 
     useEffect(() => {
         const started = props.flash?.approval_started;
@@ -51,7 +175,7 @@ export default function QuoteIndex({ auth, estimates }) {
 
     const handleSelectAll = (checked) => {
         if (checked) {
-            setSelectedEstimates(estimates.map(estimate => estimate.id));
+            setSelectedEstimates(filteredEstimates.map((estimate) => estimate.id));
         } else {
             setSelectedEstimates([]);
         }
@@ -104,8 +228,6 @@ export default function QuoteIndex({ auth, estimates }) {
         );
     };
 
-    const { post } = useForm();
-
     const handleBulkApprove = () => {
         if (selectedEstimates.length === 0) return;
         if (confirm(`選択された ${selectedEstimates.length} 件の見積書を承認申請しますか？`)) {
@@ -145,9 +267,41 @@ export default function QuoteIndex({ auth, estimates }) {
     // approval history is rendered from estimate.approval_flow in the detail view
 
     // 統計計算
-    const totalAmount = estimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
-    const draftCount = estimates.filter(est => est.status === 'draft').length;
-    const approvedCount = estimates.filter(est => est.status === 'sent').length;
+    useEffect(() => {
+        setFilteredEstimates(filterEstimatesList(estimates, filters));
+    }, [estimates]);
+
+    useEffect(() => {
+        setSelectedEstimates((prev) => prev.filter((id) => filteredEstimates.some((est) => est.id === id)));
+    }, [filteredEstimates]);
+
+    const handleFilterChange = (event) => {
+        const { name, value } = event.target;
+        setFilters((prev) => ({
+            ...prev,
+            [name]: value,
+        }));
+    };
+
+    const applyFilters = () => {
+        setFilteredEstimates(filterEstimatesList(estimates, filters));
+    };
+
+    const resetFilters = () => {
+        const reset = {
+            title: '',
+            issue_month_from: defaultFromMonth,
+            issue_month_to: defaultToMonth,
+            partner: '',
+            status: '',
+        };
+        setFilters(reset);
+        setFilteredEstimates(filterEstimatesList(estimates, reset));
+    };
+
+    const totalAmount = filteredEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
+    const draftCount = filteredEstimates.filter((est) => est.status === 'draft').length;
+    const approvedCount = filteredEstimates.filter((est) => est.status === 'sent').length;
 
     return (
         <AuthenticatedLayout 
@@ -159,7 +313,7 @@ export default function QuoteIndex({ auth, estimates }) {
                         見積管理
                     </h2>
                     <div className="text-sm text-gray-600">
-                        最終更新: {new Date().toLocaleString('ja-JP')}
+                        {headerStatusText}
                     </div>
                 </div>
             }
@@ -189,6 +343,52 @@ export default function QuoteIndex({ auth, estimates }) {
             </Dialog>
             
             <div className="space-y-8">
+                <div className="space-y-3">
+                    {error && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">
+                            {error}
+                        </div>
+                    )}
+                    {props.flash?.success && (
+                        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-2 rounded">
+                            {props.flash.success}
+                        </div>
+                    )}
+                    {props.flash?.info && (
+                        <div className="bg-sky-50 border border-sky-200 text-sky-700 px-4 py-2 rounded">
+                            {props.flash.info}
+                        </div>
+                    )}
+                    {syncStatus?.status === 'synced' && lastSyncedAt && (
+                        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-2 rounded">
+                            最終同期: {lastSyncedAt}
+                        </div>
+                    )}
+                    {syncStatus?.status === 'skipped' && lastSyncedAt && (
+                        <div className="bg-gray-50 border border-gray-200 text-gray-700 px-4 py-2 rounded">
+                            前回同期: {lastSyncedAt}
+                        </div>
+                    )}
+                    {syncStatus?.status === 'error' && syncStatus.message && (
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded">
+                            同期エラー: {syncStatus.message}
+                        </div>
+                    )}
+                    {syncStatus?.status === 'unauthorized' && (
+                        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-2 rounded flex flex-wrap items-center gap-3">
+                            <span>Money Forwardの認証が必要です。</span>
+                            <Button
+                                size="sm"
+                                className="bg-yellow-500 hover:bg-yellow-600 text-white"
+                                disabled={!canTriggerAuth}
+                                onClick={triggerMoneyForwardAuth}
+                            >
+                                認証する
+                            </Button>
+                        </div>
+                    )}
+                </div>
+
                 {/* 統計ダッシュボード */}
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
                     <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-blue-50 to-blue-100 shadow-lg">
@@ -289,16 +489,85 @@ export default function QuoteIndex({ auth, estimates }) {
                         </AccordionTrigger>
                         <AccordionContent>
                             <CardContent className="pt-4">
-                                <div className="flex gap-4 items-start">
-                                    <Input 
-                                        placeholder="見積番号, 件名, 顧客名..." 
-                                        className="max-w-xs border-slate-300 focus:border-blue-500" 
-                                    />
-                                    
-                                    <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
-                                        <Search className="h-4 w-4"/>
-                                        検索
-                                    </Button>
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        <div>
+                                            <label htmlFor="title" className="block text-sm font-medium text-gray-700">タイトル</label>
+                                            <Input
+                                                id="title"
+                                                name="title"
+                                                value={filters.title}
+                                                onChange={handleFilterChange}
+                                                className="mt-1 border-slate-300 focus:border-blue-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label htmlFor="issue_month_from" className="block text-sm font-medium text-gray-700">見積月 From</label>
+                                            <input
+                                                type="month"
+                                                id="issue_month_from"
+                                                name="issue_month_from"
+                                                value={filters.issue_month_from}
+                                                onChange={handleFilterChange}
+                                                className="mt-1 block w-full rounded-md border border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label htmlFor="issue_month_to" className="block text-sm font-medium text-gray-700">見積月 To</label>
+                                            <input
+                                                type="month"
+                                                id="issue_month_to"
+                                                name="issue_month_to"
+                                                value={filters.issue_month_to}
+                                                onChange={handleFilterChange}
+                                                className="mt-1 block w-full rounded-md border border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label htmlFor="partner" className="block text-sm font-medium text-gray-700">取引先（顧客名）</label>
+                                            <Input
+                                                id="partner"
+                                                name="partner"
+                                                value={filters.partner}
+                                                onChange={handleFilterChange}
+                                                className="mt-1 border-slate-300 focus:border-blue-500"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label htmlFor="status" className="block text-sm font-medium text-gray-700">ステータス</label>
+                                            <select
+                                                id="status"
+                                                name="status"
+                                                value={filters.status}
+                                                onChange={handleFilterChange}
+                                                className="mt-1 block w-full rounded-md border border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                                            >
+                                                <option value="">全て</option>
+                                                <option value="sent">承認済</option>
+                                                <option value="pending">承認待ち</option>
+                                                <option value="draft">ドラフト</option>
+                                                <option value="rejected">却下</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end gap-3">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={resetFilters}
+                                            className="border-slate-300 text-slate-700"
+                                        >
+                                            リセット
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700"
+                                            onClick={applyFilters}
+                                        >
+                                            <Search className="h-4 w-4" />
+                                            検索
+                                        </Button>
+                                    </div>
                                 </div>
                             </CardContent>
                         </AccordionContent>
@@ -315,10 +584,22 @@ export default function QuoteIndex({ auth, estimates }) {
                                     見積一覧
                                 </CardTitle>
                                 <CardDescription className="mt-1">
-                                    全 {estimates.length} 件 | 選択中: {selectedEstimates.length} 件
+                                    全 {filteredEstimates.length} 件 | 選択中: {selectedEstimates.length} 件
                                 </CardDescription>
                             </div>
                             <div className="flex flex-wrap gap-2">
+                                <Button
+                                    variant="outline"
+                                    onClick={handleManualSync}
+                                    disabled={isSyncing}
+                                    className={cn(
+                                        "flex items-center gap-2 border-indigo-500 text-indigo-600 hover:bg-indigo-50",
+                                        isSyncing && "opacity-70 cursor-not-allowed"
+                                    )}
+                                >
+                                    <RefreshCw className="h-4 w-4" />
+                                    {isSyncing ? '同期中…' : 'MF同期'}
+                                </Button>
                                 <Button
                                     variant="outline"
                                     onClick={handleBulkApprove}
@@ -363,7 +644,7 @@ export default function QuoteIndex({ auth, estimates }) {
                                     <TableRow className="bg-slate-50 hover:bg-slate-50">
                                         <TableHead className="w-12 text-center font-semibold">
                                             <Checkbox
-                                                checked={selectedEstimates.length === estimates.length && estimates.length > 0}
+                                                checked={filteredEstimates.length > 0 && filteredEstimates.every((estimate) => selectedEstimates.includes(estimate.id))}
                                                 onCheckedChange={handleSelectAll}
                                             />
                                         </TableHead>
@@ -377,7 +658,7 @@ export default function QuoteIndex({ auth, estimates }) {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {estimates.map((estimate) => {
+                                    {filteredEstimates.map((estimate) => {
                                         const subtotal = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateAmount(item), 0) : 0;
                                         const totalCost = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateCostAmount(item), 0) : 0;
                                         const totalGrossProfit = subtotal - totalCost;

@@ -23,33 +23,102 @@ class ItemSeeder extends Seeder
         }
 
         // 明示仕様に基づく投入データ
-        $plan = [
-            'コンサル' => [
-                ['name' => '要件定義', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '業務要件の整理支援'],
-            ],
-            '開発' => [
-                ['name' => '開発', 'price' => 600000, 'cost' => 400000, 'unit' => '人月', 'description' => '実装と動作確認作業'],
-                ['name' => 'テスト', 'price' => 600000, 'cost' => 400000, 'unit' => '人月', 'description' => '実装と動作確認作業'],
-            ],
-            '設計' => [
-                ['name' => '設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '仕様設計と画面設計'],
-                ['name' => 'テスト設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '仕様設計と画面設計'],
-                ['name' => 'UI設計', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '仕様設計と画面設計'],
-            ],
-            '管理' => [
-                ['name' => 'プロジェクトマネジメント', 'price' => 700000, 'cost' => 500000, 'unit' => '人月', 'description' => '進行管理と品質保証'],
-            ],
-            'ハードウェア' => [
-                ['name' => 'ハードウェア', 'price' => 200000, 'cost' => 100000, 'unit' => '台', 'description' => '機器提供と設置支援'],
-            ],
-            'サプライ' => [
-                ['name' => '伝票', 'price' => 200000, 'cost' => 100000, 'unit' => '式', 'description' => '事務消耗品の供給'],
-                ['name' => 'コピー用紙', 'price' => 200000, 'cost' => 100000, 'unit' => '式', 'description' => '事務消耗品の供給'],
-            ],
-            'ライセンス' => [
-                ['name' => 'Magic XPA', 'price' => 200000, 'cost' => 100000, 'unit' => '個', 'description' => '開発環境用ライセンス'],
-            ],
-        ];
+    $plan = [
+    'コンサル' => [
+        [
+            'sku' => 'A-001',
+            'name' => '要件定義',
+            'price' => 700000,
+            'cost' => 500000,
+            'unit' => '人月',
+            'description' => '業務要件の整理支援',
+        ],
+    ],
+    '開発' => [
+        [
+            'sku' => 'B-001',
+            'name' => '開発',
+            'price' => 600000,
+            'cost' => 400000,
+            'unit' => '人月',
+            'description' => '実装と動作確認作業',
+        ],
+        [
+            'sku' => 'B-002',
+            'name' => 'テスト',
+            'price' => 600000,
+            'cost' => 400000,
+            'unit' => '人月',
+            'description' => '実装と動作確認作業',
+        ],
+    ],
+    '設計' => [
+        [
+            'sku' => 'C-001',
+            'name' => '設計',
+            'price' => 700000,
+            'cost' => 500000,
+            'unit' => '人月',
+            'description' => '仕様設計と画面設計',
+        ],
+        [
+            'sku' => 'C-002',
+            'name' => 'テスト設計',
+            'price' => 700000,
+            'cost' => 500000,
+            'unit' => '人月',
+            'description' => '仕様設計と画面設計',
+        ],
+        [
+            'sku' => 'C-003',
+            'name' => 'UI設計',
+            'price' => 700000,
+            'cost' => 500000,
+            'unit' => '人月',
+            'description' => '仕様設計と画面設計',
+        ],
+    ],
+    '管理' => [
+        [
+            'sku' => 'D-001',
+            'name' => 'プロジェクトマネジメント',
+            'price' => 700000,
+            'cost' => 500000,
+            'unit' => '人月',
+            'description' => '進行管理と品質保証',
+        ],
+    ],
+    'ハードウェア' => [
+        [
+            'sku' => 'E-001',
+            'name' => 'ハードウェア',
+            'price' => 200000,
+            'cost' => 100000,
+            'unit' => '台',
+            'description' => '機器提供と設置支援',
+        ],
+    ],
+    'サプライ' => [
+        [
+            'sku' => 'F-001',
+            'name' => 'サプライ',
+            'price' => 200000,
+            'cost' => 100000,
+            'unit' => '式',
+            'description' => '事務消耗品の供給',
+        ],
+    ],
+    'ライセンス' => [
+        [
+            'sku' => 'G-001',
+            'name' => 'Magic XPA',
+            'price' => 60000,
+            'cost' => 50000,
+            'unit' => '個',
+            'description' => '開発環境用ライセンス',
+        ],
+    ],
+];
 
         foreach ($plan as $catName => $items) {
             $category = DB::table('categories')->where('name', $catName)->first(['id', 'code', 'last_item_seq']);

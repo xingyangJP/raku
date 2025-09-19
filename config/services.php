@@ -22,6 +22,11 @@ return [
         'authorization_url' => 'https://api.biz.moneyforward.com/authorize',
         'token_url' => 'https://api.biz.moneyforward.com/token',
         'api_url' => 'https://invoice.moneyforward.com/api/v3',
+        'billing_sync_throttle_minutes' => env('MONEY_FORWARD_BILLING_SYNC_THROTTLE_MINUTES', 5),
+        'billing_sync_page_size' => env('MONEY_FORWARD_BILLING_SYNC_PAGE_SIZE', 100),
+        'quote_sync_throttle_minutes' => env('MONEY_FORWARD_QUOTE_SYNC_THROTTLE_MINUTES', 5),
+        'quote_sync_page_size' => env('MONEY_FORWARD_QUOTE_SYNC_PAGE_SIZE', 100),
+        'quote_redirect_uri' => env('MONEY_FORWARD_QUOTE_REDIRECT_URI', 'http://localhost:8000/quotes/mf/callback'),
     ],
 
     'postmark' => [

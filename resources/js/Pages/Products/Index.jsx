@@ -135,8 +135,8 @@ export default function Index({ auth, products, categories, filters }) {
                                             <TableCell>{product.sku}</TableCell>
                                             <TableCell>{product.name}</TableCell>
                                             <TableCell>{product.unit}</TableCell>
-                                            <TableCell>{parseInt(product.price, 10)}</TableCell>
-                                            <TableCell>{product.cost}</TableCell>
+                                            <TableCell>{parseInt(product.price, 10).toLocaleString('ja-JP', { style: 'currency', currency: 'JPY' })}</TableCell>
+                                            <TableCell>{parseInt(product.cost, 10).toLocaleString('ja-JP', { style: 'currency', currency: 'JPY' })}</TableCell>
                                             <TableCell>
                                                 <Badge variant="secondary">{taxCategories.find(c => c.value === product.tax_category)?.label || product.tax_category}</Badge>
                                             </TableCell>

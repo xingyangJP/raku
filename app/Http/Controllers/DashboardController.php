@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Auth;
 use App\Models\Estimate;
 use App\Models\Partner;
 use App\Services\MoneyForwardApiService;
+use App\Services\MoneyForwardQuoteSynchronizer;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Schema;
 
@@ -15,6 +16,7 @@ class DashboardController extends Controller
     public function index()
     {
         $user = Auth::user();
+
         // Show tasks purely based on approval_flow (未承認が存在するもの)。status には依存しない。
         $estimatesWithFlow = Estimate::whereNotNull('approval_flow')->get();
         $toDoEstimates = [];

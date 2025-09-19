@@ -20,6 +20,8 @@ class MoneyForwardApiService
     protected $clientId;
     protected $clientSecret;
     protected $redirectUri;
+    protected $billingSyncPerPage = 100;
+    protected $quoteSyncPerPage = 100;
 
     public function __construct()
     {
@@ -29,6 +31,61 @@ class MoneyForwardApiService
         $this->clientId = config('services.money_forward.client_id');
         $this->clientSecret = config('services.money_forward.client_secret');
         $this->redirectUri = config('services.money_forward.redirect_uri');
+        $this->billingSyncPerPage = (int) config('services.money_forward.billing_sync_page_size', 100);
+        $this->quoteSyncPerPage = (int) config('services.money_forward.quote_sync_page_size', 100);
+    }
+
+    public function fetchBillings(string $accessToken, array $query = []): ?array
+    {
+        try {
+            $normalizedQuery = array_merge([
+                'per_page' => $query['per_page'] ?? $this->billingSyncPerPage,
+                'page' => $query['page'] ?? 1,
+            ], $query);
+
+            // Money Forward API currently rejects the "order" parameter for billings.
+            unset($normalizedQuery['order']);
+
+            $response = $this->client->get($this->apiUrl . '/billings', [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $accessToken,
+                    'Accept' => 'application/json',
+                ],
+                'query' => $normalizedQuery,
+            ]);
+
+            return json_decode($response->getBody()->getContents(), true);
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch Money Forward billings: ' . $e->getMessage());
+            report($e);
+            return null;
+        }
+    }
+
+    public function fetchQuotes(string $accessToken, array $query = []): ?array
+    {
+        try {
+            $normalizedQuery = array_merge([
+                'per_page' => $query['per_page'] ?? $this->quoteSyncPerPage,
+                'page' => $query['page'] ?? 1,
+            ], $query);
+
+            unset($normalizedQuery['order']);
+
+            $response = $this->client->get($this->apiUrl . '/quotes', [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $accessToken,
+                    'Accept' => 'application/json',
+                ],
+                'query' => $normalizedQuery,
+            ]);
+
+            return json_decode($response->getBody()->getContents(), true);
+        } catch (\Exception $e) {
+            Log::error('Failed to fetch Money Forward quotes: ' . $e->getMessage());
+            report($e);
+            return null;
+        }
     }
 
     public function getAccessTokenFromCode(string $code, string $redirectUri): ?array

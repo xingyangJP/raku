@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { router } from '@inertiajs/core';
 import { Link, usePage } from '@inertiajs/react';
-import { Bell, Home, Package2, ShoppingCart, Users, LineChart, Settings, Package, FileText, Landmark, Boxes, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Bell, Home, Package2, Users, LineChart, Settings, Package, FileText, Landmark, Boxes, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 console.log('AuthenticatedLayout rendered');
 
@@ -31,7 +31,6 @@ export default function AuthenticatedLayout({ header, children }) {
     const menuItems = [
         { name: 'ダッシュボード', href: route('dashboard'), icon: Home, current: route().current('dashboard') },
         { name: '見積管理', href: route('quotes.index'), icon: FileText, current: route().current('quotes.index') },
-        { name: '売上管理', href: route('sales.index'), icon: ShoppingCart, current: route().current('sales.index') },
         { name: '請求・売掛管理', href: route('billing.index'), icon: FileText, current: route().current('billing.index') },
         // { name: '在庫管理', href: route('inventory.index'), icon: Boxes, current: route().current('inventory.index') },
         { name: '商品管理', href: route('products.index'), icon: Package, current: route().current('products.index') },

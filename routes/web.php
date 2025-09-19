@@ -8,7 +8,6 @@ use Inertia\Inertia;
 use App\Models\Estimate; // Add this import
 use Illuminate\Support\Facades\Auth; // Add this import
 use App\Http\Controllers\BillingController;
-use App\Http\Controllers\SalesController;
 use App\Http\Controllers\CategoryController;
 
 Route::get('/', function () {
@@ -48,9 +47,8 @@ Route::middleware('auth')->group(function () {
     Route::put('categories/{id}', [CategoryController::class, 'update'])->whereNumber('id')->name('categories.update');
     Route::delete('categories/{id}', [CategoryController::class, 'destroy'])->whereNumber('id')->name('categories.destroy');
 
-    Route::get('/sales', [SalesController::class, 'index'])->name('sales.index');
-    
     Route::get('/billing', [BillingController::class, 'index'])->name('billing.index');
+    Route::get('/mf/billings/auth/start', [BillingController::class, 'redirectToAuth'])->name('billing.auth.start');
     Route::get('/billing/{billing}/pdf', [BillingController::class, 'downloadPdf'])->name('billing.downloadPdf');
     Route::get('/inventory', fn () => Inertia::render('Inventory/Index'))->name('inventory.index');
 
@@ -61,6 +59,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/callback', [App\Http\Controllers\BillingController::class, 'fetchInvoices'])->name('money-forward.callback');
 
     Route::get('/quotes', [App\Http\Controllers\EstimateController::class, 'index'])->name('quotes.index');
+    Route::post('/quotes/sync', [App\Http\Controllers\EstimateController::class, 'syncQuotes'])->name('quotes.sync');
+    Route::get('/quotes/mf/auth/start', [App\Http\Controllers\EstimateController::class, 'redirectToAuthForQuoteSync'])->name('quotes.auth.start');
+    Route::get('/quotes/mf/auth/callback', [App\Http\Controllers\EstimateController::class, 'handleQuoteSyncCallback'])->name('quotes.auth.callback');
 
     Route::post('/estimates/preview-pdf', [App\Http\Controllers\EstimateController::class, 'previewPdf'])->name('estimates.previewPdf');
     Route::post('/estimates', [App\Http\Controllers\EstimateController::class, 'store'])->name('estimates.store');

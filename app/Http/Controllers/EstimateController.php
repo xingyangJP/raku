@@ -6,6 +6,7 @@ use App\Models\Estimate;
 use App\Models\Partner;
 use App\Models\User;
 use App\Services\MoneyForwardApiService;
+use App\Services\MoneyForwardQuoteSynchronizer;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -30,15 +31,160 @@ class EstimateController extends Controller
         return [];
     }
 
-    public function index()
+    public function index(Request $request, MoneyForwardQuoteSynchronizer $quoteSynchronizer)
     {
-        $estimates = Estimate::orderByDesc('issue_date')
+        $syncStatus = $quoteSynchronizer->syncIfStale($request->user()?->id);
+
+        if (($syncStatus['status'] ?? null) === 'unauthorized') {
+            $request->session()->put('mf_redirect_back', url()->full());
+            $request->session()->put('mf_redirect_action', 'sync_quotes');
+            return redirect()->route('quotes.auth.start');
+        }
+
+        if (($syncStatus['status'] ?? null) === 'error' && !$request->session()->has('error')) {
+            $message = 'Money Forwardとの同期に失敗しました: ' . ($syncStatus['message'] ?? '理由不明');
+            $request->session()->flash('error', $message);
+        }
+
+        $timezone = config('app.sales_timezone', 'Asia/Tokyo');
+        $currentMonth = Carbon::now($timezone);
+        $fromMonth = $request->query('from');
+        $toMonth = $request->query('to');
+        $partner = trim((string) $request->query('partner', ''));
+        $status = trim((string) $request->query('status', ''));
+
+        $estimatesQuery = Estimate::query()
+            ->orderByDesc('issue_date')
             ->orderByDesc('estimate_number')
-            ->orderByDesc('id')
-            ->get();
+            ->orderByDesc('id');
+
+        if ($fromMonth || $toMonth) {
+            $issueStart = $fromMonth
+                ? Carbon::createFromFormat('Y-m', $fromMonth, $timezone)->startOfMonth()
+                : Carbon::create(1970, 1, 1, 0, 0, 0, $timezone);
+            $issueEnd = $toMonth
+                ? Carbon::createFromFormat('Y-m', $toMonth, $timezone)->endOfMonth()
+                : Carbon::now($timezone)->endOfMonth();
+
+            $estimatesQuery->where(function ($query) use ($issueStart, $issueEnd) {
+                $query->whereBetween('issue_date', [$issueStart->toDateString(), $issueEnd->toDateString()])
+                    ->orWhereNull('issue_date');
+            });
+        }
+
+        if ($partner !== '') {
+            $estimatesQuery->where('customer_name', 'like', '%' . $partner . '%');
+        }
+
+        if ($status !== '') {
+            $estimatesQuery->where('status', $status);
+        }
+
+        $estimates = $estimatesQuery->get();
+
+        $moneyForwardConfig = [
+            'client_id' => config('services.money_forward.client_id'),
+            'redirect_uri' => config('services.money_forward.quote_redirect_uri'),
+            'authorization_url' => config('services.money_forward.authorization_url'),
+            'scope' => 'mfc/invoice/data.read',
+            'auth_start_route' => route('quotes.auth.start'),
+        ];
+
+        $defaultRange = [
+            'from' => $fromMonth ?? $currentMonth->format('Y-m'),
+            'to' => $toMonth ?? $currentMonth->format('Y-m'),
+        ];
+
+        $initialFilters = [
+            'title' => (string) $request->query('title', ''),
+            'partner' => $partner,
+            'status' => $status,
+            'from' => $fromMonth,
+            'to' => $toMonth,
+        ];
+
         return Inertia::render('Quotes/Index', [
             'estimates' => $estimates,
+            'syncStatus' => $syncStatus,
+            'moneyForwardConfig' => $moneyForwardConfig,
+            'error' => session('error'),
+            'defaultRange' => $defaultRange,
+            'initialFilters' => $initialFilters,
         ]);
+    }
+
+    public function syncQuotes(Request $request, MoneyForwardQuoteSynchronizer $quoteSynchronizer)
+    {
+        $result = $quoteSynchronizer->sync($request->user()->id);
+
+        if (($result['status'] ?? null) === 'unauthorized') {
+            $redirectBack = url()->previous() ?: route('quotes.index');
+            $request->session()->put('mf_redirect_back', $redirectBack);
+            $request->session()->put('mf_redirect_action', 'sync_quotes');
+            return redirect()->route('quotes.auth.start');
+        }
+
+        if (($result['status'] ?? null) === 'error') {
+            $message = 'Money Forwardとの同期に失敗しました: ' . ($result['message'] ?? '理由不明');
+            return redirect()->route('quotes.index')->with('error', $message);
+        }
+
+        if (($result['status'] ?? null) === 'skipped') {
+            return redirect()->route('quotes.index')->with('info', 'Money Forwardの同期は現在実行中です。');
+        }
+
+        return redirect()->route('quotes.index')->with('success', 'Money Forwardの見積書を同期しました。');
+    }
+
+    public function redirectToAuthForQuoteSync(Request $request)
+    {
+        $request->session()->put('mf_redirect_action', 'sync_quotes');
+        $redirectBack = $request->session()->get('mf_redirect_back', route('quotes.index'));
+        $request->session()->put('mf_redirect_back', $redirectBack);
+
+        $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
+            'response_type' => 'code',
+            'client_id' => config('services.money_forward.client_id'),
+            'redirect_uri' => config('services.money_forward.quote_redirect_uri'),
+            'scope' => 'mfc/invoice/data.read',
+        ]);
+
+        return redirect()->away($authUrl);
+    }
+
+    public function handleQuoteSyncCallback(
+        Request $request,
+        MoneyForwardApiService $apiService,
+        MoneyForwardQuoteSynchronizer $quoteSynchronizer
+    ) {
+        if (!$request->has('code')) {
+            return redirect()->route('quotes.index')->with('error', 'Authorization code not found.');
+        }
+
+        try {
+            $tokenData = $apiService->getAccessTokenFromCode($request->code, config('services.money_forward.quote_redirect_uri'));
+            if (!$tokenData || empty($tokenData['access_token'])) {
+                return redirect()->route('quotes.index')->with('error', 'Money Forwardの認証に失敗しました。');
+            }
+
+            $apiService->storeToken($tokenData, $request->user()->id);
+
+            $result = $quoteSynchronizer->sync($request->user()->id);
+            $redirectTo = $request->session()->pull('mf_redirect_back', route('quotes.index'));
+            $request->session()->forget('mf_redirect_action');
+
+            if (($result['status'] ?? null) === 'error') {
+                $message = 'Money Forwardとの同期に失敗しました: ' . ($result['message'] ?? '理由不明');
+                return redirect()->to($redirectTo)->with('error', $message);
+            }
+
+            return redirect()->to($redirectTo)->with('success', 'Money Forwardの見積書を同期しました。');
+        } catch (\Exception $e) {
+            Log::error('Money Forward quote sync callback failed', [
+                'exception' => $e,
+            ]);
+            return redirect()->route('quotes.index')->with('error', 'Money Forward連携処理でエラーが発生しました。');
+        }
     }
 
     public function create()
