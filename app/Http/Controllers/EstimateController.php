@@ -54,6 +54,7 @@ class EstimateController extends Controller
         $status = trim((string) $request->query('status', ''));
 
         $estimatesQuery = Estimate::query()
+            ->whereNull('mf_deleted_at')
             ->orderByDesc('issue_date')
             ->orderByDesc('estimate_number')
             ->orderByDesc('id');
@@ -352,9 +353,6 @@ class EstimateController extends Controller
 
     public function update(Request $request, Estimate $estimate)
     {
-        if ($estimate->status === 'sent' && $request->input('status') === 'pending') {
-            return redirect()->route('estimates.edit', $estimate->id)->with('error', 'This estimate is already approved.');
-        }
         $clientId = $request->input('client_id');
         if (!is_null($clientId) && !is_string($clientId)) {
             $request->merge(['client_id' => (string) $clientId]);
@@ -563,7 +561,7 @@ class EstimateController extends Controller
 
     public function createMfQuote(Estimate $estimate, Request $request, MoneyForwardApiService $apiService)
     {
-        if ($token = $apiService->getValidAccessToken()) {
+        if ($token = $apiService->getValidAccessToken(null, 'mfc/invoice/data.write')) {
             return $this->_doCreateMfQuote($estimate, $token, $apiService);
         } else {
             $request->session()->put('mf_redirect_action', 'create_quote');
@@ -577,7 +575,7 @@ class EstimateController extends Controller
         if (empty($estimate->mf_quote_id)) {
             return redirect()->back()->with('error', 'Money Forward quote has not been created yet.');
         }
-        if ($token = $apiService->getValidAccessToken()) {
+        if ($token = $apiService->getValidAccessToken(null, 'mfc/invoice/data.read')) {
             return $this->_doViewMfQuotePdf($estimate, $token, $apiService);
         } else {
             $request->session()->put('mf_redirect_action', 'view_quote_pdf');
@@ -591,7 +589,7 @@ class EstimateController extends Controller
         if (empty($estimate->mf_quote_id)) {
             return redirect()->back()->with('error', 'Money Forward quote has not been created yet.');
         }
-        if ($token = $apiService->getValidAccessToken()) {
+        if ($token = $apiService->getValidAccessToken(null, 'mfc/invoice/data.write')) {
             return $this->_doConvertMfQuoteToBilling($estimate, $token, $apiService);
         } else {
             $request->session()->put('mf_redirect_action', 'convert_to_billing');
@@ -603,15 +601,16 @@ class EstimateController extends Controller
     public function redirectToAuth(Request $request)
     {
         $action = $request->session()->get('mf_redirect_action');
-        $scope = 'mfc/invoice/data.read'; // Default scope
-        if (in_array($action, ['create_quote', 'convert_to_billing'])) {
-            $scope = 'mfc/invoice/data.write';
-        }
+        $scope = in_array($action, ['create_quote', 'convert_to_billing'])
+            ? 'mfc/invoice/data.write'
+            : 'mfc/invoice/data.read';
+
+        $redirectUri = $this->resolveRedirectUriForAction($action);
 
         $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
             'response_type' => 'code',
             'client_id' => config('services.money_forward.client_id'),
-            'redirect_uri' => route('estimates.auth.callback'),
+            'redirect_uri' => $redirectUri,
             'scope' => $scope,
         ]);
         return Inertia::location($authUrl);
@@ -623,7 +622,10 @@ class EstimateController extends Controller
             return redirect()->route('quotes.index')->with('error', 'Authorization failed.');
         }
 
-        $tokenData = $apiService->getAccessTokenFromCode($request->code, route('estimates.auth.callback'));
+        $action = $request->session()->get('mf_redirect_action');
+        $redirectUri = $this->resolveRedirectUriForAction($action);
+
+        $tokenData = $apiService->getAccessTokenFromCode($request->code, $redirectUri);
         if (!$tokenData) {
             return redirect()->route('quotes.index')->with('error', 'Failed to get access token.');
         }
@@ -631,7 +633,6 @@ class EstimateController extends Controller
         $apiService->storeToken($tokenData, Auth::id());
         $token = $tokenData['access_token'];
 
-        $action = $request->session()->get('mf_redirect_action');
         $estimateId = $request->session()->get('mf_estimate_id');
         $estimate = Estimate::find($estimateId);
 
@@ -718,5 +719,15 @@ class EstimateController extends Controller
             if (is_array($result) && isset($result['message'])) { $msg .= ' ' . $result['message']; }
             return redirect()->route('estimates.edit', $estimate->id)->with('error', $msg);
         }
+    }
+
+    private function resolveRedirectUriForAction(?string $action): string
+    {
+        return match ($action) {
+            'create_quote' => env('MONEY_FORWARD_ESTIMATE_REDIRECT_URI', url('/estimates/create-quote/callback')),
+            'convert_to_billing' => env('MONEY_FORWARD_CONVERT_REDIRECT_URI', url('/estimates/convert-to-billing/callback')),
+            'view_quote_pdf' => env('MONEY_FORWARD_QUOTE_VIEW_REDIRECT_URI', url('/estimates/view-quote/callback')),
+            default => env('MONEY_FORWARD_QUOTE_REDIRECT_URI', route('estimates.auth.callback')),
+        };
     }
 }

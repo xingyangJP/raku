@@ -1,125 +1,38 @@
+# Dashboard Screen Spec
 
-# .envの内容
-MONEY_FORWARD_CLIENT_ID=164430176903963
-MONEY_FORWARD_CLIENT_SECRET=5PyCb1J1SgyCY2n3WHgBMO_5b56NaGFtk9e7hZTw_xzPAbXF1ZJEEVktgNXXSDe9gbnlJKG7S4F-7KN0ujZQmw
-# 請求書取得機能用
-MONEY_FORWARD_BILLING_REDIRECT_URI=http://localhost:8000/mf/billing/callback
-# 取引先同期機能用
-MONEY_FORWARD_PARTNER_REDIRECT_URI=http://localhost:8000/mf/partners/callback
+## Purpose
+- 承認待ち見積のタスクを素早く確認し、必要に応じて詳細を開いて承認できるようにする。
+- Money Forward とローカル DB の同期状況を把握し、パートナー情報の同期をトリガできるようにする。
 
-# ダッシュボード画面：顧客取得ボタン UI仕様
+## Visible Sections
+- **Summary Cards**: 売上・仕入などの KPI カード（現状はダミー値を表示）。今後のメトリクス拡張を想定。
+- **やることリスト**: `Estimate` の `approval_flow` を元に、未承認の見積を申請日降順で表示。
+  - ログインユーザーが現行承認者なら「確認して承認」ボタンが出現し、`EstimateDetailSheet` を開いて承認可能。
+  - 他者が現行承認者の場合は「{担当者名}さんの承認待ち」バッジを表示。
+- **取引先取得ボタン**: Money Forward API から partners + departments を同期するトリガ。
 
-目的
-	•	ダッシュボード上で「取引先取得」アクションを実行し、MF（マネーフォワード）側から取得した顧客データをすべてDBに保存する。
+## Money Forward Partner Sync Flow
+1. ユーザーが「取引先取得」ボタンを押下すると `DashboardController@syncPartners` が起動。
+2. 有効なアクセストークンがない場合は `/mf/partners/auth/start` に遷移し、OAuth 認可画面へ。
+3. コールバック `GET /mf/partners/auth/callback` でアクセストークンを保存し、`MoneyForwardApiService::fetchAllPartners` と `fetchPartnerDetail` を呼び出す。
+4. 取得結果を `partners` テーブルへ upsert。`payload` に Money Forward 側の departments/offices 情報を丸ごと保持し、UI での部門選択に使用。
+5. 成功メッセージと同期件数をフラッシュメッセージで表示。
 
-⸻
+### OAuth Settings
+| 項目 | 値 |
+| --- | --- |
+| Start Route | `route('partners.auth.start')` (`/mf/partners/auth/start`) |
+| Callback Route | `route('partners.auth.callback')` (`/mf/partners/auth/callback`) |
+| Default Scope | `mfc/invoice/data.read mfc/invoice/data.write` |
+| ENV Override | `MONEY_FORWARD_PARTNER_AUTH_REDIRECT_URI`（未設定時は上記ルートが使用される） |
 
-条件・初期表示
-	•	“取引先取得” ボタンは、認証済み状態または初回のみ表示。
-	•	トークン未取得・期限切れの場合も表示し、認証フローへ誘導。
+## UI Behaviour Details
+- **フィルタトグル**: やることリストには `ToggleGroup` を使用し「全て」「自分のみ」を切り替え。
+- **詳細表示**: `EstimateDetailSheet` コンポーネントをダッシュボードでも再利用。承認ボタンは現行承認者のみ表示。
+- **エラーハンドリング**: OAuth 失敗や API エラー時はフラッシュメッセージに `error` をセット。成功時は `success`。
+- **Data Fetching**: ダッシュボードはサーバサイドで `Estimate` をロードし、`approval_flow` の JSON を解析して現在の承認ステップを判定。
 
-<Button onClick={handleFetchPartners}>取引先取得</Button>
-
-
-⸻
-
-UIフロー（ステップ別）
-
-[ ダッシュボード (/dashboard) ]
-    │ ユーザーが「取引先取得」ボタンをクリック
-    ▼
-[ MF 認証画面へリダイレクト（OAuth 認可コードフロー） ]
-    │ ユーザーがログイン・アクセス許可を承認
-    ▼
-[ MF 認可サーバから自社コールバックに `authorization_code` 付きでリダイレクト ]
-    │ 自社サーバが `authorization_code` を使用しアクセストークン取得
-    ▼
-[ アクセストークン取得完了 → 顧客一覧 API 呼び出し （GET /api/v3/partners） ]
-    ▼
-[ 成功時：返却された全顧客情報を DB に完全保存 ]
-    ▼
-[ Dashboard に戻り「顧客取得済」表示・UI更新 ]
-
-
-⸻
-
-実装ポイント
-
-ステップ	内容
-認証フロー	OAuth 2.0 Authorization Code Flow を実装し、MF 認可画面によるログインとアクセス承認を必須化  ￼ ￼
-API 呼び出し	GET /api/v3/partners による取得。必要に応じて検索クエリ追加可能（例：name、code など） ￼
-DB 保存	取得した顧客情報の全フィールドを、該当する partners テーブルなどに逐次保存
-UI 表示	保存完了後は「顧客取得済み」ステータスや取得件数などを表示し、ユーザーに成功を通知
-
-
-# サンプルリクエスト
-<?php
-
-$curl = curl_init();
-
-curl_setopt_array($curl, [
-  CURLOPT_URL => "https://invoice.moneyforward.com/api/v3/partners",
-  CURLOPT_RETURNTRANSFER => true,
-  CURLOPT_ENCODING => "",
-  CURLOPT_MAXREDIRS => 10,
-  CURLOPT_TIMEOUT => 30,
-  CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-  CURLOPT_CUSTOMREQUEST => "GET",
-  CURLOPT_HTTPHEADER => [
-    "Accept: application/json",
-    "Authorization: Bearer 123"
-  ],
-]);
-
-$response = curl_exec($curl);
-$err = curl_error($curl);
-
-curl_close($curl);
-
-if ($err) {
-  echo "cURL Error #:" . $err;
-} else {
-  echo $response;
-}
-
-# サンプルレスポンス
-{
-  "data": [
-    {
-      "id": "95PHKI9_FeSw3coTj673Cg",
-      "code": "p41uz1dyvw3cj71qrkja",
-      "name": "Ryu p41uz1dyvw3cj71qrkja",
-      "name_kana": "p41uz1dyvw3cj71qrkja",
-      "name_suffix": "御中",
-      "memo": "p41uz1dyvw3cj71qrkja",
-      "created_at": "2023-03-20 13:39:28 +0900",
-      "updated_at": "2023-03-20 13:39:28 +0900",
-      "departments": [
-        {
-          "id": "qwc4iT7ZrywxipJCOqtZQg",
-          "zip": "123-4567",
-          "tel": "1234567",
-          "prefecture": "山形県",
-          "address1": "hb3m8kaxz9eex1czmpn2",
-          "address2": "hb3m8kaxz9eex1czmpn2",
-          "person_name": "hb3m8kaxz9eex1czmpn2",
-          "person_title": "hb3m8kaxz9eex1czmpn2",
-          "person_dept": "hb3m8kaxz9eex1czmpn2",
-          "email": "hb3m8kaxz9eex1czmpn2@moneyforward.com",
-          "cc_emails": "hb3m8kaxz9eex1czmpn2@moneyforward.com",
-          "peppol_id": "0088:0000000000001",
-          "office_member_name": "hb3m8kaxz9eex1czmpn2",
-          "office_member_id": "-UNhHGbLKnWH5xlrFhj2ow",
-          "created_at": "2023-03-20 13:44:52 +0900",
-          "updated_at": "2023-03-20 13:44:52 +0900"
-        }
-      ]
-    }
-  ],
-  "pagination": {
-    "total_count": 3,
-    "total_pages": 3,
-    "per_page": 1,
-    "current_page": 3
-  }
-}
+## Troubleshooting Checklist
+- Money Forward 側で部門を持たない partner は UI で部門選択が空になるため、MF ポータルから部門を追加後に再同期する。
+- 403/422 が発生する場合は scope が不足しているか、コールバック URI が未登録の可能性あり。
+- 長時間アクセスがない場合はアクセストークンが失効する。再度ダッシュボードでボタンを押下し、OAuth を再実行する。

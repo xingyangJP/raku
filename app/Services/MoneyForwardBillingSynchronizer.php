@@ -52,7 +52,7 @@ class MoneyForwardBillingSynchronizer
         }
 
         try {
-            $token = $this->apiService->getValidAccessToken($userId);
+            $token = $this->apiService->getValidAccessToken($userId, 'mfc/invoice/data.read');
             if (!$token) {
                 return [
                     'status' => 'unauthorized',
@@ -89,6 +89,7 @@ class MoneyForwardBillingSynchronizer
         $page = 1;
         $perPage = (int) config('services.money_forward.billing_sync_page_size', 50);
         $totalSynced = 0;
+        $syncedIds = [];
 
         do {
             $response = $this->apiService->fetchBillings($accessToken, [
@@ -108,7 +109,10 @@ class MoneyForwardBillingSynchronizer
 
             foreach ($data as $billingData) {
                 $billingId = Arr::get($billingData, 'id');
-                $this->upsertBilling($billingData);
+                $billing = $this->upsertBilling($billingData);
+                if ($billingId) {
+                    $syncedIds[] = (string) $billingId;
+                }
                 if ($billingId && !empty($billingData['pdf_url'])) {
                     $this->downloadPdf((string) $billingId, $billingData['pdf_url'], $accessToken);
                 }
@@ -121,14 +125,16 @@ class MoneyForwardBillingSynchronizer
             $page++;
         } while (!empty($data) && $hasNext);
 
+        $this->markMissingBillingsAsDeleted($syncedIds);
+
         return $totalSynced;
     }
 
-    private function upsertBilling(array $invoiceData): void
+    private function upsertBilling(array $invoiceData): ?Billing
     {
         $billingId = Arr::get($invoiceData, 'id');
         if (!$billingId) {
-            return;
+            return null;
         }
 
         $payload = Arr::only($invoiceData, [
@@ -187,35 +193,54 @@ class MoneyForwardBillingSynchronizer
             'config',
         ]);
 
-        $billing = Billing::find($billingId);
+        $billing = Billing::withTrashed()->find($billingId);
         if ($billing) {
             $billing->fill($payload);
+            if ($billing->trashed()) {
+                $billing->restore();
+            }
+            if ($billing->mf_deleted_at) {
+                $billing->mf_deleted_at = null;
+            }
             $billing->save();
         } else {
             $billing = Billing::create(array_merge(['id' => $billingId], $payload));
         }
 
-        if (!empty($invoiceData['items']) && is_iterable($invoiceData['items'])) {
-            if ($billing) {
-                foreach ($invoiceData['items'] as $itemData) {
-                    $billing->items()->updateOrCreate(
-                        ['id' => Arr::get($itemData, 'id')],
-                        [
-                            'name' => Arr::get($itemData, 'name'),
-                            'code' => Arr::get($itemData, 'code'),
-                            'detail' => Arr::get($itemData, 'detail'),
-                            'unit' => Arr::get($itemData, 'unit'),
-                            'price' => Arr::get($itemData, 'price'),
-                            'quantity' => Arr::get($itemData, 'quantity'),
-                            'is_deduct_withholding_tax' => Arr::get($itemData, 'is_deduct_withholding_tax', false),
-                            'excise' => Arr::get($itemData, 'excise'),
-                            'delivery_number' => Arr::get($itemData, 'delivery_number'),
-                            'delivery_date' => Arr::get($itemData, 'delivery_date'),
-                        ]
-                    );
+        if ($billing && !empty($invoiceData['items']) && is_iterable($invoiceData['items'])) {
+            $remoteItemIds = [];
+            foreach ($invoiceData['items'] as $itemData) {
+                $itemId = Arr::get($itemData, 'id');
+                if ($itemId) {
+                    $remoteItemIds[] = (string) $itemId;
                 }
+                $billing->items()->updateOrCreate(
+                    ['id' => $itemId],
+                    [
+                        'name' => Arr::get($itemData, 'name'),
+                        'code' => Arr::get($itemData, 'code'),
+                        'detail' => Arr::get($itemData, 'detail'),
+                        'unit' => Arr::get($itemData, 'unit'),
+                        'price' => Arr::get($itemData, 'price'),
+                        'quantity' => Arr::get($itemData, 'quantity'),
+                        'is_deduct_withholding_tax' => Arr::get($itemData, 'is_deduct_withholding_tax', false),
+                        'excise' => Arr::get($itemData, 'excise'),
+                        'delivery_number' => Arr::get($itemData, 'delivery_number'),
+                        'delivery_date' => Arr::get($itemData, 'delivery_date'),
+                    ]
+                );
             }
+
+            if (!empty($remoteItemIds)) {
+                $billing->items()->whereNotIn('id', $remoteItemIds)->delete();
+            } else {
+                $billing->items()->delete();
+            }
+        } elseif ($billing) {
+            $billing->items()->delete();
         }
+
+        return $billing;
     }
 
     private function lastSyncedCacheKey(): string
@@ -241,5 +266,29 @@ class MoneyForwardBillingSynchronizer
                 'exception' => $e,
             ]);
         }
+    }
+
+    private function markMissingBillingsAsDeleted(array $syncedIds): void
+    {
+        $now = Carbon::now();
+
+        $query = Billing::query()
+            ->whereNull('mf_deleted_at');
+
+        if (!empty($syncedIds)) {
+            $query->whereNotIn('id', $syncedIds);
+        }
+
+        $ids = $query->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        Billing::whereIn('id', $ids->all())->update([
+            'mf_deleted_at' => $now,
+            'deleted_at' => $now,
+            'updated_at' => $now,
+        ]);
     }
 }

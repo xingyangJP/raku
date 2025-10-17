@@ -362,7 +362,7 @@ class LocalInvoiceController extends Controller
             return redirect()->route('invoices.edit', $invoice->id)->with('error', 'MF請求書がまだ作成されていません。');
         }
         // 2回目以降は有効なアクセストークンがあれば直取得
-        if ($token = $api->getValidAccessToken()) {
+        if ($token = $api->getValidAccessToken(null, 'mfc/invoice/data.read')) {
             try {
                 $client = new \GuzzleHttp\Client();
                 $res = $client->get($invoice->mf_pdf_url, [

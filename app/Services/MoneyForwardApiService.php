@@ -142,17 +142,28 @@ class MoneyForwardApiService
         );
     }
 
-    public function getValidAccessToken(?int $userId = null): ?string
+    public function getValidAccessToken(?int $userId = null, array|string $requiredScopes = []): ?string
     {
         $userId = $userId ?? Auth::id();
         if (!$userId) {
             return null;
         }
 
+        $requiredScopes = $this->normalizeScopes($requiredScopes);
+
         $mfToken = MfToken::where('user_id', $userId)->first();
 
         if (!$mfToken) {
             return null; // No token, user needs to authorize
+        }
+
+        if (!$this->hasRequiredScopes($mfToken->scope, $requiredScopes)) {
+            Log::info('MF token missing required scopes', [
+                'user_id' => $userId,
+                'token_scope' => $mfToken->scope,
+                'required' => $requiredScopes,
+            ]);
+            return null;
         }
 
         if ($mfToken->isExpired()) {
@@ -168,10 +179,47 @@ class MoneyForwardApiService
 
             Log::info('MF token refresh successful.', ['user_id' => $userId]);
             $this->storeToken($newTokenData, $userId);
+
+            if (!$this->hasRequiredScopes($newTokenData['scope'] ?? '', $requiredScopes)) {
+                Log::warning('Refreshed MF token still missing required scopes', [
+                    'user_id' => $userId,
+                    'token_scope' => $newTokenData['scope'] ?? '',
+                    'required' => $requiredScopes,
+                ]);
+                return null;
+            }
+
             return $newTokenData['access_token'];
         }
 
         return $mfToken->access_token;
+    }
+
+    private function normalizeScopes(array|string $scopes): array
+    {
+        if (is_string($scopes)) {
+            $scopes = trim($scopes);
+            $scopes = $scopes === '' ? [] : preg_split('/\s+/', $scopes);
+        }
+
+        return array_values(array_filter(array_map('trim', $scopes)));
+    }
+
+    private function hasRequiredScopes(?string $tokenScope, array $requiredScopes): bool
+    {
+        if (empty($requiredScopes)) {
+            return true;
+        }
+
+        $tokenScopes = $this->normalizeScopes($tokenScope ?? '');
+
+        foreach ($requiredScopes as $scope) {
+            if (!in_array($scope, $tokenScopes, true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
 

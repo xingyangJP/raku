@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Billing extends Model
 {
+    use SoftDeletes;
+
     protected $primaryKey = 'id';
     public $incrementing = false;
     protected $keyType = 'string';
@@ -66,6 +69,7 @@ class Billing extends Model
         'registration_code',
         'use_invoice_template',
         'config',
+        'mf_deleted_at',
     ];
 
     protected $casts = [
@@ -102,6 +106,8 @@ class Billing extends Model
         'subtotal_with_tax_of_eight_percent_as_reduced_tax_rate_excise' => 'decimal:2',
         'subtotal_with_tax_of_ten_percent_excise' => 'decimal:2',
         'total_price' => 'decimal:2',
+        'mf_deleted_at' => 'datetime',
+        'deleted_at' => 'datetime',
     ];
 
     /**
@@ -112,4 +118,3 @@ class Billing extends Model
         return $this->hasMany(BillingItem::class);
     }
 }
-

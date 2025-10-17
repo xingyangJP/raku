@@ -70,3 +70,62 @@
 
 ### 未解決
 - 特になし。
+
+## 2025-09-23
+### 要約
+- ドキュメント群を現行実装に合わせて更新し、Money Forward 連携フローや商品マスタ仕様の最新情報を整理した。
+
+### 変更点
+- `README.md` を刷新し、主要モジュール・OAuth フロー・環境変数を再整理。
+- `README_Dashboard.md` に取引先同期ボタンの挙動と OAuth 設定を追記。
+- `README_ESTIMATE.md`/`README_Esttimate2MFquote.md`/`README_quote2bill.md` で見積ワークフローと連携ボタンの要件を再定義。
+- `README_bill.md` と `README_UI_Billing.md` で請求同期・フィルタ仕様を最新化。
+- `README_ITEM_MASTER.md` でカテゴリ採番と品目同期の振る舞いを記述。
+
+### 検証
+- ドキュメント内容が該当コントローラ／サービスの実装と矛盾しないことをコードベースで確認。
+
+### 次アクション
+- 必要に応じて運用手順書やデバッグガイドも現行実装へ合わせる。
+
+### 未解決
+- なし。
+
+## 2025-10-17
+### 要約
+- Money Forward での請求・見積の削除や編集が本システムでも反映されるよう同期処理を拡張。
+
+### 変更点
+- `database/migrations/2025_10_17_154701_add_mf_deletion_tracking.php` を追加し、`billings` に SoftDelete / `mf_deleted_at`、`estimates` に `mf_deleted_at` を追加。
+- `Billing` モデルに SoftDeletes を適用、`Estimate` に `mf_deleted_at` キャストを追加。
+- `MoneyForwardBillingSynchronizer` が同期済み ID の差分でソフト削除／PDF の再取得や明細削除を管理。
+- `MoneyForwardQuoteSynchronizer` が見積の再リンクと削除検知を実装し、`Estimate` レコードをクリーンアップ。
+- `EstimateController@index` で `mf_deleted_at` 済みレコードを除外。
+- Money Forward アクセストークンの必須スコープをチェックするよう `MoneyForwardApiService::getValidAccessToken` を拡張し、各フローで必要スコープを明示した。
+- `estimates` テーブルに `mf_invoice_pdf_url` カラムを追加し、既存コードの参照エラーを解消。
+
+### 検証
+- ローカルで `php artisan migrate` を実行し、同期処理後に Money Forward 側で削除した請求・見積が非表示になることを動作確認予定。
+
+### 次アクション
+- `/billing` と `/quotes` の画面で、Money Forward 側削除後に再読み込みして反映を確認。
+
+### 未解決
+- 同期後のユーザー通知（削除ログ表示）の要否は未定。
+
+## 2025-10-17 (2)
+### 要約
+- 承認済み見積の再申請がエラーで拒否されるバグを修正。
+
+### 変更点
+- `EstimateController@update` のガードを撤去し、`sent` → `pending` への遷移を許可。
+- 既存ロジックにより承認フローが pending へリセットされるため、再申請後に再承認が可能に。
+
+### 検証
+- 承認済み見積を編集 → 「更新して申請」 → ステータスが `pending` に戻り、承認ボタンが再び表示されることを確認予定。
+
+### 次アクション
+- 実際の承認フローで再申請→承認完了までの一連動作を確認。
+
+### 未解決
+- 再申請時の注意文の表示有無（任意）。

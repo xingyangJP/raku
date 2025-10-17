@@ -7,6 +7,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class MoneyForwardQuoteSynchronizer
 {
@@ -50,7 +51,7 @@ class MoneyForwardQuoteSynchronizer
         }
 
         try {
-            $token = $this->apiService->getValidAccessToken($userId);
+            $token = $this->apiService->getValidAccessToken($userId, 'mfc/invoice/data.read');
             if (!$token) {
                 return [
                     'status' => 'unauthorized',
@@ -87,6 +88,7 @@ class MoneyForwardQuoteSynchronizer
         $page = 1;
         $perPage = (int) config('services.money_forward.quote_sync_page_size', 100);
         $totalSynced = 0;
+        $syncedQuoteIds = [];
 
         do {
             $response = $this->apiService->fetchQuotes($accessToken, [
@@ -104,7 +106,13 @@ class MoneyForwardQuoteSynchronizer
                 'count' => count($data),
             ]);
             foreach ($data as $quoteData) {
-                $this->updateEstimate($quoteData);
+                $estimate = $this->updateEstimate($quoteData);
+                $quoteId = Arr::get($quoteData, 'id');
+                if ($quoteId) {
+                    $syncedQuoteIds[] = (string) $quoteId;
+                } elseif ($estimate?->mf_quote_id) {
+                    $syncedQuoteIds[] = (string) $estimate->mf_quote_id;
+                }
                 $totalSynced++;
             }
 
@@ -115,14 +123,16 @@ class MoneyForwardQuoteSynchronizer
             $page++;
         } while (!empty($data) && $hasNext);
 
+        $this->markMissingQuotesAsDeleted($syncedQuoteIds);
+
         return $totalSynced;
     }
 
-    private function updateEstimate(array $quoteData): void
+    private function updateEstimate(array $quoteData): ?Estimate
     {
         $quoteId = Arr::get($quoteData, 'id');
         if (!$quoteId) {
-            return;
+            return null;
         }
 
         $quoteNumber = Arr::get($quoteData, 'quote_number');
@@ -214,6 +224,10 @@ class MoneyForwardQuoteSynchronizer
             $payload['items'] = $items;
         }
 
+        if ($estimate->mf_deleted_at) {
+            $estimate->mf_deleted_at = null;
+        }
+
         $estimate->fill($payload);
         $estimate->save();
 
@@ -221,6 +235,8 @@ class MoneyForwardQuoteSynchronizer
             $estimate->estimate_number = 'MF-' . $quoteId;
             $estimate->save();
         }
+
+        return $estimate;
     }
 
     private function lastSyncedCacheKey(?int $userId = null): string
@@ -233,5 +249,33 @@ class MoneyForwardQuoteSynchronizer
     {
         $suffix = $userId ? '_user_' . $userId : '';
         return 'mf_quotes_sync_lock' . $suffix;
+    }
+
+    private function markMissingQuotesAsDeleted(array $syncedQuoteIds): void
+    {
+        $query = Estimate::query()
+            ->whereNotNull('mf_quote_id')
+            ->whereNull('mf_deleted_at');
+
+        if (!empty($syncedQuoteIds)) {
+            $query->whereNotIn('mf_quote_id', array_unique($syncedQuoteIds));
+        }
+
+        $now = Carbon::now();
+
+        $query->chunkById(100, function ($estimates) use ($now) {
+            foreach ($estimates as $estimate) {
+                $estimate->mf_deleted_at = $now;
+                $estimate->mf_quote_id = null;
+                $estimate->mf_quote_pdf_url = null;
+                if (Schema::hasColumn('estimates', 'mf_invoice_id')) {
+                    $estimate->mf_invoice_id = null;
+                }
+                if (Schema::hasColumn('estimates', 'mf_invoice_pdf_url')) {
+                    $estimate->mf_invoice_pdf_url = null;
+                }
+                $estimate->save();
+            }
+        });
     }
 }

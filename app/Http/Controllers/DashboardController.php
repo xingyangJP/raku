@@ -107,7 +107,7 @@ class DashboardController extends Controller
 
     public function syncPartners(Request $request, MoneyForwardApiService $apiService)
     {
-        if ($token = $apiService->getValidAccessToken()) {
+        if ($token = $apiService->getValidAccessToken(null, ['mfc/invoice/data.read', 'mfc/invoice/data.write'])) {
             return $this->doPartnerSync($token, $apiService);
         } else {
             $request->session()->put('mf_redirect_action', 'sync_partners');

@@ -30,6 +30,7 @@ class Estimate extends Model
         'mf_quote_pdf_url',
         'mf_invoice_id',
         'mf_invoice_pdf_url',
+        'mf_deleted_at',
     ];
 
     protected $casts = [
@@ -38,6 +39,7 @@ class Estimate extends Model
         'due_date' => 'date',
         'approval_flow' => 'array',
         'approval_started' => 'boolean',
+        'mf_deleted_at' => 'datetime',
     ];
 
     // No local FK relation for staff; staff_id refers to external directory

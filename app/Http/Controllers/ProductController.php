@@ -195,7 +195,7 @@ class ProductController extends Controller
 
     public function syncAllFromMf(Request $request, MoneyForwardApiService $apiService)
     {
-        if ($token = $apiService->getValidAccessToken()) {
+        if ($token = $apiService->getValidAccessToken(null, 'mfc/invoice/data.read')) {
             // Token is valid, sync directly
             return $this->doSyncAll($token, $apiService);
         } else {
@@ -207,7 +207,7 @@ class ProductController extends Controller
 
     public function syncOneToMf(Product $product, Request $request, MoneyForwardApiService $apiService)
     {
-        if ($token = $apiService->getValidAccessToken()) {
+        if ($token = $apiService->getValidAccessToken(null, 'mfc/invoice/data.write')) {
             // Token is valid, sync directly
             return $this->doSyncOne($product, $token, $apiService);
         } else {

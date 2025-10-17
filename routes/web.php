@@ -104,6 +104,9 @@ Route::middleware('auth')->group(function () {
     // Estimate Auth Flow
     Route::get('/estimates/auth/start', [App\Http\Controllers\EstimateController::class, 'redirectToAuth'])->name('estimates.auth.start');
     Route::get('/estimates/auth/callback', [App\Http\Controllers\EstimateController::class, 'handleCallback'])->name('estimates.auth.callback');
+    Route::get('/estimates/create-quote/callback', [App\Http\Controllers\EstimateController::class, 'handleCallback'])->name('estimates.createQuote.callback');
+    Route::get('/estimates/convert-to-billing/callback', [App\Http\Controllers\EstimateController::class, 'handleCallback'])->name('estimates.convertToBilling.callback');
+    Route::get('/estimates/view-quote/callback', [App\Http\Controllers\EstimateController::class, 'handleCallback'])->name('estimates.viewQuote.callback');
 
     // API routes moved outside auth for login page access
 
