@@ -6,10 +6,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Estimate;
 use App\Models\Partner;
+use App\Models\LocalInvoice;
 use App\Services\MoneyForwardApiService;
 use App\Services\MoneyForwardQuoteSynchronizer;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Schema;
+use Carbon\Carbon;
+use Illuminate\Support\Collection;
 
 class DashboardController extends Controller
 {
@@ -127,10 +130,18 @@ class DashboardController extends Controller
             return strtotime($b['issue_date']) - strtotime($a['issue_date']);
         });
 
+        $metrics = $this->buildDashboardMetrics();
+        $salesRanking = $this->buildSalesRanking(
+            Carbon::parse($metrics['periods']['current']['start']),
+            Carbon::parse($metrics['periods']['current']['end'])
+        );
+
         return Inertia::render('Dashboard', [
             'toDoEstimates' => $toDoEstimates,
             'partnerSyncStatus' => $partnerSyncStatus,
             'partnerSyncFlash' => $partnerSyncFlash,
+            'dashboardMetrics' => $metrics,
+            'salesRanking' => $salesRanking,
         ]);
     }
 
@@ -240,5 +251,127 @@ class DashboardController extends Controller
             'message' => "{$count}件の顧客情報を更新しました",
             'count' => $count,
         ];
+    }
+
+    private function buildDashboardMetrics(): array
+    {
+        $timezone = config('app.sales_timezone', config('app.timezone', 'Asia/Tokyo'));
+        $now = Carbon::now($timezone);
+
+        $currentStart = $now->copy()->startOfMonth();
+        $currentEnd = $now->copy()->endOfMonth();
+        $previousStart = $now->copy()->subMonthNoOverflow()->startOfMonth();
+        $previousEnd = $previousStart->copy()->endOfMonth();
+
+        $currentEstimatesTotal = Estimate::query()
+            ->whereNull('mf_deleted_at')
+            ->whereBetween('issue_date', [$currentStart->toDateString(), $currentEnd->toDateString()])
+            ->sum('total_amount');
+
+        $previousEstimatesTotal = Estimate::query()
+            ->whereNull('mf_deleted_at')
+            ->whereBetween('issue_date', [$previousStart->toDateString(), $previousEnd->toDateString()])
+            ->sum('total_amount');
+
+        $currentGrossProfit = $this->sumEstimateGrossProfit(
+            Estimate::query()
+                ->whereNull('mf_deleted_at')
+                ->whereNotNull('mf_invoice_id')
+                ->whereBetween('issue_date', [$currentStart->toDateString(), $currentEnd->toDateString()])
+                ->get()
+        );
+
+        $previousGrossProfit = $this->sumEstimateGrossProfit(
+            Estimate::query()
+                ->whereNull('mf_deleted_at')
+                ->whereNotNull('mf_invoice_id')
+                ->whereBetween('issue_date', [$previousStart->toDateString(), $previousEnd->toDateString()])
+                ->get()
+        );
+
+        $currentSalesTotal = Schema::hasTable('local_invoices')
+            ? LocalInvoice::query()
+                ->whereBetween('billing_date', [$currentStart->toDateString(), $currentEnd->toDateString()])
+                ->sum('total_amount')
+            : 0;
+
+        $previousSalesTotal = Schema::hasTable('local_invoices')
+            ? LocalInvoice::query()
+                ->whereBetween('billing_date', [$previousStart->toDateString(), $previousEnd->toDateString()])
+                ->sum('total_amount')
+            : 0;
+
+        return [
+            'periods' => [
+                'current' => [
+                    'label' => $currentStart->format('Y年n月'),
+                    'start' => $currentStart->toDateString(),
+                    'end' => $currentEnd->toDateString(),
+                ],
+                'previous' => [
+                    'label' => $previousStart->format('Y年n月'),
+                    'start' => $previousStart->toDateString(),
+                    'end' => $previousEnd->toDateString(),
+                ],
+            ],
+            'estimates' => [
+                'current' => (float) $currentEstimatesTotal,
+                'previous' => (float) $previousEstimatesTotal,
+            ],
+            'gross_profit' => [
+                'current' => (float) $currentGrossProfit,
+                'previous' => (float) $previousGrossProfit,
+            ],
+            'sales' => [
+                'current' => (float) $currentSalesTotal,
+                'previous' => (float) $previousSalesTotal,
+            ],
+        ];
+    }
+
+    private function sumEstimateGrossProfit(Collection $estimates): float
+    {
+        return $estimates->reduce(function ($carry, Estimate $estimate) {
+            $items = $estimate->items ?? [];
+            if (!is_array($items)) {
+                return $carry;
+            }
+
+            $profit = 0.0;
+            foreach ($items as $item) {
+                $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
+                if ($qty === 0.0) {
+                    $qty = 1.0;
+                }
+                $price = (float) (data_get($item, 'price') ?? data_get($item, 'unit_price', 0));
+                $cost = (float) (data_get($item, 'cost') ?? data_get($item, 'unit_cost', 0));
+                $profit += ($price - $cost) * $qty;
+            }
+
+            return $carry + $profit;
+        }, 0.0);
+    }
+
+    private function buildSalesRanking(Carbon $periodStart, Carbon $periodEnd): array
+    {
+        if (!Schema::hasTable('local_invoices')) {
+            return [];
+        }
+
+        $rows = LocalInvoice::query()
+            ->selectRaw('COALESCE(customer_name, "不明") as customer_name, SUM(total_amount) as total_amount')
+            ->whereBetween('billing_date', [$periodStart->toDateString(), $periodEnd->toDateString()])
+            ->groupBy('customer_name')
+            ->orderByDesc('total_amount')
+            ->limit(5)
+            ->get();
+
+        return $rows->values()->map(function ($row, $index) {
+            return [
+                'rank' => $index + 1,
+                'customer_name' => $row->customer_name,
+                'amount' => (float) $row->total_amount,
+            ];
+        })->toArray();
     }
 }

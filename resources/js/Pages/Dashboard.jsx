@@ -6,9 +6,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/Components/ui/badge";
 import { Button } from "@/Components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/Components/ui/toggle-group";
-import { DollarSign, ShoppingCart, Users, ListChecks, BarChart3 } from 'lucide-react';
+import { FileText, TrendingUp, CreditCard, ListChecks, BarChart3 } from 'lucide-react';
 import EstimateDetailSheet from '@/Components/EstimateDetailSheet';
 import { useState, useMemo } from 'react';
+import { formatCurrency } from '@/lib/utils';
 
 const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -19,25 +20,56 @@ const formatDate = (dateString) => {
     return `${year}年${month}月${day}日`;
 };
 
-export default function Dashboard({ auth, toDoEstimates = [], partnerSyncFlash = {} }) {
+export default function Dashboard({
+    auth,
+    toDoEstimates = [],
+    partnerSyncFlash = {},
+    dashboardMetrics = null,
+    salesRanking = [],
+}) {
     const { flash } = usePage().props;
     const partnerFlash = partnerSyncFlash || {};
     const partnerFlashMessage = partnerFlash?.message;
     const partnerFlashIsError = partnerFlash?.status === 'error';
-    // Mock data based on requirements
-    const summaryData = {
-        receivables: { title: "当月売掛サマリ", amount: "¥1,250,000", change: "+5.2%", icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
-        purchases: { title: "当月仕入サマリ", amount: "¥750,000", change: "+2.1%", icon: <ShoppingCart className="h-4 w-4 text-muted-foreground" /> },
-        unpaid: { title: "未入金サマリ", amount: "¥85,000", change: "-1.5%", icon: <Users className="h-4 w-4 text-muted-foreground" /> },
-    };
 
-    const salesRanking = [
-        { rank: 1, customer: "株式会社A", amount: "¥320,000" },
-        { rank: 2, customer: "株式会社B", amount: "¥280,000" },
-        { rank: 3, customer: "株式会社C", amount: "¥250,000" },
-        { rank: 4, customer: "株式会社D", amount: "¥180,000" },
-        { rank: 5, customer: "株式会社E", amount: "¥150,000" },
+    const periods = dashboardMetrics?.periods ?? {};
+    const currentPeriodLabel = periods?.current?.label ?? '今月';
+    const previousPeriodLabel = periods?.previous?.label ?? '先月';
+
+    const summaryCards = [
+        {
+            key: 'estimates',
+            title: '当月の見積サマリ',
+            icon: <FileText className="h-4 w-4 text-blue-900" />,
+            iconWrap: 'bg-blue-500',
+            accent: 'from-blue-50 to-blue-100',
+            current: dashboardMetrics?.estimates?.current ?? 0,
+            previous: dashboardMetrics?.estimates?.previous ?? 0,
+            subtitle: null,
+        },
+        {
+            key: 'grossProfit',
+            title: '当月の粗利サマリ',
+            subtitle: '請求書に変換済みの見積ベース',
+            icon: <TrendingUp className="h-4 w-4 text-emerald-900" />,
+            iconWrap: 'bg-emerald-500',
+            accent: 'from-emerald-50 to-emerald-100',
+            current: dashboardMetrics?.gross_profit?.current ?? 0,
+            previous: dashboardMetrics?.gross_profit?.previous ?? 0,
+        },
+        {
+            key: 'sales',
+            title: '当月の売上サマリ',
+            subtitle: '請求書ベース',
+            icon: <CreditCard className="h-4 w-4 text-purple-900" />,
+            iconWrap: 'bg-purple-500',
+            accent: 'from-purple-50 to-purple-100',
+            current: dashboardMetrics?.sales?.current ?? 0,
+            previous: dashboardMetrics?.sales?.previous ?? 0,
+        },
     ];
+
+    const hasSalesRanking = Array.isArray(salesRanking) && salesRanking.length > 0;
 
     // Filter state: 'all' | 'mine'
     const [filter, setFilter] = useState('all');
@@ -92,20 +124,35 @@ export default function Dashboard({ auth, toDoEstimates = [], partnerSyncFlash =
                     <Button onClick={handleFetchPartners}>取引先取得</Button>
                 </div>
 
-                
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {Object.values(summaryData).map((item, index) => (
-                        <Card key={index}>
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {summaryCards.map((card) => (
+                        <Card key={card.key} className={`relative overflow-hidden border-0 bg-gradient-to-br ${card.accent} shadow-lg`}>
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                <CardTitle className="text-sm font-medium">{item.title}</CardTitle>
-                                {item.icon}
+                                <div>
+                                    <CardTitle className="text-sm font-medium text-slate-700">{card.title}</CardTitle>
+                                    {card.subtitle && <p className="text-xs text-slate-500 mt-1">{card.subtitle}</p>}
+                                </div>
+                                <div className={`rounded-full ${card.iconWrap} p-2`}>
+                                    {card.icon}
+                                </div>
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">{item.amount}</div>
-                                <p className={`text-xs ${item.change.startsWith('-') ? 'text-red-500' : 'text-green-500'}`}>
-                                    前月比 {item.change}
-                                </p>
+                                <div className="space-y-4">
+                                    <div>
+                                        <p className="text-xs text-slate-500">{currentPeriodLabel}</p>
+                                        <div className="text-2xl font-bold text-slate-900">
+                                            {formatCurrency(card.current)}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-lg border border-white/50 bg-white/60 p-3">
+                                        <p className="text-xs text-slate-500">{previousPeriodLabel}</p>
+                                        <p className="text-sm font-semibold text-slate-800">
+                                            {formatCurrency(card.previous)}
+                                        </p>
+                                    </div>
+                                </div>
                             </CardContent>
+                            <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-white opacity-20" />
                         </Card>
                     ))}
                 </div>
@@ -117,24 +164,28 @@ export default function Dashboard({ auth, toDoEstimates = [], partnerSyncFlash =
                             <CardDescription>今月の得意先別売上トップ5</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-[50px]">順位</TableHead>
-                                        <TableHead>得意先</TableHead>
-                                        <TableHead className="text-right">金額</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {salesRanking.map((item) => (
-                                        <TableRow key={item.rank}>
-                                            <TableCell className="font-medium">{item.rank}</TableCell>
-                                            <TableCell>{item.customer}</TableCell>
-                                            <TableCell className="text-right">{item.amount}</TableCell>
+                            {hasSalesRanking ? (
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-[50px]">順位</TableHead>
+                                            <TableHead>得意先</TableHead>
+                                            <TableHead className="text-right">金額</TableHead>
                                         </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {salesRanking.map((item) => (
+                                            <TableRow key={item.rank}>
+                                                <TableCell className="font-medium">{item.rank}</TableCell>
+                                                <TableCell>{item.customer_name}</TableCell>
+                                                <TableCell className="text-right">{formatCurrency(item.amount)}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            ) : (
+                                <div className="text-sm text-slate-500">今月の売上データがありません。</div>
+                            )}
                         </CardContent>
                     </Card>
                     <Card>
