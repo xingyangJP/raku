@@ -43,11 +43,13 @@ const billingLink = (row) => {
     const source = resolveSource(row);
 
     if (source === 'local' && row?.local_invoice_id) {
-        const href = route('invoices.viewPdf.start', { invoice: row.local_invoice_id });
         return (
-            <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-900">
+            <Link
+                href={route('invoices.edit', { invoice: row.local_invoice_id })}
+                className="text-indigo-600 hover:text-indigo-900"
+            >
                 {row.billing_number}
-            </a>
+            </Link>
         );
     }
 
@@ -212,7 +214,7 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                     }}
                                     disabled={!moneyForwardAuthUrl}
                                 >
-                                    マネーフォワードから取得
+                                    MF同期
                                 </SyncButton>
                                 <Link
                                     href={route('billing.create')}
@@ -378,18 +380,12 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                                         <>
                                                             {billing.mf_billing_id ? (
                                                                 <>
-                                                                    <span className="text-green-600 ml-2">✅</span>
-                                                                    <Link
-                                                                        href={route('invoices.edit', { invoice: billing.local_invoice_id })}
-                                                                        className="text-indigo-600 hover:text-indigo-900 ml-2"
-                                                                    >
-                                                                        詳細
-                                                                    </Link>
-                                                                    <a
-                                                                        href={`https://invoice.moneyforward.com/billings/${billing.mf_billing_id}/edit`}
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer"
-                                                                        className="text-indigo-600 hover:text-indigo-900 ml-2"
+                                                            <span className="text-green-600 ml-2">✅</span>
+                                                            <a
+                                                                href={`https://invoice.moneyforward.com/billings/${billing.mf_billing_id}/edit`}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="text-indigo-600 hover:text-indigo-900 ml-2"
                                                                     >
                                                                         → MF
                                                                     </a>
@@ -404,12 +400,6 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                                                 </>
                                                             ) : (
                                                                 <>
-                                                                    <Link
-                                                                        href={route('invoices.edit', { invoice: billing.local_invoice_id })}
-                                                                        className="text-indigo-600 hover:text-indigo-900 ml-2"
-                                                                    >
-                                                                        詳細
-                                                                    </Link>
                                                                     <span className="text-gray-400 ml-2">MF未生成</span>
                                                                 </>
                                                             )}

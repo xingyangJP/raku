@@ -66,7 +66,7 @@ export default function Index({ auth, products, categories, filters }) {
                             <div className="flex justify-between items-center mb-4">
                                 <div className="flex space-x-2">
                                     <SyncButton onClick={() => router.visit(route('products.sync.all'))}>
-                                        MFへ同期
+                                        MF同期
                                     </SyncButton>
                                 </div>
                                 <div className="flex justify-end space-x-2">

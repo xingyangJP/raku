@@ -11,6 +11,7 @@ use App\Services\MoneyForwardApiService;
 use App\Services\MoneyForwardQuoteSynchronizer;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 
 class BillingController extends Controller
 {
@@ -47,10 +48,22 @@ class BillingController extends Controller
             ->whereBetween('billing_date', [$billingStart->toDateString(), $billingEnd->toDateString()])
             ->get();
 
-        // Merge local invoices for display convenience
+        $remoteRows = $billings->map(function (Billing $billing) {
+            $data = $billing->toArray();
+            $data['source'] = 'money_forward';
+            $data['id'] = $billing->id;
+            return $data;
+        });
+
+        $mergedMap = collect();
+        foreach ($remoteRows as $row) {
+            $mergedMap->put($this->makeBillingKey($row), $row);
+        }
+
         $local = \App\Models\LocalInvoice::query()
             ->whereBetween('billing_date', [$billingStart->toDateString(), $billingEnd->toDateString()])
             ->get();
+
         $localMapped = $local->map(function ($inv) {
             return [
                 'id' => 'local-' . $inv->id,
@@ -68,13 +81,43 @@ class BillingController extends Controller
                 'is_locked' => false,
                 'is_downloaded' => false,
                 'updated_at' => optional($inv->updated_at)->format('Y-m-d'),
-                // Add MF linkage status so UI can show PDF instead of "MF未生成"
                 'mf_billing_id' => $inv->mf_billing_id,
                 'mf_pdf_url' => $inv->mf_pdf_url,
             ];
         });
 
-        $merged = collect($billings)->map->toArray()->concat($localMapped)->values();
+        foreach ($localMapped as $localRow) {
+            $duplicateKey = $mergedMap->search(function ($row) use ($localRow) {
+                if (!empty($localRow['billing_number']) && ($row['billing_number'] ?? null) === $localRow['billing_number']) {
+                    return true;
+                }
+
+                if (!empty($localRow['mf_billing_id'])) {
+                    if (($row['id'] ?? null) === $localRow['mf_billing_id']) {
+                        return true;
+                    }
+                    if (($row['mf_billing_id'] ?? null) === $localRow['mf_billing_id']) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
+
+            $mergedRow = $localRow;
+            if ($duplicateKey !== false) {
+                $existingRow = $mergedMap->get($duplicateKey);
+                if ($existingRow) {
+                    $mergedRow = array_merge($existingRow, $localRow);
+                }
+                $mergedMap->forget($duplicateKey);
+            }
+
+            $localKey = $this->makeBillingKey($localRow);
+            $mergedMap->put($localKey, $mergedRow);
+        }
+
+        $merged = $mergedMap->values();
 
         return Inertia::render('Billing/Index', [
             'moneyForwardConfig' => $moneyForwardConfig,
@@ -86,6 +129,27 @@ class BillingController extends Controller
                 'to' => $toMonth,
             ],
         ]);
+    }
+
+    private function makeBillingKey(array $row): string
+    {
+        if (!empty($row['billing_number'])) {
+            return 'number:' . $row['billing_number'];
+        }
+
+        if (!empty($row['id'])) {
+            return 'id:' . $row['id'];
+        }
+
+        if (!empty($row['mf_billing_id'])) {
+            return 'mf:' . $row['mf_billing_id'];
+        }
+
+        if (!empty($row['local_invoice_id'])) {
+            return 'local:' . $row['local_invoice_id'];
+        }
+
+        return 'generated:' . Str::uuid()->toString();
     }
 
     public function redirectToAuth()
