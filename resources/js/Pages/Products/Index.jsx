@@ -8,6 +8,7 @@ import { Input } from '@/Components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { CategoryDialog } from '@/Components/CategoryDialog';
 import { useState } from 'react';
+import SyncButton from '@/Components/SyncButton';
 
 const taxCategories = [
     { value: 'ten_percent', label: '10%' },
@@ -64,9 +65,9 @@ export default function Index({ auth, products, categories, filters }) {
                             )}
                             <div className="flex justify-between items-center mb-4">
                                 <div className="flex space-x-2">
-                                    <Link href={route('products.sync.all')}>
-                                        <Button variant="outline">MFへ同期</Button>
-                                    </Link>
+                                    <SyncButton onClick={() => router.visit(route('products.sync.all'))}>
+                                        MFへ同期
+                                    </SyncButton>
                                 </div>
                                 <div className="flex justify-end space-x-2">
                                     <Button variant="outline" onClick={() => setCategoryDialogOpen(true)}>分類を管理</Button>

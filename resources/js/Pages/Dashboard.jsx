@@ -10,6 +10,7 @@ import { FileText, TrendingUp, CreditCard, ListChecks, BarChart3 } from 'lucide-
 import EstimateDetailSheet from '@/Components/EstimateDetailSheet';
 import { useState, useMemo } from 'react';
 import { formatCurrency } from '@/lib/utils';
+import SyncButton from '@/Components/SyncButton';
 
 const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -121,7 +122,7 @@ export default function Dashboard({
                     </div>
                 )}
                 <div className="flex justify-end">
-                    <Button onClick={handleFetchPartners}>取引先取得</Button>
+                    <SyncButton onClick={handleFetchPartners}>取引先取得</SyncButton>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

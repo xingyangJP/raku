@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link } from '@inertiajs/react';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import SyncButton from '@/Components/SyncButton';
 
 const computeDefaultBillingMonth = (value) => {
     if (value) return value;
@@ -203,12 +204,16 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-2xl font-bold text-gray-900">請求書一覧</h3>
                             <div className="space-x-2">
-                                <a
-                                    href={moneyForwardAuthUrl}
-                                    className="inline-flex items-center px-4 py-2 bg-blue-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-blue-500 focus:bg-blue-500 active:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition ease-in-out duration-150"
+                                <SyncButton
+                                    onClick={() => {
+                                        if (moneyForwardAuthUrl) {
+                                            window.location.href = moneyForwardAuthUrl;
+                                        }
+                                    }}
+                                    disabled={!moneyForwardAuthUrl}
                                 >
                                     マネーフォワードから取得
-                                </a>
+                                </SyncButton>
                                 <Link
                                     href={route('billing.create')}
                                     className="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:bg-gray-700 active:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150"

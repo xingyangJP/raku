@@ -16,7 +16,6 @@ import {
     PlusCircle,
     Search,
     Filter,
-    RefreshCw,
     Users,
     TrendingUp,
     Calendar,
@@ -34,6 +33,7 @@ import { Checkbox } from '@/Components/ui/checkbox';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog';
+import SyncButton from '@/Components/SyncButton';
 
 const computeDefaultQuoteMonth = (value) => {
     if (value) return value;
@@ -590,18 +590,13 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                 </CardDescription>
                             </div>
                             <div className="flex flex-wrap gap-2">
-                                <Button
-                                    variant="outline"
+                                <SyncButton
                                     onClick={handleManualSync}
                                     disabled={isSyncing}
-                                    className={cn(
-                                        "flex items-center gap-2 border-indigo-500 text-indigo-600 hover:bg-indigo-50",
-                                        isSyncing && "opacity-70 cursor-not-allowed"
-                                    )}
+                                    className={cn(isSyncing && 'opacity-70 cursor-not-allowed')}
                                 >
-                                    <RefreshCw className="h-4 w-4" />
                                     {isSyncing ? '同期中…' : 'MF同期'}
-                                </Button>
+                                </SyncButton>
                                 <Button
                                     variant="outline"
                                     onClick={handleBulkApprove}
