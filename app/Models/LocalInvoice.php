@@ -35,10 +35,12 @@ class LocalInvoice extends Model
                     if (!empty($code)) { $client = $code; }
                 } catch (\Throwable $e) {}
             }
-            if (strlen($client) > 12 && strpos($client, 'CRM-') !== 0) {
-                $client = substr($client, 0, 6);
-            }
         }
+        $client = self::sanitizeClientCode($client);
+        if (strlen($client) > 12) {
+            $client = substr($client, 0, 6);
+        }
+
         $prefix = "INV-$staff-$client-$date-";
         $latest = null;
         if (Schema::hasTable('local_invoices')) {
@@ -52,5 +54,17 @@ class LocalInvoice extends Model
             $num = (int) $tail; $seq = $num + 1;
         }
         return $prefix . str_pad((string)$seq, 3, '0', STR_PAD_LEFT);
+    }
+
+    private static function sanitizeClientCode(string $code): string
+    {
+        if ($code === '') {
+            return 'X';
+        }
+
+        $sanitized = str_replace('CRM', '', $code);
+        $sanitized = ltrim($sanitized, '-_');
+
+        return $sanitized === '' ? 'X' : $sanitized;
     }
 }
