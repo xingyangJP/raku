@@ -24,10 +24,10 @@ const resolvePaymentStatus = (billing) => {
 
     const paidKeywords = ['入金済', '入金済み', '入金完了', 'paid', '支払済', '支払い済'];
     if (paidKeywords.some((keyword) => normalized.includes(keyword))) {
-        return '入金';
+        return '入金済';
     }
 
-    return normalized.includes('入金') ? '入金' : '未入金';
+    return normalized.includes('入金') ? '入金済' : '未入金';
 };
 
 const resolveSource = (row) => {
@@ -275,7 +275,7 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                                     >
                                         <option value="">全て</option>
-                                        <option value="入金">入金</option>
+                                        <option value="入金済">入金済</option>
                                         <option value="未入金">未入金</option>
                                     </select>
                                 </div>
