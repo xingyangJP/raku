@@ -336,8 +336,8 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">請求日 / 支払期日</th>
                                             <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">金額</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">更新日時</th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">MF</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">更新日</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">マネーフォワード</th>
                                             <th className="px-6 py-3"></th>
                                         </tr>
                                     </thead>
@@ -383,14 +383,14 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                                         <>
                                                             {billing.mf_billing_id ? (
                                                                 <>
-                                                            <span className="text-green-600 ml-2">✅</span>
-                                                            <a
-                                                                href={`https://invoice.moneyforward.com/billings/${billing.mf_billing_id}/edit`}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className="text-indigo-600 hover:text-indigo-900 ml-2"
+                                                                    <span className="text-green-600 ml-2">✅</span>
+                                                                    <a
+                                                                        href={`https://invoice.moneyforward.com/billings/${billing.mf_billing_id}/edit`}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="text-indigo-600 hover:text-indigo-900 ml-2"
                                                                     >
-                                                                        → MF
+                                                                        編集
                                                                     </a>
                                                                     <a
                                                                         href={route('invoices.viewPdf.start', { invoice: billing.local_invoice_id })}
@@ -416,7 +416,7 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                                                 rel="noopener noreferrer"
                                                                 className="text-indigo-600 hover:text-indigo-900 ml-2"
                                                             >
-                                                                → MF
+                                                                編集
                                                             </a>
                                                             <a
                                                                 href={route('billing.downloadPdf', { billing: billing.id })}
