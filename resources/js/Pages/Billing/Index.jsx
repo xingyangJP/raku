@@ -203,9 +203,9 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                     )}
 
                     <div className="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-2xl font-bold text-gray-900">請求書一覧</h3>
-                            <div className="space-x-2">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <h3 className="text-2xl font-bold text-gray-900">請求書一覧</h3>
                                 <SyncButton
                                     onClick={() => {
                                         if (moneyForwardAuthUrl) {
@@ -213,9 +213,12 @@ export default function BillingIndex({ auth, moneyForwardInvoices, moneyForwardC
                                         }
                                     }}
                                     disabled={!moneyForwardAuthUrl}
+                                    size="sm"
                                 >
                                     MF同期
                                 </SyncButton>
+                            </div>
+                            <div>
                                 <Link
                                     href={route('billing.create')}
                                     className="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:bg-gray-700 active:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150"
