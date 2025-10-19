@@ -273,33 +273,23 @@ class DashboardController extends Controller
             ->whereBetween('issue_date', [$previousStart->toDateString(), $previousEnd->toDateString()])
             ->sum('total_amount');
 
-        $currentGrossProfit = $this->sumEstimateGrossProfit(
-            Estimate::query()
-                ->whereNull('mf_deleted_at')
-                ->whereNotNull('mf_invoice_id')
-                ->whereBetween('issue_date', [$currentStart->toDateString(), $currentEnd->toDateString()])
-                ->get()
-        );
-
-        $previousGrossProfit = $this->sumEstimateGrossProfit(
-            Estimate::query()
-                ->whereNull('mf_deleted_at')
-                ->whereNotNull('mf_invoice_id')
-                ->whereBetween('issue_date', [$previousStart->toDateString(), $previousEnd->toDateString()])
-                ->get()
-        );
-
-        $currentSalesTotal = Schema::hasTable('local_invoices')
+        $currentInvoices = Schema::hasTable('local_invoices')
             ? LocalInvoice::query()
                 ->whereBetween('billing_date', [$currentStart->toDateString(), $currentEnd->toDateString()])
-                ->sum('total_amount')
-            : 0;
+                ->get()
+            : collect();
 
-        $previousSalesTotal = Schema::hasTable('local_invoices')
+        $previousInvoices = Schema::hasTable('local_invoices')
             ? LocalInvoice::query()
                 ->whereBetween('billing_date', [$previousStart->toDateString(), $previousEnd->toDateString()])
-                ->sum('total_amount')
-            : 0;
+                ->get()
+            : collect();
+
+        $currentGrossProfit = $this->sumInvoiceGrossProfit($currentInvoices);
+        $previousGrossProfit = $this->sumInvoiceGrossProfit($previousInvoices);
+
+        $currentSalesTotal = $currentInvoices->sum('total_amount');
+        $previousSalesTotal = $previousInvoices->sum('total_amount');
 
         return [
             'periods' => [
@@ -329,14 +319,13 @@ class DashboardController extends Controller
         ];
     }
 
-    private function sumEstimateGrossProfit(Collection $estimates): float
+    private function sumInvoiceGrossProfit(Collection $invoices): float
     {
-        return $estimates->reduce(function ($carry, Estimate $estimate) {
-            $items = $estimate->items ?? [];
+        return $invoices->reduce(function ($carry, $invoice) {
+            $items = $invoice->items ?? [];
             if (!is_array($items)) {
                 return $carry;
             }
-
             $profit = 0.0;
             foreach ($items as $item) {
                 $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
