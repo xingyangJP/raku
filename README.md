@@ -13,7 +13,7 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 ### Dashboard
 - 承認待ち見積の「やることリスト」を表示し、ログインユーザーが次の承認者であればその場で詳細シートを開けます。
 - 売上サマリなどのダミーカードを表示（数値は将来の指標表示用プレースホルダ）。
-- 「取引先取得」ボタンから Money Forward API を使ったパートナー同期を開始します。
+- 画面表示時に Money Forward の取引先同期を自動実行。未認証なら OAuth にリダイレクトし、結果はダッシュボード内に専用メッセージで表示されます。手動で再実行したい場合の「取引先取得」ボタンも残しています。
 
 ### Estimates & Quotes
 - `/quotes` で見積の一覧・絞り込み・一括操作を提供。`MoneyForwardQuoteSynchronizer` によりページ表示時に Money Forward の見積を同期します。
@@ -34,8 +34,8 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 - `/products` は商品マスタ管理画面。分類(`categories`)はダイアログで CRUD、分類コードはサーバ側で A, B, … と自動採番します。
 - 商品コードは `<分類コード>-<3桁連番>` で自動生成。分類変更時もトランザクションでシーケンスを更新します。
 - Money Forward との品目同期:
-  - `/products/sync-all` : Money Forward の item API から全件取得しローカルに保存。
-  - `/products/{id}/sync-one` : 単一商品を Money Forward へ登録／更新。
+  - `/products` 表示時にローカルの商品マスタを Money Forward 側へ自動同期（作成・更新・削除を差分処理）。未認証時は OAuth に遷移し、復帰後に同期が継続されます。
+  - 画面右上の「MFへ同期」ボタンで同じ処理を手動実行可能。行単位の同期ボタンは廃止しました。
 
 ### Partner Sync
 - ダッシュボードの「取引先取得」で `/mf/partners/auth/start` が呼ばれ、OAuth 後に `MoneyForwardApiService::fetchAllPartners` と `fetchPartnerDetail` を用いて部門情報まで含めて `partners` テーブルに保存します。

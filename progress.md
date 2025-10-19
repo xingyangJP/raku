@@ -131,6 +131,26 @@
 ### 未解決
 - 特になし。
 
+## 2025-10-21
+### 要約
+- ダッシュボードと商品マスタの Money Forward 連携を自動同期化し、ドキュメント群を最新仕様へ更新。
+
+### 変更点
+- `DashboardController@index` でダッシュボード表示直後に取引先同期を自動実行し、結果メッセージを専用プロップ `partnerSyncFlash` で表示。
+- `ProductController@index` で `/products` 表示時に Money Forward の品目 API へ自動差分同期（作成・更新・削除）を実行し、手動同期と共通化。
+- Money Forward API クライアントに `deleteItem` を追加して不要品を削除できるようにした。
+- `README.md` / `README_Dashboard.md` / `README_ITEM_MASTER.md` / `README_MF_Implementation_Points.md` / `RDD.md` を現行仕様へ更新（自動同期・トークン要求スコープ・UI 表示仕様など）。
+
+### 検証
+- `/dashboard` 表示時に OAuth 済みであれば即座に同期メッセージが表示されることを確認予定。
+- `/products` 表示時に Money Forward へ差分が反映されることを動作確認予定。
+
+### 次アクション
+- 必要に応じて README_UI 系ドキュメントも画面キャプチャ込みで刷新。
+
+### 未解決
+- 自動同期後の通知をログ以外で参照できる履歴として保管するかは検討中。
+
 ## 2025-10-17 (2)
 ### 要約
 - 承認済み見積の再申請がエラーで拒否されるバグを修正。

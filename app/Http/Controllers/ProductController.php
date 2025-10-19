@@ -15,8 +15,13 @@ use Carbon\Carbon;
 
 class ProductController extends Controller
 {
-    public function index(Request $request)
+    public function index(Request $request, MoneyForwardApiService $apiService)
     {
+        $autoSyncResult = $this->handleAutoSyncToMf($request, $apiService);
+        if ($autoSyncResult instanceof \Illuminate\Http\RedirectResponse) {
+            return $autoSyncResult;
+        }
+
         $query = Product::query();
 
         if ($request->filled('search_name')) {
@@ -193,20 +198,26 @@ class ProductController extends Controller
 
     // --- Money Forward Sync Logic ---
 
-    public function syncAllFromMf(Request $request, MoneyForwardApiService $apiService)
+    public function syncAllToMf(Request $request, MoneyForwardApiService $apiService)
     {
-        if ($token = $apiService->getValidAccessToken(null, 'mfc/invoice/data.read')) {
-            // Token is valid, sync directly
-            return $this->doSyncAll($token, $apiService);
-        } else {
-            // No valid token, start OAuth flow
-            $request->session()->put('mf_redirect_action', 'sync_all');
-            return redirect()->route('products.auth.start');
+        $request->session()->forget('mf_products_redirect_back');
+
+        $requiredScopes = ['mfc/invoice/data.read', 'mfc/invoice/data.write'];
+
+        if ($token = $apiService->getValidAccessToken(null, $requiredScopes)) {
+            return $this->doSyncAllToMf($token, $apiService);
         }
+
+        $request->session()->put('mf_redirect_action', 'sync_all_to_mf');
+        $request->session()->put('mf_products_redirect_back', url()->full());
+
+        return redirect()->route('products.auth.start');
     }
 
     public function syncOneToMf(Product $product, Request $request, MoneyForwardApiService $apiService)
     {
+        $request->session()->forget('mf_products_redirect_back');
+
         if ($token = $apiService->getValidAccessToken(null, 'mfc/invoice/data.write')) {
             // Token is valid, sync directly
             return $this->doSyncOne($product, $token, $apiService);
@@ -244,12 +255,12 @@ class ProductController extends Controller
         $token = $tokenData['access_token'];
 
         // Perform action based on what was stored in session
-        $action = $request->session()->get('mf_redirect_action');
+        $action = $request->session()->pull('mf_redirect_action');
 
-        if ($action === 'sync_all') {
-            return $this->doSyncAll($token, $apiService);
+        if (in_array($action, ['sync_all', 'sync_all_to_mf'], true)) {
+            return $this->doSyncAllToMf($token, $apiService);
         } elseif ($action === 'sync_one') {
-            $productId = $request->session()->get('mf_product_sync_id');
+            $productId = $request->session()->pull('mf_product_sync_id');
             $product = Product::find($productId);
             if (!$product) {
                 return redirect()->route('products.index')->with('error', 'Product to sync not found.');
@@ -262,38 +273,17 @@ class ProductController extends Controller
 
     private function doSyncAll(string $token, MoneyForwardApiService $apiService)
     {
-        $mfItems = $apiService->getItems($token);
-        if (is_null($mfItems)) { // getItems returns null on failure
-            return redirect()->route('products.index')->with('error', 'Failed to fetch items from Money Forward.');
-        }
+        $result = $this->performSyncAll($token, $apiService);
+        $flashKey = ($result['status'] ?? null) === 'success' ? 'success' : 'error';
 
-        $syncedCount = 0;
-        foreach ($mfItems as $mfItem) {
-            Product::updateOrCreate(
-                ['mf_id' => $mfItem['id']],
-                [
-                    'name' => $mfItem['name'],
-                    'sku' => $mfItem['code'] ?? $mfItem['id'],
-                    'price' => $mfItem['price'],
-                    'unit' => $mfItem['unit'],
-                    'description' => $mfItem['detail'],
-                    'tax_category' => $mfItem['excise'],
-                    'quantity' => $mfItem['quantity'],
-                    'is_deduct_withholding_tax' => $mfItem['is_deduct_withholding_tax'] ?? null,
-                    'mf_updated_at' => Carbon::parse($mfItem['updated_at']),
-                ]
-            );
-            $syncedCount++;
-        }
-
-        return redirect()->route('products.index')->with('success', "Synced {$syncedCount} products from Money Forward.");
+        return redirect()->route('products.index')->with($flashKey, $result['message'] ?? '同期結果が不明です。');
     }
 
     private function doSyncOne(Product $product, string $token, MoneyForwardApiService $apiService)
     {
         $data = [
             'name' => $product->name,
-            'sku' => $product->sku,
+            'code' => $product->sku,
             'detail' => $product->description,
             'unit' => $product->unit,
             'price' => $product->price,
@@ -316,19 +306,327 @@ class ProductController extends Controller
             $result = $apiService->createItem($token, $data);
         }
 
-        // After create or update, save the new mf_id if it was a creation
-        if ($result && isset($result['id']) && !$product->mf_id) {
-            $product->mf_id = $result['id'];
-            $product->mf_updated_at = Carbon::parse($result['updated_at']);
-            $product->save();
-        }
-
         if (!$result || isset($result['error_message']) || (is_array($result) && isset($result['error']))) {
             Log::error('MF Sync One Error', ['result' => $result]);
             $errorMessage = is_array($result) ? json_encode($result) : 'Check logs.';
             return redirect()->route('products.index')->with('error', 'Failed to sync product to Money Forward. ' . $errorMessage);
         }
 
+        if (isset($result['id'])) {
+            $product->mf_id = $result['id'];
+        }
+
+        if (!empty($result['updated_at'])) {
+            try {
+                $product->mf_updated_at = Carbon::parse($result['updated_at']);
+            } catch (\Exception $e) {
+                Log::warning('Failed to parse Money Forward updated_at after sync', [
+                    'product_id' => $product->id,
+                    'updated_at' => $result['updated_at'],
+                    'exception' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $product->save();
+
         return redirect()->route('products.index')->with('success', "Product {$product->name} synced to Money Forward successfully.");
+    }
+
+    private function doSyncAllToMf(string $token, MoneyForwardApiService $apiService)
+    {
+        $result = $this->performSyncAllToMf($token, $apiService);
+        $flashKey = ($result['status'] ?? null) === 'success' ? 'success' : 'error';
+
+        session()->flash('mf_skip_product_auto_sync', true);
+
+        $redirectBack = session()->pull('mf_products_redirect_back');
+        $redirectResponse = $redirectBack ? redirect()->to($redirectBack) : redirect()->route('products.index');
+
+        return $redirectResponse->with($flashKey, $result['message'] ?? '同期結果が不明です。');
+    }
+
+    private function performSyncAllToMf(string $token, MoneyForwardApiService $apiService): array
+    {
+        $remoteItems = $apiService->getItems($token);
+        if ($remoteItems === null) {
+            return [
+                'status' => 'error',
+                'message' => 'Money Forwardの品目一覧取得に失敗しました。',
+            ];
+        }
+
+        $remoteById = [];
+        $remoteByCode = [];
+
+        foreach ($remoteItems as $remoteItem) {
+            $remoteId = $remoteItem['id'] ?? null;
+            if ($remoteId) {
+                $remoteById[$remoteId] = $remoteItem;
+            }
+
+            $remoteCode = $remoteItem['code'] ?? null;
+            if ($remoteCode) {
+                $remoteByCode[$remoteCode] = $remoteItem;
+            }
+        }
+
+        $processedRemoteIds = [];
+        $createdCount = 0;
+        $updatedCount = 0;
+        $deletedCount = 0;
+        $errors = [];
+
+        Product::query()->orderBy('id')->chunkById(100, function ($products) use (
+            $apiService,
+            $token,
+            &$remoteById,
+            &$remoteByCode,
+            &$processedRemoteIds,
+            &$createdCount,
+            &$updatedCount,
+            &$errors
+        ) {
+            /** @var \Illuminate\Support\Collection<int, Product> $products */
+            foreach ($products as $product) {
+                $payload = $this->buildMfItemPayload($product);
+
+                $targetId = null;
+                $targetItem = null;
+
+                if ($product->mf_id && isset($remoteById[$product->mf_id])) {
+                    $targetId = $product->mf_id;
+                    $targetItem = $remoteById[$product->mf_id];
+                } elseif (isset($remoteByCode[$product->sku])) {
+                    $targetItem = $remoteByCode[$product->sku];
+                    $targetId = $targetItem['id'] ?? null;
+                }
+
+                $result = null;
+                $action = null;
+
+                if ($targetId) {
+                    $result = $apiService->updateItem($token, $targetId, $payload);
+                    $action = 'update';
+
+                    if (is_array($result) && isset($result['error']) && $result['error'] === 'not_found') {
+                        Log::info('MF item not found during bulk sync, fallback to create.', [
+                            'product_id' => $product->id,
+                            'stale_mf_id' => $targetId,
+                            'payload' => $payload,
+                        ]);
+                        $result = $apiService->createItem($token, $payload);
+                        $action = 'create';
+                    }
+                } else {
+                    $result = $apiService->createItem($token, $payload);
+                    $action = 'create';
+                }
+
+                if (!$this->isSuccessfulMfResponse($result)) {
+                    $errors[] = [
+                        'product_id' => $product->id,
+                        'payload' => $payload,
+                        'response' => $result,
+                    ];
+                    Log::error('MF bulk sync failed for product.', [
+                        'product_id' => $product->id,
+                        'result' => $result,
+                    ]);
+                    continue;
+                }
+
+                $resultId = $result['id'] ?? $targetId;
+                if ($resultId) {
+                    $processedRemoteIds[] = $resultId;
+                    $remoteById[$resultId] = $result;
+                    $remoteCode = $result['code'] ?? ($targetItem['code'] ?? $product->sku);
+                    if ($remoteCode) {
+                        $remoteByCode[$remoteCode] = $result;
+                    }
+                }
+
+                if (isset($result['id'])) {
+                    $product->mf_id = $result['id'];
+                } elseif ($targetId) {
+                    $product->mf_id = $targetId;
+                }
+
+                if (!empty($result['updated_at'])) {
+                    try {
+                        $product->mf_updated_at = Carbon::parse($result['updated_at']);
+                    } catch (\Exception $e) {
+                        Log::warning('Failed to parse Money Forward updated_at after bulk sync', [
+                            'product_id' => $product->id,
+                            'updated_at' => $result['updated_at'],
+                            'exception' => $e->getMessage(),
+                        ]);
+                    }
+                }
+
+                $product->save();
+
+                if ($action === 'create') {
+                    $createdCount++;
+                } else {
+                    $updatedCount++;
+                }
+            }
+        });
+
+        $processedRemoteIds = array_unique($processedRemoteIds);
+        $remoteIdsToDelete = array_diff(array_keys($remoteById), $processedRemoteIds);
+
+        foreach ($remoteIdsToDelete as $remoteId) {
+            $remoteItem = $remoteById[$remoteId] ?? [];
+            $remoteCode = $remoteItem['code'] ?? null;
+
+            $deleted = $apiService->deleteItem($token, $remoteId);
+            if ($deleted) {
+                $deletedCount++;
+                if ($remoteCode && isset($remoteByCode[$remoteCode])) {
+                    unset($remoteByCode[$remoteCode]);
+                }
+            } else {
+                $errors[] = [
+                    'remote_id' => $remoteId,
+                    'code' => $remoteCode,
+                    'action' => 'delete',
+                ];
+                Log::error('MF bulk sync failed to delete item.', [
+                    'remote_id' => $remoteId,
+                    'code' => $remoteCode,
+                ]);
+            }
+        }
+
+        $message = "Money Forwardへ同期しました（更新: {$updatedCount}件 / 作成: {$createdCount}件 / 削除: {$deletedCount}件）";
+
+        if (!empty($errors)) {
+            $message .= ' 一部の品目で同期に失敗しました。詳細はログを確認してください。';
+        }
+
+        return [
+            'status' => empty($errors) ? 'success' : 'error',
+            'message' => $message,
+            'created' => $createdCount,
+            'updated' => $updatedCount,
+            'deleted' => $deletedCount,
+            'errors' => $errors,
+        ];
+    }
+
+    private function buildMfItemPayload(Product $product): array
+    {
+        $payload = [
+            'name' => $product->name,
+            'code' => $product->sku,
+            'detail' => $product->description,
+            'unit' => $product->unit,
+            'price' => $this->normalizeNumber($product->price, 0.0),
+            'excise' => $product->tax_category,
+        ];
+
+        $quantity = $this->normalizeNumber($product->quantity);
+        if ($quantity !== null) {
+            $payload['quantity'] = $quantity;
+        }
+
+        $withholding = $this->normalizeBoolean($product->is_deduct_withholding_tax);
+        if ($withholding !== null) {
+            $payload['is_deduct_withholding_tax'] = $withholding;
+        }
+
+        return array_filter($payload, static fn($value) => $value !== null && $value !== '');
+    }
+
+    private function handleAutoSyncToMf(Request $request, MoneyForwardApiService $apiService): array|\Illuminate\Http\RedirectResponse|null
+    {
+        if ($request->session()->pull('mf_skip_product_auto_sync', false)) {
+            return ['status' => 'skipped'];
+        }
+
+        $token = $apiService->getValidAccessToken(null, ['mfc/invoice/data.read', 'mfc/invoice/data.write']);
+        if (!$token) {
+            $request->session()->put('mf_redirect_action', 'sync_all_to_mf');
+            $request->session()->put('mf_products_redirect_back', url()->full());
+            return redirect()->route('products.auth.start');
+        }
+
+        $result = $this->performSyncAllToMf($token, $apiService);
+        $flashKey = ($result['status'] ?? null) === 'success' ? 'success' : 'error';
+
+        session()->flash($flashKey, $result['message'] ?? '同期結果が不明です。');
+
+        return $result;
+    }
+
+    private function isSuccessfulMfResponse(mixed $response): bool
+    {
+        if ($response === null) {
+            return false;
+        }
+
+        if (is_array($response)) {
+            if (isset($response['error']) || isset($response['error_message'])) {
+                return false;
+            }
+
+            return true;
+        }
+
+        return true;
+    }
+
+    private function normalizeNumber(mixed $value, ?float $default = null): ?float
+    {
+        if ($value === null) {
+            return $default;
+        }
+
+        if (is_string($value)) {
+            $value = trim($value);
+            if ($value === '') {
+                return $default;
+            }
+            $value = str_replace(',', '', $value);
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        return $default;
+    }
+
+    private function normalizeBoolean(mixed $value): ?bool
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_string($value)) {
+            $value = strtolower(trim($value));
+            if ($value === '') {
+                return null;
+            }
+            if (in_array($value, ['1', 'true', 'yes'], true)) {
+                return true;
+            }
+            if (in_array($value, ['0', 'false', 'no'], true)) {
+                return false;
+            }
+            return null;
+        }
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return (int) $value === 1 ? true : ((int) $value === 0 ? false : null);
+        }
+
+        return null;
     }
 }

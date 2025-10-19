@@ -25,10 +25,11 @@
 ## Money Forward 連携
 | 操作 | ルート | 処理内容 |
 | --- | --- | --- |
-| 品目全件同期 | `GET /products/sync-all` | `MoneyForwardApiService::getItems()` で全品目を取得し、`mf_id` をキーに upsert。 |
-| 単品同期 | `GET /products/{product}/sync-one` | Money Forward に品目を作成／更新。`mf_id` が無効な場合は再作成。 |
+| 画面表示で自動同期 | `GET /products` | 画面表示時に `performSyncAllToMf` を実行。ローカル商品から Money Forward へ差分同期（作成・更新・削除）し、結果をフラッシュメッセージで表示。 |
+| 手動一括同期 | `GET /products/sync-all` | UI の「MFへ同期」ボタン経由。自動同期と同じ処理を明示的に実行。 |
+| 単品同期（補助ルート） | `GET /products/{product}/sync-one` | Money Forward に品目を作成／更新。UI 上の個別ボタンは廃止したが、ルートは互換のため残存。 |
 | OAuth 開始 | `GET /products/auth/start` | `scope = mfc/invoice/data.read mfc/invoice/data.write`。 |
-| コールバック | `GET /products/auth/callback` | トークン保存後、セッションのアクションに応じて同期処理を実行。 |
+| コールバック | `GET /products/auth/callback` | トークン保存後、セッションのアクションに応じて同期処理（自動同期・手動同期・単品同期）を実行。 |
 
 ### API マッピング
 - `createItem` / `updateItem` は Money Forward API `/api/v3/items` を使用。
@@ -46,5 +47,5 @@
 ## テスト観点
 1. 新規商品作成時に SKU が `<カテゴリコード>-001` の形式になること。
 2. 分類変更時に SKU が新しい分類コードで再採番されること。
-3. Money Forward 連携フローでアクセストークンが無い場合に OAuth が開始されること。
-4. `sync-all` 実行後に `products` テーブルへ `mf_id` が保存されること。
+3. Money Forward 連携フローでアクセストークンが無い場合に OAuth が開始され、復帰後に差分同期が継続されること。
+4. 自動／手動同期後に Money Forward 側で作成・更新・削除された品目の `mf_id`／`mf_updated_at` がローカルに反映されること。

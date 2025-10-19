@@ -65,7 +65,7 @@ export default function Index({ auth, products, categories, filters }) {
                             <div className="flex justify-between items-center mb-4">
                                 <div className="flex space-x-2">
                                     <Link href={route('products.sync.all')}>
-                                        <Button variant="outline">MFから同期</Button>
+                                        <Button variant="outline">MFへ同期</Button>
                                     </Link>
                                 </div>
                                 <div className="flex justify-end space-x-2">
@@ -145,9 +145,6 @@ export default function Index({ auth, products, categories, filters }) {
                                                 <div className="flex space-x-2">
                                                     <Link href={route('products.edit', product.id)}>
                                                         <Button variant="outline" size="sm">編集</Button>
-                                                    </Link>
-                                                    <Link href={route('products.sync.one', product.id)} method="get" as="button">
-                                                        <Button variant="secondary" size="sm">MFへ同期</Button>
                                                     </Link>
                                                     <Button variant="destructive" size="sm" onClick={() => handleDelete(product.id)}>
                                                         削除

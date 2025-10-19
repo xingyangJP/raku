@@ -33,7 +33,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     // Product Master Routes - New Sync Flow
-    Route::get('products/sync-all', [ProductController::class, 'syncAllFromMf'])->name('products.sync.all');
+    Route::get('products/sync-all', [ProductController::class, 'syncAllToMf'])->name('products.sync.all');
     Route::get('products/{product}/sync-one', [ProductController::class, 'syncOneToMf'])->name('products.sync.one');
     Route::get('products/auth/start', [ProductController::class, 'redirectToAuth'])->name('products.auth.start');
     Route::get('products/auth/callback', [ProductController::class, 'handleCallback'])->name('products.auth.callback');

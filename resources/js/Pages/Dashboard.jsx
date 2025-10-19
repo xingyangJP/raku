@@ -19,8 +19,11 @@ const formatDate = (dateString) => {
     return `${year}年${month}月${day}日`;
 };
 
-export default function Dashboard({ auth, toDoEstimates = [] }) {
+export default function Dashboard({ auth, toDoEstimates = [], partnerSyncFlash = {} }) {
     const { flash } = usePage().props;
+    const partnerFlash = partnerSyncFlash || {};
+    const partnerFlashMessage = partnerFlash?.message;
+    const partnerFlashIsError = partnerFlash?.status === 'error';
     // Mock data based on requirements
     const summaryData = {
         receivables: { title: "当月売掛サマリ", amount: "¥1,250,000", change: "+5.2%", icon: <DollarSign className="h-4 w-4 text-muted-foreground" /> },
@@ -75,6 +78,14 @@ export default function Dashboard({ auth, toDoEstimates = [] }) {
                 {flash?.error && (
                     <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
                         <span className="block sm:inline">{flash.error}</span>
+                    </div>
+                )}
+                {partnerFlashMessage && (
+                    <div
+                        className={`${partnerFlashIsError ? 'bg-red-100 border border-red-400 text-red-700' : 'bg-green-100 border border-green-400 text-green-700'} px-4 py-3 rounded relative`}
+                        role="alert"
+                    >
+                        <span className="block sm:inline">{partnerFlashMessage}</span>
                     </div>
                 )}
                 <div className="flex justify-end">

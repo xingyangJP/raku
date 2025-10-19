@@ -519,7 +519,7 @@ class MoneyForwardApiService
         }
     }
 
-    public function getItems(string $accessToken, array $query = []): array
+    public function getItems(string $accessToken, array $query = []): ?array
     {
         $allItems = [];
         $page = 1;
@@ -540,7 +540,7 @@ class MoneyForwardApiService
 
                 if ($response->getStatusCode() !== 200) {
                     Log::error('Money Forward items fetch failed with status: ' . $response->getStatusCode());
-                    break;
+                    return null;
                 }
 
                 $body = json_decode($response->getBody()->getContents(), true);
@@ -558,6 +558,7 @@ class MoneyForwardApiService
         } catch (\Exception $e) {
             Log::error('Failed to fetch Money Forward items: ' . $e->getMessage());
             report($e);
+            return null;
         }
 
         return $allItems;
@@ -599,6 +600,33 @@ class MoneyForwardApiService
             }
             $this->logRequestException($e, 'update');
             return null;
+        }
+    }
+
+    public function deleteItem(string $accessToken, string $itemId): bool
+    {
+        try {
+            $response = $this->client->delete($this->apiUrl . "/items/{$itemId}", [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $accessToken,
+                    'Accept' => 'application/json',
+                ],
+            ]);
+
+            $status = $response->getStatusCode();
+            return in_array($status, [200, 202, 204], true);
+        } catch (RequestException $e) {
+            if ($e->hasResponse() && $e->getResponse()->getStatusCode() === 404) {
+                return true;
+            }
+            $this->logRequestException($e, 'delete');
+            return false;
+        } catch (\Exception $e) {
+            Log::error('Failed to delete Money Forward item: ' . $e->getMessage(), [
+                'item_id' => $itemId,
+            ]);
+            report($e);
+            return false;
         }
     }
 

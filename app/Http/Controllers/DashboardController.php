@@ -13,9 +13,36 @@ use Illuminate\Support\Facades\Schema;
 
 class DashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request, MoneyForwardApiService $apiService)
     {
         $user = Auth::user();
+
+        $partnerSyncFlash = [
+            'status' => $request->session()->pull('mf_partner_sync_status'),
+            'message' => $request->session()->pull('mf_partner_sync_message'),
+        ];
+
+        $partnerSyncStatus = null;
+        if ($request->session()->pull('mf_skip_partner_auto_sync', false)) {
+            $partnerSyncStatus = ['status' => 'skipped'];
+        } else {
+            $partnerSyncStatus = $this->attemptAutoPartnerSync($request, $apiService);
+            if ($partnerSyncStatus === 'redirect') {
+                return redirect()->route('partners.auth.start');
+            }
+        }
+
+        if (
+            empty($partnerSyncFlash['message'])
+            && is_array($partnerSyncStatus)
+            && isset($partnerSyncStatus['message'])
+            && ($partnerSyncStatus['status'] ?? null) !== 'skipped'
+        ) {
+            $partnerSyncFlash = [
+                'status' => $partnerSyncStatus['status'] ?? null,
+                'message' => $partnerSyncStatus['message'],
+            ];
+        }
 
         // Show tasks purely based on approval_flow (未承認が存在するもの)。status には依存しない。
         $estimatesWithFlow = Estimate::whereNotNull('approval_flow')->get();
@@ -102,6 +129,8 @@ class DashboardController extends Controller
 
         return Inertia::render('Dashboard', [
             'toDoEstimates' => $toDoEstimates,
+            'partnerSyncStatus' => $partnerSyncStatus,
+            'partnerSyncFlash' => $partnerSyncFlash,
         ]);
     }
 
@@ -111,6 +140,7 @@ class DashboardController extends Controller
             return $this->doPartnerSync($token, $apiService);
         } else {
             $request->session()->put('mf_redirect_action', 'sync_partners');
+            $request->session()->put('mf_partners_redirect_back', url()->previous() ?: route('dashboard'));
             return redirect()->route('partners.auth.start');
         }
     }
@@ -145,13 +175,45 @@ class DashboardController extends Controller
 
     private function doPartnerSync(string $token, MoneyForwardApiService $apiService)
     {
+        $result = $this->performPartnerSync($token, $apiService);
+
+        session()->flash('mf_skip_partner_auto_sync', true);
+        session()->flash('mf_partner_sync_status', $result['status'] ?? null);
+        session()->flash('mf_partner_sync_message', $result['message'] ?? '同期結果が不明です。');
+
+        $redirectBack = session()->pull('mf_partners_redirect_back');
+        $redirectResponse = $redirectBack ? redirect()->to($redirectBack) : redirect()->route('dashboard');
+
+        return $redirectResponse;
+    }
+
+    private function attemptAutoPartnerSync(Request $request, MoneyForwardApiService $apiService): array|string|null
+    {
+        $token = $apiService->getValidAccessToken(null, ['mfc/invoice/data.read', 'mfc/invoice/data.write']);
+        if (!$token) {
+            $request->session()->put('mf_redirect_action', 'sync_partners');
+            $request->session()->put('mf_partners_redirect_back', url()->full());
+            return 'redirect';
+        }
+
+        return $this->performPartnerSync($token, $apiService);
+    }
+
+    private function performPartnerSync(string $token, MoneyForwardApiService $apiService): array
+    {
         if (!Schema::hasTable('partners')) {
-            return redirect()->route('dashboard')->with('error', 'partners table does not exist. Please run `php artisan migrate`.');
+            return [
+                'status' => 'error',
+                'message' => 'partners table does not exist. Please run `php artisan migrate`.',
+            ];
         }
 
         $partners = $apiService->fetchAllPartners($token);
         if (!is_array($partners)) {
-            return redirect()->route('dashboard')->with('error', 'Could not fetch partners. Please check permissions (scope) and settings.');
+            return [
+                'status' => 'error',
+                'message' => 'Could not fetch partners. Please check permissions (scope) and settings.',
+            ];
         }
 
         $count = 0;
@@ -173,6 +235,10 @@ class DashboardController extends Controller
             $count++;
         }
 
-        return redirect()->route('dashboard')->with('success', "{$count}件の顧客情報を更新しました");
+        return [
+            'status' => 'success',
+            'message' => "{$count}件の顧客情報を更新しました",
+            'count' => $count,
+        ];
     }
 }

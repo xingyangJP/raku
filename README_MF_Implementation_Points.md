@@ -29,7 +29,7 @@ mfc/invoice/data.read - Grant read-only access to all your office's data
 2. フロー比較（実装反映）
 
 🟢 1回目（初回認証時）
-	1.	ユーザーが「MFから同期」ボタンをクリック
+	1.	ユーザーが同期処理を開始（例: 画面表示時の自動同期、もしくは「MFへ同期」ボタン押下）
 	2.	自社システム → authorize にリダイレクト（ログイン + アクセス許可）
 	3.	MF認可サーバ → authorization_code を redirect_uri に返す
 4.	自社システム → token エンドポイントに authorization_code を送信（コード実装: MoneyForwardApiService::getAccessTokenFromCode）
@@ -42,7 +42,7 @@ mfc/invoice/data.read - Grant read-only access to all your office's data
 ⸻
 
 🔵 2回目以降
-	1.	ユーザーが「MFから同期」ボタンをクリック
+	1.	ユーザーが同期処理を開始（自動同期／手動同期）
 2.	自社システムが DB の mf_tokens をチェック（コード実装: MoneyForwardApiService::getValidAccessToken）
 	•	expires_at が有効 → そのまま access_token を使用
 	•	期限切れ → refresh_token を使って新しい access_token を取得し DB更新
