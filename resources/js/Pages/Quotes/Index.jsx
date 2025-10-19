@@ -300,8 +300,10 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
     };
 
     const totalAmount = filteredEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
+    const totalCount = filteredEstimates.length;
     const draftCount = filteredEstimates.filter((est) => est.status === 'draft').length;
     const approvedCount = filteredEstimates.filter((est) => est.status === 'sent').length;
+    const approvedPercentage = totalCount > 0 ? Math.round((approvedCount / totalCount) * 100) : 0;
 
     return (
         <AuthenticatedLayout 
@@ -421,15 +423,15 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                 <CheckCircle className="h-4 w-4 text-white" />
                             </div>
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold text-green-900">
-                                {approvedCount}件
-                            </div>
-                            <p className="text-xs text-green-600">
-                                全体の {Math.round((approvedCount / estimates.length) * 100)}%
-                            </p>
-                        </CardContent>
-                        <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-green-200 opacity-20" />
+                            <CardContent>
+                                <div className="text-2xl font-bold text-green-900">
+                                    {approvedCount}件
+                                </div>
+                                <p className="text-xs text-green-600">
+                                全体の {approvedPercentage}%
+                                </p>
+                            </CardContent>
+                            <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-green-200 opacity-20" />
                     </Card>
 
                     <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-amber-50 to-amber-100 shadow-lg">
@@ -461,14 +463,14 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                 <Target className="h-4 w-4 text-white" />
                             </div>
                         </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold text-purple-900">
-                                {estimates.length}件
-                            </div>
-                            <p className="text-xs text-purple-600">
+                            <CardContent>
+                                <div className="text-2xl font-bold text-purple-900">
+                                {totalCount}件
+                                </div>
+                                <p className="text-xs text-purple-600">
                                 管理中の見積書
-                            </p>
-                        </CardContent>
+                                </p>
+                            </CardContent>
                         <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-purple-200 opacity-20" />
                     </Card>
                 </div>
