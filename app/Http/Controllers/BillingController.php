@@ -8,6 +8,7 @@ use App\Models\Billing;
 use Illuminate\Support\Facades\Storage;
 use App\Services\MoneyForwardBillingSynchronizer;
 use App\Services\MoneyForwardApiService;
+use App\Services\MoneyForwardQuoteSynchronizer;
 use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
@@ -99,7 +100,12 @@ class BillingController extends Controller
         return Inertia::location($authUrl);
     }
 
-    public function fetchInvoices(Request $request, MoneyForwardApiService $apiService, MoneyForwardBillingSynchronizer $billingSynchronizer)
+    public function fetchInvoices(
+        Request $request,
+        MoneyForwardApiService $apiService,
+        MoneyForwardBillingSynchronizer $billingSynchronizer,
+        MoneyForwardQuoteSynchronizer $quoteSynchronizer
+    )
     {
         if (!$request->has('code')) {
             return redirect()->route('billing.index')->with('error', 'Authorization code not found.');
@@ -117,9 +123,26 @@ class BillingController extends Controller
 
             $apiService->storeToken($tokenData, $request->user()->id);
 
-            $billingSynchronizer->sync($request->user()->id);
-
+            $action = $request->session()->pull('mf_redirect_action');
             $redirectTo = $request->session()->pull('mf_redirect_back', route('billing.index'));
+
+            if ($action === 'sync_quotes') {
+                $result = $quoteSynchronizer->sync($request->user()->id);
+
+                if (($result['status'] ?? null) === 'error') {
+                    $message = 'Money Forwardとの同期に失敗しました: ' . ($result['message'] ?? '理由不明');
+                    return redirect()->to($redirectTo)->with('error', $message);
+                }
+
+                if (($result['status'] ?? null) === 'skipped') {
+                    return redirect()->to($redirectTo)->with('info', 'Money Forwardの同期は現在実行中です。');
+                }
+
+                return redirect()->to($redirectTo)->with('success', 'Money Forwardの見積書を同期しました。');
+            }
+
+            // Billing同期（従来通り）
+            $billingSynchronizer->sync($request->user()->id);
 
             return redirect()->to($redirectTo)->with('success', 'Money Forward認証が完了しました。');
         } catch (\Exception $e) {

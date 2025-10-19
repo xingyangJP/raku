@@ -146,11 +146,11 @@ class EstimateController extends Controller
         $authUrl = config('services.money_forward.authorization_url') . '?' . http_build_query([
             'response_type' => 'code',
             'client_id' => config('services.money_forward.client_id'),
-            'redirect_uri' => config('services.money_forward.quote_redirect_uri'),
+            'redirect_uri' => config('services.money_forward.redirect_uri'),
             'scope' => 'mfc/invoice/data.read',
         ]);
 
-        return redirect()->away($authUrl);
+        return \Inertia\Inertia::location($authUrl);
     }
 
     public function handleQuoteSyncCallback(

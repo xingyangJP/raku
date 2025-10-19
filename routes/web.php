@@ -62,6 +62,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/quotes/sync', [App\Http\Controllers\EstimateController::class, 'syncQuotes'])->name('quotes.sync');
     Route::get('/quotes/mf/auth/start', [App\Http\Controllers\EstimateController::class, 'redirectToAuthForQuoteSync'])->name('quotes.auth.start');
     Route::get('/quotes/mf/auth/callback', [App\Http\Controllers\EstimateController::class, 'handleQuoteSyncCallback'])->name('quotes.auth.callback');
+    Route::get('/quotes/mf/callback', [App\Http\Controllers\EstimateController::class, 'handleQuoteSyncCallback'])->name('quotes.auth.callback.legacy');
 
     Route::post('/estimates/preview-pdf', [App\Http\Controllers\EstimateController::class, 'previewPdf'])->name('estimates.previewPdf');
     Route::post('/estimates', [App\Http\Controllers\EstimateController::class, 'store'])->name('estimates.store');

@@ -26,7 +26,7 @@ return [
         'billing_sync_page_size' => env('MONEY_FORWARD_BILLING_SYNC_PAGE_SIZE', 100),
         'quote_sync_throttle_minutes' => env('MONEY_FORWARD_QUOTE_SYNC_THROTTLE_MINUTES', 5),
         'quote_sync_page_size' => env('MONEY_FORWARD_QUOTE_SYNC_PAGE_SIZE', 100),
-        'quote_redirect_uri' => env('MONEY_FORWARD_QUOTE_REDIRECT_URI', 'http://localhost:8000/quotes/mf/callback'),
+        'quote_redirect_uri' => env('MONEY_FORWARD_QUOTE_REDIRECT_URI', 'http://localhost:8000/quotes/mf/auth/callback'),
     ],
 
     'postmark' => [

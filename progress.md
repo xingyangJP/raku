@@ -113,6 +113,24 @@
 ### 未解決
 - 同期後のユーザー通知（削除ログ表示）の要否は未定。
 
+## 2025-10-18 (3)
+### 要約
+- Money Forward 見積同期でリダイレクトURIが一致しない環境でも認証できるよう互換対応。
+
+### 変更点
+- `/quotes/mf/callback` を `handleQuoteSyncCallback` へ紐付けるレガシールートを追加。
+- 見積同期の OAuth が共通コールバック `/callback` を通るようにし、`BillingController@fetchInvoices` で `sync_quotes` アクションを処理。
+- `redirectToAuthForQuoteSync` で使用する `redirect_uri` を共通の `config('services.money_forward.redirect_uri')` に変更。
+
+### 検証
+- `.env` が旧URIのままでも OAuth 認証画面へ遷移でき、見積同期が完了することを確認予定。
+
+### 次アクション
+- Money Forward アプリポータルのリダイレクトURI一覧とコードの整合性を再度チェック。
+
+### 未解決
+- 特になし。
+
 ## 2025-10-17 (2)
 ### 要約
 - 承認済み見積の再申請がエラーで拒否されるバグを修正。
