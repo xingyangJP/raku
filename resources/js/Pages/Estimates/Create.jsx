@@ -28,7 +28,7 @@ function CustomerCombobox({ selectedCustomer, onCustomerChange }) {
     useEffect(() => {
         const fetchCustomers = async () => {
             try {
-                const response = await axios.get(`/api/customers?search=${search}`);
+                const response = await axios.get('/api/customers', { params: { search } });
                 setCustomers(response.data.map(c => ({
                     id: c.id,
                     customer_name: c.customer_name,
@@ -64,7 +64,7 @@ function CustomerCombobox({ selectedCustomer, onCustomerChange }) {
                         {customers.map((customer) => (
                             <CommandItem
                                 key={customer.id}
-                                value={customer.id}
+                                value={`${customer.customer_name ?? ''} ${customer.id ?? ''}`}
                                 onSelect={() => {
                                     onCustomerChange(customer);
                                     setOpen(false);
@@ -189,7 +189,7 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
     useEffect(() => {
         const fetchStaff = async () => {
             try {
-                const res = await axios.get(`/api/users?search=${encodeURIComponent(search)}`);
+                const res = await axios.get('/api/users', { params: { search } });
                 setStaff(Array.isArray(res.data) ? res.data : []);
             } catch (e) {
                 console.error('Failed to fetch staff:', e);
@@ -221,7 +221,7 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
                         {staff.map((s) => (
                             <CommandItem
                                 key={s.id}
-                                value={s.id}
+                                value={`${s.name ?? ''} ${s.id ?? ''}`}
                                 onSelect={() => {
                                     onStaffChange(s);
                                     setOpen(false);
@@ -1190,7 +1190,7 @@ function ApproverPicker({ onAdd }) {
     useEffect(() => {
         const fetchStaff = async () => {
             try {
-                const res = await axios.get(`/api/users?search=${encodeURIComponent(search)}`);
+                const res = await axios.get('/api/users', { params: { search } });
                 setStaff(Array.isArray(res.data) ? res.data : []);
             } catch (e) {
                 console.error('Failed to fetch staff:', e);
@@ -1211,7 +1211,11 @@ function ApproverPicker({ onAdd }) {
                     <CommandEmpty>見つかりません。</CommandEmpty>
                     <CommandGroup>
                         {staff.map((s) => (
-                            <CommandItem key={s.id} value={s.id} onSelect={() => { onAdd(s); setOpen(false); }}>
+                            <CommandItem
+                                key={s.id}
+                                value={`${s.name ?? ''} ${s.id ?? ''}`}
+                                onSelect={() => { onAdd(s); setOpen(false); }}
+                            >
                                 {s.name}
                             </CommandItem>
                         ))}
