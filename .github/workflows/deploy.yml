@@ -2,7 +2,7 @@ name: Deploy to Xserver
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, dev ]
 
 jobs:
   deploy:
@@ -31,13 +31,24 @@ jobs:
     - name: Build Frontend Assets
       run: npm run build
 
+    - name: Determine Deployment Paths
+      id: paths
+      run: |
+        if [ "${GITHUB_REF}" = "refs/heads/dev" ]; then
+          echo "deploy_root=/home/xero/rakudev" >> "$GITHUB_OUTPUT"
+          echo "public_link=/home/xero/xerographix.co.jp/public_html/salesdev" >> "$GITHUB_OUTPUT"
+        else
+          echo "deploy_root=/home/xero/raku" >> "$GITHUB_OUTPUT"
+          echo "public_link=/home/xero/xerographix.co.jp/public_html/sales" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Deploy Files with Manual rsync
       run: |
         echo "${{ secrets.ACTIONS_DEPLOY_KEY }}" > private_key.pem
         chmod 600 private_key.pem
         rsync -avz -e "ssh -i private_key.pem -p 10022 -o StrictHostKeyChecking=no" \
           --exclude='.git' --exclude='node_modules' --exclude='.env' \
-          ./ xero@xero.xsrv.jp:/home/xero/raku/
+          ./ xero@xero.xsrv.jp:${{ steps.paths.outputs.deploy_root }}/
 
     - name: Run Post-Deploy Commands on Server
       uses: appleboy/ssh-action@v1.0.3
@@ -48,7 +59,7 @@ jobs:
         port: 10022
         script: |
           set -e
-          cd /home/xero/raku
+          cd ${{ steps.paths.outputs.deploy_root }}
 
           # Remove opcache_reset.php file for security
           rm -f public/opcache_reset.php
@@ -63,6 +74,6 @@ jobs:
           /opt/php-8.2.28-2/bin/php artisan route:cache
           /opt/php-8.2.28-2/bin/php artisan view:cache
           /opt/php-8.2.28-2/bin/php artisan config:cache
-          rm -rf /home/xero/xerographix.co.jp/public_html/sales
-          ln -s /home/xero/raku/public /home/xero/xerographix.co.jp/public_html/sales
+          rm -rf ${{ steps.paths.outputs.public_link }}
+          ln -s ${{ steps.paths.outputs.deploy_root }}/public ${{ steps.paths.outputs.public_link }}
           echo "🚀 Deployment finished successfully."
