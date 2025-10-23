@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('estimates', function (Blueprint $table) {
-            $table->string('estimate_number')->unique()->change();
+            // SQLite on the deployment server cannot alter columns via change(),
+            // so add a dedicated unique index instead.
+            $table->unique('estimate_number', 'estimates_estimate_number_unique');
         });
     }
 
@@ -22,7 +24,7 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('estimates', function (Blueprint $table) {
-            $table->dropUnique(['estimate_number']);
+            $table->dropUnique('estimates_estimate_number_unique');
         });
     }
 };
