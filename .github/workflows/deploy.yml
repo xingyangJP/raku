@@ -67,6 +67,12 @@ jobs:
           # .env file is now managed manually on the server.
           # This script will no longer create or modify .env or APP_KEY.
 
+          # Ensure SQLite file exists when using sqlite connection
+          if [ ! -f database/database.sqlite ]; then
+            mkdir -p database
+            touch database/database.sqlite
+          fi
+
           chmod -R 777 storage bootstrap/cache
           /opt/php-8.2.28-2/bin/php artisan config:clear
           /opt/php-8.2.28-2/bin/php artisan cache:clear
