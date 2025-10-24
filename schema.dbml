@@ -300,6 +300,7 @@ Table "products" {
   "quantity" decimal(15,2) [default: NULL]
   "cost" int [not null, default: '0']
   "tax_category" varchar(255) [not null, default: 'standard']
+  "business_division" varchar(50) [not null, default: 'fifth_business']
   "is_deduct_withholding_tax" tinyint(1) [default: NULL]
   "is_active" tinyint(1) [not null, default: '1']
   "description" text
@@ -312,6 +313,7 @@ Table "products" {
     sku [unique, name: "products_sku_unique"]
     mf_id [unique, name: "products_mf_id_unique"]
     (category_id, seq) [unique, name: "products_category_id_seq_unique"]
+    business_division [name: "products_business_division_index"]
   }
 }
 

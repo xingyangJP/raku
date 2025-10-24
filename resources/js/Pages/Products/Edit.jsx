@@ -1,5 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, useForm } from '@inertiajs/react';
+import { router } from '@inertiajs/core';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Label } from '@/Components/ui/label';
@@ -20,7 +21,9 @@ const taxCategories = [
     { value: 'untaxable', label: '不課税' },
 ];
 
-export default function Edit({ auth, product, categories }) {
+const toFullWidthDigits = (text = '') => text.replace(/\d/g, (digit) => '０１２３４５６７８９'[Number(digit)]);
+
+export default function Edit({ auth, product, categories, businessDivisions, defaultBusinessDivision }) {
     const [isCategoryDialogOpen, setCategoryDialogOpen] = useState(false);
     const { data, setData, put, processing, errors, reset } = useForm({
         sku: product.sku || '自動採番',
@@ -31,6 +34,7 @@ export default function Edit({ auth, product, categories }) {
         quantity: product.quantity || 1,
         cost: product.cost || 0,
         tax_category: product.tax_category || 'ten_percent',
+        business_division: product.business_division || defaultBusinessDivision || 'fifth_business',
         is_deduct_withholding_tax: product.is_deduct_withholding_tax || false,
         is_active: product.is_active || true,
         description: product.description || '',
@@ -69,25 +73,29 @@ export default function Edit({ auth, product, categories }) {
                                     </div>
 
                                     <div>
-                                        <Label htmlFor="name">商品名</Label>
-                                        <Input
-                                            id="name"
-                                            type="text"
-                                            name="name"
-                                            value={data.name}
-                                            className="mt-1 block w-full"
-                                            onChange={(e) => setData('name', e.target.value)}
-                                            isFocused={true}
-                                        />
-                                        <InputError message={errors.name} className="mt-2" />
+                                        <Label htmlFor="business_division">事業区分</Label>
+                                        <Select onValueChange={(value) => setData('business_division', value)} value={data.business_division}>
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue placeholder="事業区分を選択" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {(businessDivisions || []).map((division) => (
+                                                    <SelectItem key={division.value} value={division.value}>
+                                                        {toFullWidthDigits(division.label)}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <InputError message={errors.business_division} className="mt-2" />
+                                        <p className="mt-1 text-xs text-gray-500">※ ソフトウェア開発などは第5種・仕入れ販売は第1種</p>
                                     </div>
 
                                     <div>
-                                        <Label htmlFor="category_id">分類</Label>
+                                        <Label htmlFor="category_id">商品分類</Label>
                                         <div className="flex items-center space-x-2">
                                             <Select onValueChange={(value) => setData('category_id', value)} value={String(data.category_id)}>
                                                 <SelectTrigger className="w-full">
-                                                    <SelectValue placeholder="分類を選択" />
+                                                    <SelectValue placeholder="商品分類を選択" />
                                                 </SelectTrigger>
                                                 <SelectContent>
                                                     {categories.map((cat) => (
@@ -101,8 +109,6 @@ export default function Edit({ auth, product, categories }) {
                                         </div>
                                         <InputError message={errors.category_id} className="mt-2" />
                                     </div>
-
-                                    
 
                                     <div>
                                         <Label htmlFor="tax_category">税区分</Label>
@@ -119,6 +125,20 @@ export default function Edit({ auth, product, categories }) {
                                             </SelectContent>
                                         </Select>
                                         <InputError message={errors.tax_category} className="mt-2" />
+                                    </div>
+
+                                    <div>
+                                        <Label htmlFor="name">商品名</Label>
+                                        <Input
+                                            id="name"
+                                            type="text"
+                                            name="name"
+                                            value={data.name}
+                                            className="mt-1 block w-full"
+                                            onChange={(e) => setData('name', e.target.value)}
+                                            isFocused={true}
+                                        />
+                                        <InputError message={errors.name} className="mt-2" />
                                     </div>
 
                                     <div>

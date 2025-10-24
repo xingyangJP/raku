@@ -17,6 +17,7 @@ return new class extends Migration
             $table->integer('price')->default(0);
             $table->integer('cost')->default(0);
             $table->string('tax_category')->default('standard');
+            $table->string('business_division', 50)->default('fifth_business');
             $table->boolean('is_active')->default(true);
             $table->text('description')->nullable();
             $table->json('attributes')->nullable();
@@ -29,4 +30,3 @@ return new class extends Migration
         Schema::dropIfExists('products');
     }
 };
-

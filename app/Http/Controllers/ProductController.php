@@ -40,6 +40,10 @@ class ProductController extends Controller
             $query->where('category_id', (int) $request->input('search_category_id'));
         }
 
+        if ($request->filled('search_business_division') && $request->input('search_business_division') !== 'all') {
+            $query->where('business_division', $request->input('search_business_division'));
+        }
+
         $products = $query->orderBy('updated_at', 'desc')->paginate(10)->withQueryString();
 
         // Provide categories list for filters/UI, if table exists
@@ -51,7 +55,9 @@ class ProductController extends Controller
         return Inertia::render('Products/Index', [
             'products' => $products,
             'categories' => $categories,
-            'filters' => $request->only(['search_name', 'search_sku', 'search_tax_category', 'search_category_id']),
+            'filters' => $request->only(['search_name', 'search_sku', 'search_tax_category', 'search_category_id', 'search_business_division']),
+            'businessDivisions' => $this->businessDivisionOptions(),
+            'defaultBusinessDivision' => $this->defaultBusinessDivision(),
         ]);
     }
 
@@ -63,15 +69,18 @@ class ProductController extends Controller
         }
         return Inertia::render('Products/Create', [
             'categories' => $categories,
+            'businessDivisions' => $this->businessDivisionOptions(),
+            'defaultBusinessDivision' => $this->defaultBusinessDivision(),
         ]);
     }
 
     public function store(ProductRequest $request)
     {
         $data = $request->validated();
+        $selectedBusinessDivision = $data['business_division'] ?? $this->defaultBusinessDivision();
 
         // Server-side SKU auto-generation using categories.last_item_seq
-        $product = DB::transaction(function () use ($data) {
+        $product = DB::transaction(function () use ($data, $selectedBusinessDivision) {
             $category = DB::table('categories')
                 ->where('id', $data['category_id'])
                 ->lockForUpdate()
@@ -95,6 +104,7 @@ class ProductController extends Controller
                 'quantity' => $data['quantity'] ?? null,
                 'cost' => $data['cost'] ?? 0,
                 'tax_category' => $data['tax_category'] ?? 'ten_percent',
+                'business_division' => $selectedBusinessDivision,
                 'is_deduct_withholding_tax' => $data['is_deduct_withholding_tax'] ?? null,
                 'is_active' => $data['is_active'] ?? true,
                 'description' => $data['description'] ?? null,
@@ -122,17 +132,20 @@ class ProductController extends Controller
         return Inertia::render('Products/Edit', [
             'product' => $product,
             'categories' => $categories,
+            'businessDivisions' => $this->businessDivisionOptions(),
+            'defaultBusinessDivision' => $this->defaultBusinessDivision(),
         ]);
     }
 
     public function update(ProductRequest $request, Product $product)
     {
         $data = $request->validated();
+        $selectedBusinessDivision = $data['business_division'] ?? $this->defaultBusinessDivision();
 
         // If category changes, re-number in the new category
         $newCategoryId = (int) $data['category_id'];
         if ($product->category_id !== $newCategoryId) {
-            DB::transaction(function () use ($data, $product, $newCategoryId) {
+            DB::transaction(function () use ($data, $product, $newCategoryId, $selectedBusinessDivision) {
                 $category = DB::table('categories')
                     ->where('id', $newCategoryId)
                     ->lockForUpdate()
@@ -158,6 +171,7 @@ class ProductController extends Controller
                     'quantity' => $data['quantity'] ?? null,
                     'cost' => $data['cost'] ?? 0,
                     'tax_category' => $data['tax_category'] ?? 'ten_percent',
+                    'business_division' => $selectedBusinessDivision,
                     'is_deduct_withholding_tax' => $data['is_deduct_withholding_tax'] ?? null,
                     'is_active' => $data['is_active'] ?? true,
                     'description' => $data['description'] ?? null,
@@ -180,6 +194,7 @@ class ProductController extends Controller
                 'quantity' => $data['quantity'] ?? null,
                 'cost' => $data['cost'] ?? 0,
                 'tax_category' => $data['tax_category'] ?? 'ten_percent',
+                'business_division' => $selectedBusinessDivision,
                 'is_deduct_withholding_tax' => $data['is_deduct_withholding_tax'] ?? null,
                 'is_active' => $data['is_active'] ?? true,
                 'description' => $data['description'] ?? null,
@@ -194,6 +209,26 @@ class ProductController extends Controller
     {
         $product->delete();
         return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
+    }
+
+    private function businessDivisionOptions(): array
+    {
+        return collect(config('business_divisions.options', []))
+            ->map(function (array $option, string $value) {
+                return [
+                    'value' => $value,
+                    'label' => $option['label'] ?? $value,
+                    'display_rate' => $option['display_rate'] ?? null,
+                    'description' => $option['description'] ?? null,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function defaultBusinessDivision(): string
+    {
+        return config('business_divisions.default', 'fifth_business');
     }
 
     // --- Money Forward Sync Logic ---

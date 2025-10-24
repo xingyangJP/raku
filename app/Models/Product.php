@@ -21,6 +21,7 @@ class Product extends Model
         'quantity',
         'cost',
         'tax_category',
+        'business_division',
         'is_deduct_withholding_tax',
         'is_active',
         'description',

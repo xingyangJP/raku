@@ -20,7 +20,17 @@ const taxCategories = [
     { value: 'untaxable', label: '不課税' },
 ];
 
-export default function Index({ auth, products, categories, filters }) {
+const toFullWidthDigits = (text = '') => text.replace(/\d/g, (digit) => '０１２３４５６７８９'[Number(digit)]);
+
+const formatBusinessDivisionLabel = (division) => {
+    if (!division) {
+        return '未設定';
+    }
+
+    return toFullWidthDigits(division.label ?? division.value ?? '');
+};
+
+export default function Index({ auth, products, categories, filters, businessDivisions }) {
     const [isCategoryDialogOpen, setCategoryDialogOpen] = useState(false);
     const { flash } = usePage().props;
 
@@ -29,7 +39,9 @@ export default function Index({ auth, products, categories, filters }) {
         search_sku: filters.search_sku || '',
         search_tax_category: filters.search_tax_category || 'all',
         search_category_id: filters.search_category_id || 'all',
+        search_business_division: filters.search_business_division || 'all',
     });
+    const businessDivisionMap = Object.fromEntries((businessDivisions || []).map((division) => [division.value, division]));
 
     const handleDelete = (productId) => {
         if (confirm('Are you sure you want to delete this product?')) {
@@ -70,7 +82,7 @@ export default function Index({ auth, products, categories, filters }) {
                                     </SyncButton>
                                 </div>
                                 <div className="flex justify-end space-x-2">
-                                    <Button variant="outline" onClick={() => setCategoryDialogOpen(true)}>分類を管理</Button>
+                                    <Button variant="outline" onClick={() => setCategoryDialogOpen(true)}>商品分類を管理</Button>
                                     <Link href={route('products.create')}>
                                         <Button>新規追加</Button>
                                     </Link>
@@ -105,12 +117,25 @@ export default function Index({ auth, products, categories, filters }) {
                                 </Select>
                                 <Select onValueChange={(value) => setData('search_category_id', value)} value={data.search_category_id}>
                                     <SelectTrigger className="w-[180px]">
-                                        <SelectValue placeholder="分類" />
+                                        <SelectValue placeholder="商品分類" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="all">全て</SelectItem>
                                         {categories.map(cat => (
                                             <SelectItem key={cat.id} value={String(cat.id)}>{cat.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <Select onValueChange={(value) => setData('search_business_division', value)} value={data.search_business_division}>
+                                    <SelectTrigger className="w-[220px]">
+                                        <SelectValue placeholder="事業区分" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="all">全て</SelectItem>
+                                        {(businessDivisions || []).map(option => (
+                                            <SelectItem key={option.value} value={option.value}>
+                                                {formatBusinessDivisionLabel(option)}
+                                            </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -126,22 +151,32 @@ export default function Index({ auth, products, categories, filters }) {
                                         <TableHead>単価</TableHead>
                                         <TableHead>原価</TableHead>
                                         <TableHead>税区分</TableHead>
+                                        <TableHead>事業区分</TableHead>
                                         <TableHead>MF最終更新</TableHead>
                                         <TableHead>操作</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {products.data.map((product) => (
-                                        <TableRow key={product.id}>
-                                            <TableCell>{product.sku}</TableCell>
-                                            <TableCell>{product.name}</TableCell>
-                                            <TableCell>{product.unit}</TableCell>
-                                            <TableCell>{parseInt(product.price, 10).toLocaleString('ja-JP', { style: 'currency', currency: 'JPY' })}</TableCell>
-                                            <TableCell>{parseInt(product.cost, 10).toLocaleString('ja-JP', { style: 'currency', currency: 'JPY' })}</TableCell>
+                                    {products.data.map((product) => {
+                                        const division = businessDivisionMap[product.business_division] || null;
+                                        return (
+                                            <TableRow key={product.id}>
+                                                <TableCell>{product.sku}</TableCell>
+                                                <TableCell>{product.name}</TableCell>
+                                                <TableCell>{product.unit}</TableCell>
+                                                <TableCell>{parseInt(product.price, 10).toLocaleString('ja-JP', { style: 'currency', currency: 'JPY' })}</TableCell>
+                                                <TableCell>{parseInt(product.cost, 10).toLocaleString('ja-JP', { style: 'currency', currency: 'JPY' })}</TableCell>
                                             <TableCell>
                                                 <Badge variant="secondary">{taxCategories.find(c => c.value === product.tax_category)?.label || product.tax_category}</Badge>
                                             </TableCell>
-                                            <TableCell>{product.mf_updated_at ? new Date(product.mf_updated_at).toLocaleString() : 'N/A'}</TableCell>
+                                            <TableCell>
+                                                <Badge variant="outline">
+                                                    {division
+                                                        ? formatBusinessDivisionLabel(division)
+                                                        : '未設定'}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell>{product.mf_updated_at ? new Date(product.mf_updated_at).toLocaleDateString('ja-JP') : 'N/A'}</TableCell>
                                             <TableCell>
                                                 <div className="flex space-x-2">
                                                     <Link href={route('products.edit', product.id)}>
@@ -152,8 +187,9 @@ export default function Index({ auth, products, categories, filters }) {
                                                     </Button>
                                                 </div>
                                             </TableCell>
-                                        </TableRow>
-                                    ))}
+                                            </TableRow>
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
 

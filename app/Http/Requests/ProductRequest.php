@@ -44,6 +44,11 @@ class ProductRequest extends FormRequest
                 'string',
                 Rule::in(['untaxable', 'non_taxable', 'tax_exemption', 'five_percent', 'eight_percent', 'eight_percent_as_reduced_tax_rate', 'ten_percent'])
             ],
+            'business_division' => [
+                'required',
+                'string',
+                Rule::in(array_keys(config('business_divisions.options', []))),
+            ],
             'is_deduct_withholding_tax' => 'nullable|boolean',
             'is_active' => 'boolean',
             'description' => 'nullable|string|max:200',

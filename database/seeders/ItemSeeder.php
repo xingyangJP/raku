@@ -134,17 +134,21 @@ class ItemSeeder extends Seeder
                 $cost = $item['cost'];
                 $unit = $item['unit'];
                 $description = $item['description'] ?? null;
+                $businessDivision = match ($name) {
+                    'Magic XPA', 'ハードウェア', 'サプライ' => 'first_business',
+                    default => config('business_divisions.default', 'fifth_business'),
+                };
 
                 // Idempotent: skip if a product by this name already exists
                 $existsByName = DB::table('products')->where('name', $name)->exists();
                 if ($existsByName) continue;
 
-                $this->createProductWithIncrementedSku($category->id, $category->code, $name, $price, $cost, $unit, $description);
+                $this->createProductWithIncrementedSku($category->id, $category->code, $name, $price, $cost, $unit, $description, $businessDivision);
             }
         }
     }
 
-    private function createProductWithIncrementedSku(int $categoryId, string $categoryCode, string $name, int $price, int $cost, string $unit, ?string $description): void
+    private function createProductWithIncrementedSku(int $categoryId, string $categoryCode, string $name, int $price, int $cost, string $unit, ?string $description, ?string $businessDivision = null): void
     {
         $attempts = 0;
         $maxAttempts = 7;
@@ -171,6 +175,9 @@ class ItemSeeder extends Seeder
                         'created_at' => now(),
                         'updated_at' => now(),
                     ];
+                    if (\Illuminate\Support\Facades\Schema::hasColumn('products', 'business_division')) {
+                        $payload['business_division'] = $businessDivision ?? config('business_divisions.default', 'fifth_business');
+                    }
                     // Optional columns when schema supports
                     if (\Illuminate\Support\Facades\Schema::hasColumn('products', 'category_id')) {
                         $payload['category_id'] = $categoryId;

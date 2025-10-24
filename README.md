@@ -1,7 +1,7 @@
 # RAKUSHIRU Cloud – Overview
 
 RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forward クラウド請求書と連携させる Laravel 12 + Inertia(React) アプリケーションです。  
-ローカルでの承認フロー、商品／分類マスタ、Money Forward 側の各 API との同期機能をひとつの UI に集約しています。
+ローカルでの承認フロー、商品／商品分類マスタ、Money Forward 側の各 API との同期機能をひとつの UI に集約しています。
 
 ## Tech Stack
 - PHP 8.2 / Laravel 12
@@ -31,8 +31,8 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 - Money Forward PDF のダウンロードはトークンが有効な場合は即時ストリーミング、失効時は OAuth を再実行します。
 
 ### Product Master & Categories
-- `/products` は商品マスタ管理画面。分類(`categories`)はダイアログで CRUD、分類コードはサーバ側で A, B, … と自動採番します。
-- 商品コードは `<分類コード>-<3桁連番>` で自動生成。分類変更時もトランザクションでシーケンスを更新します。
+- `/products` は商品マスタ管理画面。商品分類(`categories`)はダイアログで CRUD、分類コードはサーバ側で A, B, … と自動採番します。
+- 商品コードは `<商品分類コード>-<3桁連番>` で自動生成。商品分類変更時もトランザクションでシーケンスを更新します。
 - Money Forward との品目同期:
   - `/products` 表示時にローカルの商品マスタを Money Forward 側へ自動同期（作成・更新・削除を差分処理）。未認証時は OAuth に遷移し、復帰後に同期が継続されます。
   - 画面右上の「MFへ同期」ボタンで同じ処理を手動実行可能。行単位の同期ボタンは廃止しました。
@@ -80,7 +80,7 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 - `estimates`: 見積本体。`items` は JSON カラムで UI から編集可。`approval_flow` に承認者配列を保持。
 - `local_invoices`: ローカル請求。Money Forward 連携済みの場合 `mf_billing_id` / `mf_pdf_url` を保持。
 - `billings`: Money Forward から同期した請求を保存するローカルキャッシュ。明細は `billing_items` に保持。
-- `categories` / `products`: 商品マスタ。分類ごとの `last_item_seq` と商品自動採番に注意。
+- `categories` / `products`: 商品マスタ。商品分類ごとの `last_item_seq` と商品自動採番に注意。
 - `mf_tokens`: ユーザーごとのアクセストークンとリフレッシュトークンを保存。期限切れ時は自動更新を試行。
 
 ## Development Notes
@@ -88,3 +88,14 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 - 開発サーバ: `composer dev` (Laravel サーバ、キュー、ログ、Vite を並列実行)
 - Playwright テスト: `npm run test:e2e`
 - Money Forward API エラーは `storage/logs/laravel.log` と `MoneyForwardApiService` のログ出力を参照。
+
+## Troubleshooting
+
+### SQLSTATE\[HY000] \[2002] Connection refused（セッション初期化で失敗する）
+- 症状: 初回アクセス時に `Illuminate\Database\QueryException` が発生し、`sessions` テーブルの取得でコネクション確立に失敗する。
+- 主な原因: Docker 上の MySQL コンテナが停止している／立ち上がっていない。
+- 対応:
+  - Docker Desktop を開き、対象プロジェクトのコンテナ（例: `raku`）を再生ボタンで起動する。
+  - CLI 利用の場合はリポジトリ直下で `docker compose up -d` など、環境に合わせたコマンドでデータベースコンテナを起動する。
+  - MySQL 起動後に `php artisan migrate --seed` を実行し、必要なテーブル（`sessions` など）を作成する。
+- 一時的な回避策として、DB 起動前に画面表示だけ確認したい場合は `.env` の `SESSION_DRIVER=file` に切り替え、`php artisan config:clear` を実行する。ただし最終的には MySQL を起動して戻すこと。
