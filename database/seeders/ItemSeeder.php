@@ -155,7 +155,7 @@ class ItemSeeder extends Seeder
         while ($attempts < $maxAttempts) {
             $attempts++;
             try {
-                DB::transaction(function () use ($categoryId, $categoryCode, $name, $price, $cost, $unit, $description) {
+                DB::transaction(function () use ($categoryId, $categoryCode, $name, $price, $cost, $unit, $description, $businessDivision) {
                     // lock this category row and fetch updated seq
                     $row = DB::table('categories')->where('id', $categoryId)->lockForUpdate()->first(['id', 'last_item_seq']);
                     $seq = (int) $row->last_item_seq + 1;
