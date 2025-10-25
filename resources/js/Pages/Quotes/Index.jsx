@@ -16,7 +16,7 @@ import {
     PlusCircle,
     Search,
     Filter,
-    Users,
+    CheckCircle,
     TrendingUp,
     Calendar,
     DollarSign,
@@ -24,7 +24,6 @@ import {
     Edit,
     Trash2,
     Copy,
-    CheckCircle,
     Clock,
     AlertCircle,
     Target
@@ -226,18 +225,6 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                 {config.label}
             </Badge>
         );
-    };
-
-    const handleBulkApprove = () => {
-        if (selectedEstimates.length === 0) return;
-        if (confirm(`選択された ${selectedEstimates.length} 件の見積書を承認申請しますか？`)) {
-            router.post(route('estimates.bulkApprove'), { ids: selectedEstimates });
-        }
-    };
-
-    const handleBulkReassign = () => {
-        if (selectedEstimates.length === 0) return;
-        alert(`選択された ${selectedEstimates.length} 件の見積書の担当者を変更します。`);
     };
 
     const handleDuplicate = (id) => {
@@ -597,34 +584,6 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                 >
                                     {isSyncing ? '同期中…' : 'MF同期'}
                                 </SyncButton>
-                                <Button
-                                    variant="outline"
-                                    onClick={handleBulkApprove}
-                                    disabled={selectedEstimates.length === 0}
-                                    className={cn(
-                                        "flex items-center gap-2",
-                                        selectedEstimates.length > 0 
-                                            ? "border-green-500 text-green-600 hover:bg-green-50" 
-                                            : "border-slate-300"
-                                    )}
-                                >
-                                    <CheckCircle className="h-4 w-4" />
-                                    承認申請 ({selectedEstimates.length})
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    onClick={handleBulkReassign}
-                                    disabled={selectedEstimates.length === 0}
-                                    className={cn(
-                                        "flex items-center gap-2",
-                                        selectedEstimates.length > 0 
-                                            ? "border-blue-500 text-blue-600 hover:bg-blue-50" 
-                                            : "border-slate-300"
-                                    )}
-                                >
-                                    <Users className="h-4 w-4" />
-                                    担当者付替
-                                </Button>
                                 <Link href={route('estimates.create')}>
                                     <Button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
                                         <PlusCircle className="h-4 w-4"/>

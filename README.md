@@ -88,6 +88,7 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 - 開発サーバ: `composer dev` (Laravel サーバ、キュー、ログ、Vite を並列実行)
 - Playwright テスト: `npm run test:e2e`
 - Money Forward API エラーは `storage/logs/laravel.log` と `MoneyForwardApiService` のログ出力を参照。
+- PHPUnit テストは MySQL `xero_raku_test` データベースを使用します。存在しない場合は `CREATE DATABASE xero_raku_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;` を実行してください。
 
 ## Troubleshooting
 
