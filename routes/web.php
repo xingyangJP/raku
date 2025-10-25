@@ -51,6 +51,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/mf/billings/auth/start', [BillingController::class, 'redirectToAuth'])->name('billing.auth.start');
     Route::get('/billing/{billing}/pdf', [BillingController::class, 'downloadPdf'])->name('billing.downloadPdf');
     Route::get('/inventory', fn () => Inertia::render('Inventory/Index'))->name('inventory.index');
+    Route::get('/help', fn () => Inertia::render('Help/Index'))->name('help.index');
 
     Route::get('/billing/create', fn () => Inertia::render('Billing/Create'))->name('billing.create');
 
