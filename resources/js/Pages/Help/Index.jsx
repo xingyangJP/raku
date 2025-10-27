@@ -2,8 +2,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head } from '@inertiajs/react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Badge } from '@/Components/ui/badge';
-import { Separator } from '@/Components/ui/separator';
-import { RefreshCw, Plug, Info, ShieldCheck, Workflow, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Plug, Info, ShieldCheck, Workflow, AlertTriangle, Flag, CheckCircle, PenSquare, Send, FileCheck2 } from 'lucide-react';
 
 const syncTimings = [
     {
@@ -42,14 +41,19 @@ const screenTips = [
             '「MF同期」ボタンは Money Forward API のレート制限に配慮した差分同期です。更新・削除した見積が 1～2 分で反映されます。',
             'ローカルで削除すると一覧から非表示になりますが、Money Forward 上の見積は残ります。MF 側の削除が必要な場合は Money Forward 管理画面で実施してください。',
             '金額編集や承認ステータス変更後は自動的にローカル DB へ保存され、必要に応じて MF 送信メニューから送信します。',
+            '見積書発行は Money Forward 側でのみ可能です。ローカルで承認登録した後、「MFで見積書発行」ボタンから Money Forward に遷移して作成します。',
         ],
     },
     {
         name: '見積編集・承認フロー',
         points: [
-            '承認申請を送るとローカルの承認状態が更新され、担当者の ToDo に反映されます。',
+            '見積作成手順：①基礎情報・明細を入力 → ②「下書き保存」で草稿確定 → ③承認ルートを設定 → ④「承認申請」で次承認者へ回付します。',
+            '承認申請を送るとローカルの承認状態が更新され、担当者の ToDo に反映されます。申請ステータスは見積番号横のバッジで確認できます。',
+            '承認担当者は詳細画面の「承認する」ボタンから承認／差戻しを選択します。差戻し時はコメントを必ず入力してください。',
+            '承認済み見積を編集するとステータスが自動的に「承認待ち（再申請）」へ戻り、全承認者の再承認が必要になります。緊急修正時はチャット等で関係者に通知してください。',
+            '承認取消は見積詳細の「承認申請を取り消す」から実行できます。取消時は承認履歴に記録され、再申請が可能になります。',
             '「MFで見積書発行」ボタンで Money Forward に見積を作成します。発行後の修正はローカルと MF の両方で行う必要があります。',
-            '見積を請求に変換すると、ローカルの請求草稿が生成され、必要に応じて Money Forward 請求へ送信できます。',
+            '見積を請求に変換すると、ローカルの請求草稿が生成され、必要に応じて Money Forward 請求へ送信できます。変換後に明細を修正した場合は再度同期してください。',
         ],
     },
     {
@@ -67,6 +71,51 @@ const screenTips = [
             '同期時に「第1種/第5種事業」などの事業区分が Money Forward へも付帯情報として送信されます（API 側で保持されない場合でもログに残ります）。',
             '商品を削除するとローカル登録が非活性化され、次回同期で Money Forward 側も非表示にするリクエストを送ります。',
         ],
+    },
+];
+
+const estimateFlow = [
+    {
+        icon: Flag,
+        title: '1. 下書き作成',
+        description: '顧客・部門・案件名を入力し、明細を追加。保存前でも途中保存が可能です。',
+        detail: '「下書き保存」でSKU採番・発番が完了し、ドラフトとして一覧に表示されます。',
+        accent: 'from-blue-50 to-blue-100 border-blue-200',
+    },
+    {
+        icon: PenSquare,
+        title: '2. 承認ルート設定',
+        description: '承認者シーケンスを設定し、必要ならコメントや添付資料を追加。',
+        detail: '部署標準フローを読み込むか、個別に承認者を並べ替えてください。',
+        accent: 'from-indigo-50 to-indigo-100 border-indigo-200',
+    },
+    {
+        icon: Send,
+        title: '3. 承認申請',
+        description: '「承認申請」ボタンで次承認者に通知。ToDo とメール通知で連絡されます。',
+        detail: '申請中はローカルの編集が制限されます。差し戻し・取消で再編集が可能です。',
+        accent: 'from-amber-50 to-amber-100 border-amber-200',
+    },
+    {
+        icon: CheckCircle,
+        title: '4. 承認処理',
+        description: '承認担当者は詳細画面から承認／差戻し／取消を選択。コメントが履歴に残ります。',
+        detail: '全員承認でステータスが「承認済」に変わり、下部のMoney Forward操作が有効化。',
+        accent: 'from-emerald-50 to-emerald-100 border-emerald-200',
+    },
+    {
+        icon: FileCheck2,
+        title: '5. Money Forward 発行',
+        description: '「MFで見積書発行」を押して Money Forward に遷移し、見積書を発行します。',
+        detail: 'ローカルでの発行はできません。修正が必要な場合は再承認後に再発行し、不要になったMF見積は手動で無効化してください。',
+        accent: 'from-purple-50 to-purple-100 border-purple-200',
+    },
+    {
+        icon: AlertTriangle,
+        title: '6. 修正・再申請',
+        description: '承認後に編集するとステータスが「承認待ち（再申請）」へ自動で戻ります。',
+        detail: '緊急修正時はチャット等で関係者に周知し、必要に応じて Money Forward 側の見積も更新してください。',
+        accent: 'from-rose-50 to-rose-100 border-rose-200',
     },
 ];
 
@@ -125,7 +174,7 @@ export default function HelpIndex({ auth }) {
                                         <p className="text-lg font-semibold">すべて正常</p>
                                     </div>
                                 </div>
-                                <Separator className="my-4 bg-white/20" />
+                                <div className="my-4 h-px bg-white/20" />
                                 <ul className="space-y-2 text-sm text-white/90">
                                     <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-300" />取引先同期：自動</li>
                                     <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-300" />見積同期：画面表示＋手動ボタン</li>
@@ -165,6 +214,50 @@ export default function HelpIndex({ auth }) {
                                 <li>トークン失効や通信エラーで自動同期が失敗した後にリトライしたいとき</li>
                                 <li>承認後すぐに請求へ進めたいなど、リアルタイム性が必要な業務フロー</li>
                             </ul>
+                        </div>
+                    </div>
+                </section>
+
+                <section className="space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Workflow className="h-5 w-5 text-slate-500" />
+                        <h2 className="text-xl font-semibold text-slate-800">見積ワークフロー（社内承認 → Money Forward 発行）</h2>
+                    </div>
+                    <p className="text-sm text-slate-600">以下の順序で操作すると、社内承認と Money Forward 発行がスムーズに行えます。各ステップはステータスバッジとして一覧にも反映されます。</p>
+                    <div className="relative mx-auto max-w-5xl">
+                        <div className="absolute left-6 top-6 bottom-6 hidden border-l-2 border-dashed border-slate-200 md:block" aria-hidden="true" />
+                        <div className="space-y-6">
+                            {estimateFlow.map((step, index) => {
+                                const Icon = step.icon;
+                                return (
+                                    <div
+                                        key={step.title}
+                                        className={`relative border ${step.accent} rounded-2xl p-5 shadow-sm transition hover:shadow-md bg-white/90`}
+                                    >
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-inner border border-white/60">
+                                                    <Icon className="h-6 w-6 text-slate-700" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step {index + 1}</p>
+                                                    <h3 className="text-lg font-semibold text-slate-800">{step.title}</h3>
+                                                </div>
+                                            </div>
+                                            <div className="ml-auto hidden text-sm font-medium text-slate-500 md:block">{step.description}</div>
+                                        </div>
+                                        <div className="mt-3 text-sm leading-relaxed text-slate-700 md:hidden">{step.description}</div>
+                                        <div className="mt-3 rounded-xl bg-white/80 p-4 text-sm text-slate-600">
+                                            {step.detail}
+                                        </div>
+                                        {index < estimateFlow.length - 1 && (
+                                            <div className="md:absolute md:left-[22px] md:top-full md:h-6 md:w-4 md:translate-y-1">
+                                                <div className="mx-auto hidden h-full w-[2px] bg-gradient-to-b from-slate-200 to-transparent md:block" />
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </section>

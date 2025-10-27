@@ -241,8 +241,23 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
 
     // 一覧ではプレビューを廃止。MF見積PDFがある場合のみ「PDF表示」を提供します。
 
-    const calculateAmount = (item) => item.qty * item.price;
-    const calculateCostAmount = (item) => item.qty * item.cost;
+    const toNumber = (value, fallback = 0) => {
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : fallback;
+        }
+        if (typeof value === 'string' && value.trim() !== '') {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        }
+        return fallback;
+    };
+
+    const getQuantity = (item) => toNumber(item?.qty ?? item?.quantity, 0);
+    const getPrice = (item) => toNumber(item?.price, 0);
+    const getCost = (item) => toNumber(item?.cost, 0);
+
+    const calculateAmount = (item) => getQuantity(item) * getPrice(item);
+    const calculateCostAmount = (item) => getQuantity(item) * getCost(item);
     const calculateGrossProfit = (item) => calculateAmount(item) - calculateCostAmount(item);
     const calculateGrossMargin = (item) => {
         const amount = calculateAmount(item);
@@ -648,7 +663,12 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                         />
                                                     </TableCell>
                                                     <TableCell className="font-medium text-blue-700">
-                                                        {estimate.estimate_number}
+                                                        <Link
+                                                            href={route('estimates.edit', estimate.id)}
+                                                            className="hover:underline"
+                                                        >
+                                                            {estimate.estimate_number}
+                                                        </Link>
                                                     </TableCell>
                                                     <TableCell className="max-w-[200px] truncate">
                                                         {estimate.title}
@@ -779,6 +799,15 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                             <p className="text-sm text-slate-500">合計金額 (税込)</p>
                                                                             <p className="font-bold text-xl text-green-600">
                                                                                 ¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div>
+                                                                            <p className="text-sm text-slate-500">粗利率</p>
+                                                                            <p className={`font-semibold text-lg ${Number.isFinite(totalGrossMargin) && totalGrossMargin >= 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                                                                                {Number.isFinite(totalGrossMargin) ? `${totalGrossMargin.toFixed(1)}%` : '―'}
+                                                                            </p>
+                                                                            <p className="text-xs text-slate-500 mt-1">
+                                                                                粗利 ¥{Number.isFinite(totalGrossProfit) ? totalGrossProfit.toLocaleString() : '―'} / 原価 ¥{Number.isFinite(totalCost) ? totalCost.toLocaleString() : '―'}
                                                                             </p>
                                                                         </div>
                                                                         <div>

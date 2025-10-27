@@ -82,7 +82,11 @@ class MoneyForwardApiService
 
             return json_decode($response->getBody()->getContents(), true);
         } catch (\Exception $e) {
-            Log::error('Failed to fetch Money Forward quotes: ' . $e->getMessage());
+            $context = [];
+            if (method_exists($e, 'getResponse') && $e->getResponse()) {
+                $context['response'] = (string) $e->getResponse()->getBody();
+            }
+            Log::error('Failed to fetch Money Forward quotes: ' . $e->getMessage(), $context);
             report($e);
             return null;
         }
@@ -370,11 +374,19 @@ class MoneyForwardApiService
                 }
             }
 
+            $name = $item['name'] ?? '';
+            if ($name === '' && !empty($item['description'])) {
+                $name = mb_substr($item['description'], 0, 40);
+            }
+            if ($name === '') {
+                $name = '項目';
+            }
+
             $items[] = [
-                'name' => $item['name'],
-                'price' => $item['price'],
-                'quantity' => $item['qty'],
-                'unit' => $item['unit'],
+                'name' => $name,
+                'price' => (float) ($item['price'] ?? 0),
+                'quantity' => (float) ($item['qty'] ?? $item['quantity'] ?? 0),
+                'unit' => $item['unit'] ?? '',
                 'detail' => $item['description'] ?? '',
                 'excise' => $excise,
             ];
@@ -394,12 +406,20 @@ class MoneyForwardApiService
             $quoteNumber = substr($quoteNumber, 0, 30);
         }
 
+        $memoLines = [];
+        if ($estimate->internal_memo) {
+            $memoLines[] = trim((string) $estimate->internal_memo);
+        }
+        if ($estimate->staff_name) {
+            $memoLines[] = '自社担当：' . $estimate->staff_name;
+        }
+
         $quoteData = [
             'department_id' => $estimate->mf_department_id,
             'partner_id' => $estimate->client_id,
             'quote_number' => $quoteNumber,
             'title' => $estimate->title,
-            'memo' => $estimate->internal_memo ?? '',
+            'memo' => implode("\n", array_filter($memoLines)),
             'quote_date' => $issue->format('Y-m-d'),
             'expired_date' => $expired->format('Y-m-d'),
             'note' => $estimate->notes,

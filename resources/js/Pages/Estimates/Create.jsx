@@ -11,7 +11,7 @@ import { Checkbox } from '@/Components/ui/checkbox';
 import { Label } from '@/Components/ui/label';
 import { Switch } from '@/Components/ui/switch';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
-import { PlusCircle, MinusCircle, Trash2, ArrowUp, ArrowDown, Copy, FileText, Eye, History, Check, ChevronsUpDown } from 'lucide-react';
+import { PlusCircle, MinusCircle, Trash2, ArrowUp, ArrowDown, Copy, FileText, Eye, Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from "@/lib/utils"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/Components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover"
@@ -249,7 +249,30 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const isEditMode = estimate !== null;
 
     const [isInternalView, setIsInternalView] = useState(true);
-    const [lineItems, setLineItems] = useState(estimate?.items || []);
+    const normalizeNumber = (value, fallback = 0) => {
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : fallback;
+        }
+        if (typeof value === 'string' && value.trim() !== '') {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : fallback;
+        }
+        return fallback;
+    };
+
+    const transformIncomingItems = (items = []) => items.map((item, index) => ({
+        id: item.id ?? item.__temp_id ?? Date.now() + index,
+        product_id: item.product_id ?? null,
+        name: item.name ?? '',
+        description: item.description ?? item.detail ?? '',
+        qty: normalizeNumber(item.qty ?? item.quantity, 1) || 1,
+        unit: item.unit ?? '式',
+        price: normalizeNumber(item.price, 0),
+        cost: normalizeNumber(item.cost, 0),
+        tax_category: item.tax_category ?? 'standard',
+    }));
+
+    const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
     const [selectedStaff, setSelectedStaff] = useState(() => (estimate?.staff_id && estimate?.staff_name)
         ? { id: estimate.staff_id, name: estimate.staff_name }
         : null
@@ -302,7 +325,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         notes: estimate?.notes || '',
         internal_memo: estimate?.internal_memo || '',
         delivery_location: estimate?.delivery_location || '',
-        items: estimate?.items || [],
+        items: transformIncomingItems(estimate?.items),
         estimate_number: estimate?.estimate_number || '',
         staff_id: estimate?.staff_id || null,
         staff_name: estimate?.staff_name || (estimate?.staff ? estimate.staff.name : null) || null,
@@ -313,6 +336,10 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     
 
     const [submitErrors, setSubmitErrors] = useState([]);
+
+    useEffect(() => {
+        setLineItems(transformIncomingItems(estimate?.items));
+    }, [estimate?.items]);
 
     // data.status を直接参照して、現在のUIの状態を正しく判定する
     const isInApproval = useMemo(() => {
@@ -351,8 +378,8 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     // It's better to manage form state directly with setData in onChange handlers.
     // For simplicity, we will bind the inputs directly to useForm's data object.
 
-    const calculateAmount = (item) => item.qty * item.price;
-    const calculateCostAmount = (item) => item.qty * item.cost;
+    const calculateAmount = (item) => normalizeNumber(item.qty, 0) * normalizeNumber(item.price, 0);
+    const calculateCostAmount = (item) => normalizeNumber(item.qty, 0) * normalizeNumber(item.cost, 0);
     const calculateGrossProfit = (item) => calculateAmount(item) - calculateCostAmount(item);
     const calculateGrossMargin = (item) => {
         const amount = calculateAmount(item);
@@ -371,9 +398,25 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }, 0);
     const total = subtotal + tax;
 
-    useEffect(() => {
-        setData(prevData => ({ ...prevData, items: lineItems, total_amount: total, tax_amount: tax }));
-    }, [lineItems, total, tax]);
+useEffect(() => {
+    const payloadItems = lineItems.map(item => ({
+        product_id: item.product_id,
+        name: item.name,
+        description: item.description,
+        qty: normalizeNumber(item.qty, 0),
+        unit: item.unit,
+        price: normalizeNumber(item.price, 0),
+        cost: normalizeNumber(item.cost, 0),
+        tax_category: item.tax_category,
+    }));
+
+    setData(prevData => ({
+        ...prevData,
+        items: payloadItems,
+        total_amount: Math.round(total),
+        tax_amount: Math.round(tax),
+    }));
+}, [lineItems, total, tax]);
 
     useEffect(() => {
         setData('approval_flow', approvers);
@@ -462,10 +505,13 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         setLineItems(prevItems => prevItems.filter(item => item.id !== id));
     };
 
+    const numericFields = new Set(['qty', 'price', 'cost']);
+
     const handleItemChange = (id, field, value) => {
+        const normalizedValue = numericFields.has(field) ? normalizeNumber(value, 0) : value;
         setLineItems(prevItems =>
             prevItems.map(item =>
-                item.id === id ? { ...item, [field]: value } : item
+                item.id === id ? { ...item, [field]: normalizedValue } : item
             )
         );
     };
@@ -488,7 +534,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     };
 
     const groupedAnalysisData = lineItems.reduce((acc, item) => {
-        const itemName = item.name;
+        const itemName = item.name && item.name !== '' ? item.name : '未設定';
         if (!acc[itemName]) {
             acc[itemName] = {
                 grossProfit: 0,
@@ -641,7 +687,16 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
 
                         <Card>
                             <CardHeader>
-                                <CardTitle>基本情報</CardTitle>
+                                <div className="flex items-center justify-between gap-3">
+                                    <CardTitle className="flex items-center gap-2">
+                                        <span>基本情報</span>
+                                        {isEditMode && ['sent', 'approved'].includes(String(estimate?.status || '').toLowerCase()) && (
+                                            <span className="inline-flex items-center rounded-full bg-red-500 px-3 py-1 text-xs font-semibold text-white">
+                                                承認済
+                                            </span>
+                                        )}
+                                    </CardTitle>
+                                </div>
                             </CardHeader>
                             <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                 <div className="space-y-2">
@@ -1023,7 +1078,6 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                         <Card>
                             <CardFooter className="flex justify-between items-center py-4">
                                 <div>
-                                    <Button variant="outline"><History className="mr-2 h-4 w-4" />変更履歴</Button>
                                 </div>
                                 <div className="space-x-2">
                                     {isEditMode && is_fully_approved && estimate.client_id && !estimate.mf_quote_id && (

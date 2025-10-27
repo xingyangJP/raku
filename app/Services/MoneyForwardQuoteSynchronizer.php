@@ -90,6 +90,8 @@ class MoneyForwardQuoteSynchronizer
         $totalSynced = 0;
         $syncedQuoteIds = [];
 
+        $fetchFailed = false;
+
         do {
             $response = $this->apiService->fetchQuotes($accessToken, [
                 'page' => $page,
@@ -97,6 +99,7 @@ class MoneyForwardQuoteSynchronizer
             ]);
 
             if (!is_array($response)) {
+                $fetchFailed = true;
                 break;
             }
 
@@ -123,7 +126,9 @@ class MoneyForwardQuoteSynchronizer
             $page++;
         } while (!empty($data) && $hasNext);
 
-        $this->markMissingQuotesAsDeleted($syncedQuoteIds);
+        if (!$fetchFailed && !empty($syncedQuoteIds)) {
+            $this->markMissingQuotesAsDeleted($syncedQuoteIds);
+        }
 
         return $totalSynced;
     }
@@ -139,6 +144,8 @@ class MoneyForwardQuoteSynchronizer
 
         $estimate = Estimate::where('mf_quote_id', $quoteId)->first();
 
+        $normalizedQuoteNumber = $this->normalizeQuoteNumber($quoteNumber);
+
         if (!$estimate && $quoteNumber) {
             $estimate = Estimate::where('estimate_number', $quoteNumber)->first();
             if ($estimate) {
@@ -152,9 +159,25 @@ class MoneyForwardQuoteSynchronizer
             }
         }
 
+        if (!$estimate && $normalizedQuoteNumber && $normalizedQuoteNumber !== $quoteNumber) {
+            $estimate = Estimate::where('estimate_number', $normalizedQuoteNumber)->first();
+            if ($estimate) {
+                $estimate->mf_quote_id = $quoteId;
+                $estimate->save();
+                Log::info('MF quote linked to estimate by normalized quote_number', [
+                    'quote_id' => $quoteId,
+                    'quote_number' => $quoteNumber,
+                    'normalized' => $normalizedQuoteNumber,
+                    'estimate_id' => $estimate->id,
+                ]);
+            }
+        }
+
         if (!$estimate) {
             $attributes = [];
-            if ($quoteNumber) {
+            if ($normalizedQuoteNumber) {
+                $attributes['estimate_number'] = $normalizedQuoteNumber;
+            } elseif ($quoteNumber) {
                 $attributes['estimate_number'] = $quoteNumber;
             }
 
@@ -170,7 +193,9 @@ class MoneyForwardQuoteSynchronizer
             $payload['mf_quote_pdf_url'] = $pdfUrl;
         }
 
-        if ($quoteNumber && (empty($estimate->estimate_number) || $estimate->estimate_number === $quoteNumber)) {
+        if ($normalizedQuoteNumber && (empty($estimate->estimate_number) || $estimate->estimate_number === $normalizedQuoteNumber)) {
+            $payload['estimate_number'] = $normalizedQuoteNumber;
+        } elseif ($quoteNumber && (empty($estimate->estimate_number) || $estimate->estimate_number === $quoteNumber)) {
             $payload['estimate_number'] = $quoteNumber;
         }
 
@@ -208,16 +233,65 @@ class MoneyForwardQuoteSynchronizer
             $payload['total_amount'] = (int) round((float) $totalPrice);
         }
 
+        if ($memberId = Arr::get($quoteData, 'member_id')) {
+            if (is_numeric($memberId)) {
+                $payload['staff_id'] = (int) $memberId;
+            }
+        }
+
+        if ($memberName = Arr::get($quoteData, 'member_name')) {
+            $memberName = trim((string) $memberName);
+            if ($memberName !== '') {
+                $payload['staff_name'] = $memberName;
+            }
+        }
+
+        if ($memo = Arr::get($quoteData, 'memo')) {
+            $payload['internal_memo'] = $memo;
+            if (empty($payload['staff_name'])) {
+                if (preg_match('/自社担当[:：]\\s*(.+)/u', $memo, $matches)) {
+                    $payload['staff_name'] = trim($matches[1]);
+                }
+            }
+        }
+
         $items = [];
-        foreach (Arr::get($quoteData, 'items', []) as $item) {
-            $items[] = array_filter([
-                'name' => Arr::get($item, 'name'),
+        foreach (Arr::get($quoteData, 'items', []) as $index => $item) {
+            $quantity = Arr::has($item, 'quantity') ? (float) Arr::get($item, 'quantity') : null;
+            $price = Arr::has($item, 'price') ? (float) Arr::get($item, 'price') : null;
+            $cost = Arr::has($item, 'cost') ? (float) Arr::get($item, 'cost') : null;
+            $excise = Arr::get($item, 'excise');
+            $taxCategory = match ($excise) {
+                'ten_percent' => 'standard',
+                'eight_percent', 'eight_percent_reduced', 'eight_percent_as_reduced_tax_rate' => 'reduced',
+                'untaxable', 'non_taxable', 'tax_exemption' => 'exempt',
+                default => 'standard',
+            };
+            $detail = Arr::get($item, 'detail') ?? Arr::get($item, 'description');
+            $name = trim((string) Arr::get($item, 'name', ''));
+            if ($name === '' && is_string($detail) && $detail !== '') {
+                $name = mb_substr($detail, 0, 40);
+            }
+            if ($name === '') {
+                $name = '項目' . ($index + 1);
+            }
+
+            $itemPayload = array_filter([
+                'name' => $name,
                 'code' => Arr::get($item, 'code'),
-                'detail' => Arr::get($item, 'detail'),
+                'description' => $detail,
+                'detail' => $detail,
                 'unit' => Arr::get($item, 'unit'),
-                'price' => Arr::has($item, 'price') ? (float) Arr::get($item, 'price') : null,
-                'quantity' => Arr::has($item, 'quantity') ? (float) Arr::get($item, 'quantity') : null,
+                'price' => $price,
+                'qty' => $quantity,
+                'quantity' => $quantity,
+                'cost' => $cost,
+                'tax_category' => $taxCategory,
             ], static fn ($value) => !is_null($value));
+
+            if (!empty($itemPayload)) {
+                $items[] = $itemPayload;
+            }
         }
 
         if (!empty($items)) {
@@ -237,6 +311,18 @@ class MoneyForwardQuoteSynchronizer
         }
 
         return $estimate;
+    }
+
+    private function normalizeQuoteNumber(?string $quoteNumber): ?string
+    {
+        if (!$quoteNumber) {
+            return null;
+        }
+
+        $normalized = preg_replace('/-CRM-/', '-', $quoteNumber);
+        $normalized = preg_replace('/CRM/', '', $normalized ?? '');
+
+        return $normalized ?: $quoteNumber;
     }
 
     private function lastSyncedCacheKey(?int $userId = null): string
