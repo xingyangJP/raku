@@ -273,22 +273,9 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }));
 
     const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
-    const defaultPromptTemplate = `【検収基準】
-機能一覧の受入テストで合格した時点を検収完了とする。
+    const notePromptPlaceholder = '例: 検収基準・納期の条件・クライアント提供物・変更手続き・保守保証など備考に明記したい要素';
 
-【納期】
-本見積は合意した要件に基づくもので、正式なスケジュールは別途合意する。
-
-【前提条件】
-クライアント側にて以下を提供する：API仕様書、必要なアクセス権、テスト用アカウント 等。
-
-【変更管理】
-要件変更は別途見積もり・合意の上で追加費用が発生する。
-
-【保守保証】
-納品後30日間は初期不具合対応を無償とする（対象は当社実装範囲内の不具合に限る）。`;
-
-    const [notePrompt, setNotePrompt] = useState(defaultPromptTemplate);
+    const [notePrompt, setNotePrompt] = useState('');
     const [notePromptError, setNotePromptError] = useState(null);
     const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
     const [selectedStaff, setSelectedStaff] = useState(() => (estimate?.staff_id && estimate?.staff_name)
@@ -815,14 +802,18 @@ useEffect(() => {
                                     <Textarea id="external-remarks" value={data.notes} onChange={(e) => setData('notes', e.target.value)} placeholder="お見積りの有効期限は発行後1ヶ月です。" />
                                 </div>
                                 {isInternalView && (
-                                    <div className="lg:col-span-2 grid gap-4 lg:grid-cols-2">
-                                        <div className="space-y-2 lg:col-span-2">
+                                    <>
+                                        <div className="lg:col-span-2 space-y-2">
+                                            <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
+                                            <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
+                                        </div>
+                                        <div className="lg:col-span-2 space-y-2">
                                             <Label htmlFor="notes-prompt">備考生成プロンプト</Label>
                                             <Textarea
                                                 id="notes-prompt"
                                                 value={notePrompt}
                                                 onChange={(e) => setNotePrompt(e.target.value)}
-                                                placeholder="リスク共有・前提条件・変更手続き・保証など、備考に盛り込みたい要素を箇条書きで入力"
+                                                placeholder={notePromptPlaceholder}
                                             />
                                             {notePromptError && (
                                                 <p className="text-sm text-red-600">{notePromptError}</p>
@@ -839,11 +830,7 @@ useEffect(() => {
                                                 <p className="text-xs text-slate-500">入力した内容に基づいて対外備考を提案します。</p>
                                             </div>
                                         </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
-                                            <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
-                                        </div>
-                                    </div>
+                                    </>
                                 )}
                             </CardContent>
                         </Card>

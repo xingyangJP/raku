@@ -602,7 +602,7 @@ class EstimateController extends Controller
         $messages = [
             [
                 'role' => 'system',
-                'content' => 'You compose professional Japanese estimate remarks. Structure the response into multiple sections, each beginning with a full-width bracket label such as「【検収基準】」「【納期】」「【前提条件】」「【変更管理】」「【保守保証】」など、適切な名称を選んでください。各セクションは 1〜2 文で丁寧語（です・ます調）を使い、セクション間には空行を入れて読みやすくします。提供された情報に関連するセクションのみを生成し、箇条書きやハイフン等の記号は使用しません。ユーザーの入力または文脈に「リスク」という語が含まれない限り、応答でも「リスク」という語を使用しないでください。',
+                'content' => 'You compose professional Japanese estimate remarks. Structure the response into multiple sections, each beginning with full-width bracket labels such as 【検収基準】, 【納期】, 【前提条件】, 【変更管理】, 【保守保証】, choosing only relevant titles. Each section should contain 1〜2 sentences in polite Japanese (です・ます調) with no extra quotation marks around the label. Insert a single blank line between sections for readability. Only include sections that match the provided information, and do not use bullet points or hyphen prefixes. If neither the user prompt nor the context contains the word リスク, avoid using that word in the response.',
             ],
             [
                 'role' => 'user',
@@ -640,6 +640,10 @@ class EstimateController extends Controller
         }
 
         $notes = trim((string) data_get($response->json(), 'choices.0.message.content', ''));
+        if ($notes !== '') {
+            $lines = array_filter(array_map('rtrim', preg_split("/\r?\n/", $notes)), static fn($line) => $line !== '');
+            $notes = implode("\n", $lines);
+        }
         if ($notes === '') {
             return response()->json([
                 'message' => '有効な文面を生成できませんでした。',
