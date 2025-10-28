@@ -575,6 +575,56 @@ class MoneyForwardApiService
         }
     }
 
+    public function updateDepartmentContact(string $partnerId, string $departmentId, array $contact, string $accessToken)
+    {
+        $payload = array_intersect_key($contact, array_flip(['person_name', 'person_title']));
+        $payload = array_filter($payload, static fn($value) => $value !== null && $value !== '');
+
+        if (empty($payload)) {
+            return false;
+        }
+
+        try {
+            $response = $this->client->put($this->apiUrl . "/partners/{$partnerId}/departments/{$departmentId}", [
+                'headers' => [
+                    'Authorization' => 'Bearer ' . $accessToken,
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json',
+                ],
+                'json' => $payload,
+            ]);
+
+            if ($response->getStatusCode() !== 200) {
+                Log::warning('Money Forward department update returned unexpected status.', [
+                    'status' => $response->getStatusCode(),
+                    'partner_id' => $partnerId,
+                    'department_id' => $departmentId,
+                ]);
+                return false;
+            }
+
+            return json_decode($response->getBody()->getContents(), true);
+        } catch (RequestException $e) {
+            $status = $e->getResponse() ? $e->getResponse()->getStatusCode() : null;
+            $body = $e->getResponse() ? (string) $e->getResponse()->getBody() : null;
+            Log::error('Failed to update Money Forward department contact: ' . $e->getMessage(), [
+                'partner_id' => $partnerId,
+                'department_id' => $departmentId,
+                'status' => $status,
+                'response' => $body,
+                'payload' => $payload,
+            ]);
+            return false;
+        } catch (\Throwable $e) {
+            Log::error('Failed to update Money Forward department contact: ' . $e->getMessage(), [
+                'partner_id' => $partnerId,
+                'department_id' => $departmentId,
+            ]);
+            report($e);
+            return false;
+        }
+    }
+
     public function getItems(string $accessToken, array $query = []): ?array
     {
         $allItems = [];

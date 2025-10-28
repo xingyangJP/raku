@@ -8,6 +8,7 @@
 | Column | Description |
 | --- | --- |
 | `estimate_number` | 可読な連番。`Estimate::generateReadableEstimateNumber()` で `EST(-D)-{staff}-{client}-{yymmdd}-{seq}` を採番。編集不可（詳細は下記「採番ルール」参照）。 |
+| `client_contact_name` / `client_contact_title` | 取引先担当者の氏名と役職。見積画面で編集し、Money Forward 部署の担当者情報と同期する。|
 | `status` | `draft` / `pending` / `sent` を使用（UI では ドラフト / 承認待ち / 承認済み）。 |
 | `items` | JSON カラム。各行に `name`, `qty`, `unit`, `price`, `cost`, `tax_category`, `description`, `delivery_date` などを保持。 |
 | `approval_flow` | JSON 配列。`[{ id, name, status, approved_at }]` の形で承認ステップを記録。 |

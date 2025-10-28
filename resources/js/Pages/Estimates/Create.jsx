@@ -284,7 +284,16 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     );
     const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
     const [approvers, setApprovers] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
-    const [selectedDepartment, setSelectedDepartment] = useState(() => (estimate?.mf_department_id ? { id: estimate.mf_department_id, name: null } : null));
+    const [selectedDepartment, setSelectedDepartment] = useState(() => (
+        estimate?.mf_department_id
+            ? {
+                id: estimate.mf_department_id,
+                name: null,
+                person_name: estimate?.client_contact_name || null,
+                person_title: estimate?.client_contact_title || null,
+            }
+            : null
+    ));
     const [openApproval, setOpenApproval] = useState(false);
     const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
     const [approvalStatus, setApprovalStatus] = useState('');
@@ -320,6 +329,8 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const { data, setData, post, patch, processing, errors, reset } = useForm({
         id: estimate?.id || null,
         customer_name: estimate?.customer_name || '',
+        client_contact_name: estimate?.client_contact_name || '',
+        client_contact_title: estimate?.client_contact_title || '',
         client_id: estimate?.client_id || null,
         mf_department_id: estimate?.mf_department_id || null,
         title: estimate?.title || '',
@@ -356,6 +367,8 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     
 
     const prevPartnerIdRef = useRef(estimate?.client_id || null);
+    const contactEditedRef = useRef({ name: false, title: false });
+    const prevDepartmentIdRef = useRef(selectedDepartment?.id || null);
     useEffect(() => {
         const newId = selectedCustomer?.id || null;
         setData('customer_name', selectedCustomer?.customer_name || '');
@@ -364,6 +377,10 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         if (prevPartnerIdRef.current !== newId) {
             setSelectedDepartment(null);
             setData('mf_department_id', null);
+            setData('client_contact_name', '');
+            setData('client_contact_title', '');
+            contactEditedRef.current = { name: false, title: false };
+            prevDepartmentIdRef.current = null;
             prevPartnerIdRef.current = newId;
         }
     }, [selectedCustomer]);
@@ -377,6 +394,41 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     // 部門選択の同期
     useEffect(() => {
         setData('mf_department_id', selectedDepartment?.id || null);
+    }, [selectedDepartment]);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        const deptId = selectedDepartment?.id || null;
+        if (!deptId) {
+            if (!contactEditedRef.current.name) {
+                setData('client_contact_name', '');
+            }
+            if (!contactEditedRef.current.title) {
+                setData('client_contact_title', '');
+            }
+            prevDepartmentIdRef.current = null;
+            return;
+        }
+
+        const departmentChanged = prevDepartmentIdRef.current !== deptId;
+        const deptName = selectedDepartment?.person_name ?? '';
+        const deptTitle = selectedDepartment?.person_title ?? '';
+
+        if (departmentChanged) {
+            prevDepartmentIdRef.current = deptId;
+            contactEditedRef.current = { name: false, title: false };
+        }
+
+        if (departmentChanged || !contactEditedRef.current.name) {
+            if (data.client_contact_name !== deptName) {
+                setData('client_contact_name', deptName);
+            }
+        }
+        if (departmentChanged || !contactEditedRef.current.title) {
+            if (data.client_contact_title !== deptTitle) {
+                setData('client_contact_title', deptTitle);
+            }
+        }
     }, [selectedDepartment]);
 
     // These useEffects cause issues in edit mode by overwriting data. 
@@ -731,83 +783,112 @@ useEffect(() => {
                                     </CardTitle>
                                 </div>
                             </CardHeader>
-                            <CardContent className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="customer">顧客名</Label>
-                                    <CustomerCombobox selectedCustomer={selectedCustomer} onCustomerChange={setSelectedCustomer} />
-                                    {errors.customer_name && <p className="text-sm text-red-600 mt-1">{errors.customer_name}</p>}
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="department">取引先部門</Label>
-                                    <DepartmentCombobox
-                                        partnerId={selectedCustomer?.id || null}
-                                        selectedDepartment={selectedDepartment}
-                                        onDepartmentChange={setSelectedDepartment}
-                                        initialDepartmentId={estimate?.mf_department_id || null}
-                                    />
-                                    {errors.mf_department_id && <p className="text-sm text-red-600 mt-1">{errors.mf_department_id}</p>}
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="staff">自社担当者</Label>
-                                    <StaffCombobox selectedStaff={selectedStaff} onStaffChange={setSelectedStaff} />
-                                    {errors.staff_name && <p className="text-sm text-red-600 mt-1">{errors.staff_name}</p>}
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="project-name">件名</Label>
-                                    <Input id="project-name" value={data.title} onChange={(e) => setData('title', e.target.value)} placeholder="新会計システム導入" />
-                                    {errors.title && <p className="text-sm text-red-600 mt-1">{errors.title}</p>}
-                                </div>
+                            <CardContent className="space-y-4">
                                 <div className="space-y-2">
                                     <Label htmlFor="estimate-number">見積番号</Label>
-                                    {/* 編集不可のため、Inputではなくdivで表示 */}
                                     <div id="estimate-number" className="flex h-10 w-full items-center rounded-md border border-input bg-slate-100 px-3 py-2 text-sm text-muted-foreground" aria-readonly="true">
                                         {data.estimate_number || '（下書き保存時に自動採番）'}
                                     </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="issue-date">発行日</Label>
-                                    <Input
-                                        type="date"
-                                        id="issue-date"
-                                        value={data.issue_date}
-                                        onChange={(e) => {
-                                            const newIssueDate = e.target.value;
-                                            setData(prevData => {
-                                                const issueDate = new Date(newIssueDate);
-                                                const newDueDate = new Date(issueDate);
-                                                newDueDate.setDate(issueDate.getDate() + 30);
-                                                return {
-                                                    ...prevData,
-                                                    issue_date: newIssueDate,
-                                                    due_date: newDueDate.toISOString().slice(0, 10)
-                                                };
-                                            });
-                                        }}
-                                    />
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="customer">顧客名</Label>
+                                        <CustomerCombobox selectedCustomer={selectedCustomer} onCustomerChange={setSelectedCustomer} />
+                                        {errors.customer_name && <p className="text-sm text-red-600 mt-1">{errors.customer_name}</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="department">取引先部門</Label>
+                                        <DepartmentCombobox
+                                            partnerId={selectedCustomer?.id || null}
+                                            selectedDepartment={selectedDepartment}
+                                            onDepartmentChange={setSelectedDepartment}
+                                            initialDepartmentId={estimate?.mf_department_id || null}
+                                        />
+                                        {errors.mf_department_id && <p className="text-sm text-red-600 mt-1">{errors.mf_department_id}</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="client-contact-title">担当者役職</Label>
+                                        <Input
+                                            id="client-contact-title"
+                                            value={data.client_contact_title || ''}
+                                            maxLength={35}
+                                            onChange={(e) => {
+                                                contactEditedRef.current.title = true;
+                                                setData('client_contact_title', e.target.value.slice(0, 35));
+                                            }}
+                                            placeholder="部長"
+                                        />
+                                        {errors.client_contact_title && <p className="text-sm text-red-600 mt-1">{errors.client_contact_title}</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="client-contact-name">担当者氏名</Label>
+                                        <Input
+                                            id="client-contact-name"
+                                            value={data.client_contact_name || ''}
+                                            maxLength={35}
+                                            onChange={(e) => {
+                                                contactEditedRef.current.name = true;
+                                                setData('client_contact_name', e.target.value.slice(0, 35));
+                                            }}
+                                            placeholder="宮田愛子"
+                                        />
+                                        {errors.client_contact_name && <p className="text-sm text-red-600 mt-1">{errors.client_contact_name}</p>}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="project-name">件名</Label>
+                                        <Input id="project-name" value={data.title} onChange={(e) => setData('title', e.target.value)} placeholder="新会計システム導入" />
+                                        {errors.title && <p className="text-sm text-red-600 mt-1">{errors.title}</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="staff">自社担当者</Label>
+                                        <StaffCombobox selectedStaff={selectedStaff} onStaffChange={setSelectedStaff} />
+                                        {errors.staff_name && <p className="text-sm text-red-600 mt-1">{errors.staff_name}</p>}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="issue-date">発行日</Label>
+                                        <Input
+                                            type="date"
+                                            id="issue-date"
+                                            value={data.issue_date}
+                                            onChange={(e) => {
+                                                const newIssueDate = e.target.value;
+                                                setData(prevData => {
+                                                    const issueDate = new Date(newIssueDate);
+                                                    const newDueDate = new Date(issueDate);
+                                                    newDueDate.setDate(issueDate.getDate() + 30);
+                                                    return {
+                                                        ...prevData,
+                                                        issue_date: newIssueDate,
+                                                        due_date: newDueDate.toISOString().slice(0, 10),
+                                                    };
+                                                });
+                                            }}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="due-date">有効期間</Label>
+                                        <Input type="date" id="due-date" value={data.due_date || ''} onChange={(e) => setData('due_date', e.target.value)} onBlur={handleDueDateBlur} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="payment-terms">支払条件</Label>
+                                        <Input id="payment-terms" defaultValue="月末締め翌月末払い" />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="delivery-location">納入場所</Label>
+                                        <Input id="delivery-location" value={data.delivery_location} onChange={(e) => setData('delivery_location', e.target.value)} placeholder="お客様指定の場所" />
+                                    </div>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="due-date">有効期間</Label>
-                                    <Input type="date" id="due-date" value={data.due_date || ''} onChange={(e) => setData('due_date', e.target.value)} onBlur={handleDueDateBlur} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="payment-terms">支払条件</Label>
-                                    <Input id="payment-terms" defaultValue="月末締め翌月末払い" />
-                                </div>
-                                <div className="lg:col-span-2 space-y-2">
-                                    <Label htmlFor="delivery-location">納入場所</Label>
-                                    <Input id="delivery-location" value={data.delivery_location} onChange={(e) => setData('delivery_location', e.target.value)} placeholder="お客様指定の場所" />
-                                </div>
-                                <div className="lg:col-span-2 space-y-2">
                                     <Label htmlFor="external-remarks">備考（対外）</Label>
                                     <Textarea id="external-remarks" value={data.notes} onChange={(e) => setData('notes', e.target.value)} placeholder="お見積りの有効期限は発行後1ヶ月です。" />
                                 </div>
                                 {isInternalView && (
                                     <>
-                                        <div className="lg:col-span-2 space-y-2">
-                                            <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
-                                            <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
-                                        </div>
-                                        <div className="lg:col-span-2 space-y-2">
+                                        <div className="space-y-2">
                                             <Label htmlFor="notes-prompt">備考生成プロンプト</Label>
                                             <Textarea
                                                 id="notes-prompt"
@@ -829,6 +910,10 @@ useEffect(() => {
                                                 </Button>
                                                 <p className="text-xs text-slate-500">入力した内容に基づいて対外備考を提案します。</p>
                                             </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
+                                            <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
                                         </div>
                                     </>
                                 )}

@@ -246,9 +246,9 @@
                 <!-- 左側：顧客情報 -->
                 <div class="customer-info">
                     <div class="text-2xl font-bold dark-gray">{{ $estimateData['customer_name'] ?? '' }} 御中</div>
-                    @if(!empty($estimateData['customer_contact_person']))
+                    @if(!empty($estimateData['client_contact_name']) || !empty($estimateData['client_contact_title']))
                     <div class="text-sm teal" style="margin-top: 8px;">
-                        ご担当者様：{{ $estimateData['customer_contact_person'] }} 様
+                        ご担当者様：{{ trim(($estimateData['client_contact_title'] ?? '') . ' ' . ($estimateData['client_contact_name'] ?? '')) }} 様
                     </div>
                     @endif
                     

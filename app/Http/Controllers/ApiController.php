@@ -120,6 +120,8 @@ class ApiController extends Controller
                         // Prefer person_dept (担当部署名), fallback to name, finally '本社'
                         'name' => (string)($d['person_dept'] ?? $d['name'] ?? '本社'),
                         'code' => isset($d['code']) ? (string)$d['code'] : (isset($d['id']) ? (string)$d['id'] : null),
+                        'person_name' => isset($d['person_name']) ? (string)$d['person_name'] : null,
+                        'person_title' => isset($d['person_title']) ? (string)$d['person_title'] : null,
                     ];
                 })
                 ->filter(fn ($d) => $d['id'] !== '')

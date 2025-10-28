@@ -9,6 +9,8 @@ class Estimate extends Model
 {
     protected $fillable = [
         'customer_name',
+        'client_contact_name',
+        'client_contact_title',
         'client_id',
         'mf_department_id',
         'title',

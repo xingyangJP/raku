@@ -149,6 +149,8 @@ Table "company_settings" {
 Table "estimates" {
   "id" bigint [pk, not null, increment]
   "customer_name" varchar(255) [default: NULL]
+  "client_contact_name" varchar(35) [default: NULL]
+  "client_contact_title" varchar(35) [default: NULL]
   "client_id" varchar(255) [default: NULL]
   "mf_department_id" varchar(255) [default: NULL]
   "title" varchar(255) [default: NULL]

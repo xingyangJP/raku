@@ -35,6 +35,143 @@ class EstimateController extends Controller
         return [];
     }
 
+    private function updatePartnerContactCache(?string $partnerId, ?string $departmentId, ?string $name, ?string $title): void
+    {
+        if (empty($partnerId) || empty($departmentId)) {
+            return;
+        }
+
+        try {
+            $partner = Partner::where('mf_partner_id', $partnerId)->first();
+            if (!$partner || !is_array($partner->payload)) {
+                return;
+            }
+
+            $payload = $partner->payload;
+            if ($this->mutateDepartmentContact($payload, $departmentId, [
+                'person_name' => $name,
+                'person_title' => $title,
+            ])) {
+                $partner->payload = $payload;
+                $partner->save();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Failed to update local partner payload with contact info.', [
+                'partner_id' => $partnerId,
+                'department_id' => $departmentId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function mutateDepartmentContact(&$node, string $departmentId, array $updates): bool
+    {
+        if (!is_array($node)) {
+            return false;
+        }
+
+        $changed = false;
+        if (isset($node['id']) && (string) $node['id'] === (string) $departmentId) {
+            foreach (['person_name', 'person_title'] as $field) {
+                if (array_key_exists($field, $updates)) {
+                    $value = $updates[$field];
+                    $current = $node[$field] ?? null;
+                    if ($current !== $value) {
+                        if ($value === null || $value === '') {
+                            unset($node[$field]);
+                        } else {
+                            $node[$field] = $value;
+                        }
+                        $changed = true;
+                    }
+                }
+            }
+        }
+
+        foreach ($node as &$value) {
+            if (is_array($value) && $this->mutateDepartmentContact($value, $departmentId, $updates)) {
+                $changed = true;
+            }
+        }
+
+        return $changed;
+    }
+
+    private function extractDepartmentContact(?array $payload, string $departmentId): array
+    {
+        if (!is_array($payload)) {
+            return ['person_name' => null, 'person_title' => null];
+        }
+
+        $stack = [$payload];
+        while ($stack) {
+            $node = array_pop($stack);
+            if (!is_array($node)) {
+                continue;
+            }
+            if (isset($node['id']) && (string) $node['id'] === (string) $departmentId) {
+                return [
+                    'person_name' => $node['person_name'] ?? null,
+                    'person_title' => $node['person_title'] ?? null,
+                ];
+            }
+            foreach ($node as $value) {
+                if (is_array($value)) {
+                    $stack[] = $value;
+                }
+            }
+        }
+
+        return ['person_name' => null, 'person_title' => null];
+    }
+
+    private function syncPartnerContactWithMoneyForward(Estimate $estimate, string $token, MoneyForwardApiService $apiService): void
+    {
+        $partnerId = $estimate->client_id;
+        $departmentId = $estimate->mf_department_id;
+        if (empty($partnerId) || empty($departmentId)) {
+            return;
+        }
+
+        $payload = array_filter([
+            'person_name' => $estimate->client_contact_name ? mb_substr($estimate->client_contact_name, 0, 35) : null,
+            'person_title' => $estimate->client_contact_title ? mb_substr($estimate->client_contact_title, 0, 35) : null,
+        ], static fn($value) => $value !== null && $value !== '');
+
+        if (empty($payload)) {
+            return;
+        }
+
+        $partner = Partner::where('mf_partner_id', $partnerId)->first();
+        $current = $partner ? $this->extractDepartmentContact($partner->payload, $departmentId) : ['person_name' => null, 'person_title' => null];
+
+        $needsUpdate = false;
+        foreach ($payload as $key => $value) {
+            if (($current[$key] ?? null) !== $value) {
+                $needsUpdate = true;
+                break;
+            }
+        }
+
+        if (!$needsUpdate) {
+            return;
+        }
+
+        $result = $apiService->updateDepartmentContact($partnerId, $departmentId, $payload, $token);
+        if (is_array($result)) {
+            $this->updatePartnerContactCache(
+                $partnerId,
+                $departmentId,
+                $result['person_name'] ?? $payload['person_name'] ?? null,
+                $result['person_title'] ?? $payload['person_title'] ?? null
+            );
+        } elseif ($result === false) {
+            Log::warning('Money Forward department contact update returned no data.', [
+                'partner_id' => $partnerId,
+                'department_id' => $departmentId,
+            ]);
+        }
+    }
     public function index(Request $request, MoneyForwardQuoteSynchronizer $quoteSynchronizer)
     {
         $syncStatus = $quoteSynchronizer->syncIfStale($request->user()?->id);
@@ -215,6 +352,8 @@ class EstimateController extends Controller
             }
             $validated = $request->validate([
                 'customer_name' => 'required|string|max:255',
+                'client_contact_name' => 'nullable|string|max:35',
+                'client_contact_title' => 'nullable|string|max:35',
                 'client_id' => 'nullable|string|max:255',
                 'mf_department_id' => 'nullable|string|max:255',
                 'title' => 'required|string|max:255',
@@ -231,10 +370,18 @@ class EstimateController extends Controller
                 'staff_name' => 'required|string|max:255',
             ]);
             $estimate->update(array_merge($validated, ['status' => 'draft']));
+            $this->updatePartnerContactCache(
+                $validated['client_id'] ?? $estimate->client_id,
+                $validated['mf_department_id'] ?? $estimate->mf_department_id,
+                $validated['client_contact_name'] ?? null,
+                $validated['client_contact_title'] ?? null
+            );
             return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Draft updated successfully.');
         } else {
             $validated = $request->validate([
                 'customer_name' => 'required|string|max:255',
+                'client_contact_name' => 'nullable|string|max:35',
+                'client_contact_title' => 'nullable|string|max:35',
                 'client_id' => 'nullable|string|max:255',
                 'mf_department_id' => 'nullable|string|max:255',
                 'title' => 'required|string|max:255',
@@ -260,6 +407,12 @@ class EstimateController extends Controller
             }
             
             $estimate = Estimate::create(array_merge($validated, ['status' => 'draft']));
+            $this->updatePartnerContactCache(
+                $validated['client_id'] ?? null,
+                $validated['mf_department_id'] ?? null,
+                $validated['client_contact_name'] ?? null,
+                $validated['client_contact_title'] ?? null
+            );
             return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Draft saved successfully.');
         }
     }
@@ -274,6 +427,8 @@ class EstimateController extends Controller
 
         $validated = $request->validate([
             'customer_name' => 'required|string|max:255',
+            'client_contact_name' => 'nullable|string|max:35',
+            'client_contact_title' => 'nullable|string|max:35',
             'client_id' => 'nullable|string|max:255',
             'mf_department_id' => 'required|string|max:255',
             'title' => 'required|string|max:255',
@@ -333,6 +488,13 @@ class EstimateController extends Controller
         }
         $estimate = Estimate::create(array_merge($validated, ['status' => $status]));
 
+        $this->updatePartnerContactCache(
+            $validated['client_id'] ?? null,
+            $validated['mf_department_id'] ?? null,
+            $validated['client_contact_name'] ?? null,
+            $validated['client_contact_title'] ?? null
+        );
+
         if ($status === 'pending') {
             $this->notifyApprovalRequested($estimate, Auth::user());
         }
@@ -368,6 +530,8 @@ class EstimateController extends Controller
 
         $validated = $request->validate([
             'customer_name' => 'required|string|max:255',
+            'client_contact_name' => 'nullable|string|max:35',
+            'client_contact_title' => 'nullable|string|max:35',
             'client_id' => 'nullable|string|max:255',
             'mf_department_id' => 'required|string|max:255',
             'title' => 'required|string|max:255',
@@ -446,6 +610,12 @@ class EstimateController extends Controller
         }
 
         $estimate->update(array_merge($validated, ['status' => $status]));
+        $this->updatePartnerContactCache(
+            $estimate->client_id,
+            $estimate->mf_department_id,
+            $validated['client_contact_name'] ?? $estimate->client_contact_name,
+            $validated['client_contact_title'] ?? $estimate->client_contact_title
+        );
         $estimate->refresh();
 
         if ($originalStatus !== 'pending' && $status === 'pending') {
@@ -806,6 +976,15 @@ class EstimateController extends Controller
 
     private function _doCreateMfQuote(Estimate $estimate, string $token, MoneyForwardApiService $apiService)
     {
+        try {
+            $this->syncPartnerContactWithMoneyForward($estimate, $token, $apiService);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to sync department contact before quote creation.', [
+                'estimate_id' => $estimate->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         $result = $apiService->createQuoteFromEstimate($estimate, $token);
 
         if ($result && isset($result['id'])) {
