@@ -100,3 +100,7 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
   - CLI 利用の場合はリポジトリ直下で `docker compose up -d` など、環境に合わせたコマンドでデータベースコンテナを起動する。
   - MySQL 起動後に `php artisan migrate --seed` を実行し、必要なテーブル（`sessions` など）を作成する。
 - 一時的な回避策として、DB 起動前に画面表示だけ確認したい場合は `.env` の `SESSION_DRIVER=file` に切り替え、`php artisan config:clear` を実行する。ただし最終的には MySQL を起動して戻すこと。
+
+
+# Google chat web hook
+https://chat.googleapis.com/v1/spaces/AAAAfCLsmqM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=yF-90RVetrGW8nUxZTl9xJIPXvCXPhfsnxAsPOCByd8

@@ -330,6 +330,10 @@ class EstimateController extends Controller
         }
         $estimate = Estimate::create(array_merge($validated, ['status' => $status]));
 
+        if ($status === 'pending') {
+            $this->notifyApprovalRequested($estimate, Auth::user());
+        }
+
         return redirect()->route('estimates.edit', $estimate->id)
             ->with('approval_success_message', '承認申請を開始しました。');
     }
@@ -386,6 +390,7 @@ class EstimateController extends Controller
             $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
         }
 
+        $originalStatus = $estimate->status;
         $status = $validated['status'] ?? $estimate->status;
         unset($validated['status']);
 
@@ -438,6 +443,11 @@ class EstimateController extends Controller
         }
 
         $estimate->update(array_merge($validated, ['status' => $status]));
+        $estimate->refresh();
+
+        if ($originalStatus !== 'pending' && $status === 'pending') {
+            $this->notifyApprovalRequested($estimate, Auth::user());
+        }
 
         return redirect()->route('estimates.edit', $estimate->id)
             ->with('success', 'Quote updated successfully.');
@@ -502,6 +512,7 @@ class EstimateController extends Controller
 
         $flow[$currentIndex]['approved_at'] = now()->toDateTimeString();
         $flow[$currentIndex]['status'] = 'approved';
+        $updatedStep = $flow[$currentIndex];
         $estimate->approval_flow = $flow;
 
         $allApproved = true;
@@ -517,6 +528,12 @@ class EstimateController extends Controller
         }
 
         $estimate->save();
+
+        $this->notifyApprovalStepCompleted($estimate, $updatedStep, Auth::user());
+
+        if ($allApproved) {
+            $this->notifyApprovalCompleted($estimate);
+        }
 
         return redirect()->back()->with('success', '承認しました。');
     }
@@ -839,6 +856,108 @@ class EstimateController extends Controller
             if (is_array($result) && isset($result['message'])) { $msg .= ' ' . $result['message']; }
             return redirect()->route('estimates.edit', $estimate->id)->with('error', $msg);
         }
+    }
+
+    private function notifyApprovalRequested(Estimate $estimate, ?User $initiator = null): void
+    {
+        $webhook = (string) config('services.google_chat.approval_webhook', '');
+        if ($webhook === '') {
+            return;
+        }
+
+        $pendingNames = $this->collectPendingApproverNames($estimate->approval_flow);
+        $initiatorName = $initiator?->name ?? 'システム';
+        $pendingText = empty($pendingNames) ? '承認者未設定' : implode(', ', $pendingNames);
+
+        $message = sprintf(
+            "承認申請: %s\n件名: %s\n顧客: %s\n申請者: %s\n承認者: %s\nURL: %s",
+            $estimate->estimate_number,
+            $estimate->title ?? '（件名未設定）',
+            $estimate->customer_name ?? '（顧客未設定）',
+            $initiatorName,
+            $pendingText,
+            route('estimates.edit', $estimate->id)
+        );
+
+        $this->sendChatNotification($webhook, $message);
+    }
+
+    private function notifyApprovalStepCompleted(Estimate $estimate, array $step, ?User $actor = null): void
+    {
+        $webhook = (string) config('services.google_chat.approval_webhook', '');
+        if ($webhook === '') {
+            return;
+        }
+
+        $approverName = $step['name'] ?? $actor?->name ?? '承認者';
+        $pendingNames = $this->collectPendingApproverNames($estimate->approval_flow);
+        $pendingText = empty($pendingNames) ? 'なし（残り承認者なし）' : implode(', ', $pendingNames);
+
+        $message = sprintf(
+            "承認完了: %s\n承認者: %s\n残り承認者: %s\nURL: %s",
+            $estimate->estimate_number,
+            $approverName,
+            $pendingText,
+            route('estimates.edit', $estimate->id)
+        );
+
+        $this->sendChatNotification($webhook, $message);
+    }
+
+    private function notifyApprovalCompleted(Estimate $estimate): void
+    {
+        $webhook = (string) config('services.google_chat.approval_webhook', '');
+        if ($webhook === '') {
+            return;
+        }
+
+        $message = sprintf(
+            "最終承認完了: %s\n件名: %s\n顧客: %s\nURL: %s",
+            $estimate->estimate_number,
+            $estimate->title ?? '（件名未設定）',
+            $estimate->customer_name ?? '（顧客未設定）',
+            route('estimates.edit', $estimate->id)
+        );
+
+        $this->sendChatNotification($webhook, $message);
+    }
+
+    private function sendChatNotification(string $webhook, string $message): void
+    {
+        try {
+            $response = Http::timeout(5)->post($webhook, ['text' => $message]);
+            if (!$response->successful()) {
+                Log::warning('Google Chat通知に失敗しました。', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::error('Google Chat通知の送信に失敗しました。', [
+                'exception' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function collectPendingApproverNames($flow): array
+    {
+        if (!is_array($flow)) {
+            return [];
+        }
+
+        $names = [];
+        foreach ($flow as $step) {
+            $approved = $step['approved_at'] ?? null;
+            $status = $step['status'] ?? null;
+            if (empty($approved) && ($status === 'pending' || $status === null)) {
+                $name = $step['name'] ?? null;
+                if ($name) {
+                    $names[] = $name;
+                }
+            }
+        }
+
+        return $names;
     }
 
     private function resolveRedirectUriForAction(?string $action): string
