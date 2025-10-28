@@ -7,7 +7,7 @@
 ## Data Model (table: `estimates`)
 | Column | Description |
 | --- | --- |
-| `estimate_number` | 可読な連番。`Estimate::generateReadableEstimateNumber()` で `EST(-D)-{staff}-{client}-{yymmdd}-{seq}` を採番。編集不可。 |
+| `estimate_number` | 可読な連番。`Estimate::generateReadableEstimateNumber()` で `EST(-D)-{staff}-{client}-{yymmdd}-{seq}` を採番。編集不可（詳細は下記「採番ルール」参照）。 |
 | `status` | `draft` / `pending` / `sent` を使用（UI では ドラフト / 承認待ち / 承認済み）。 |
 | `items` | JSON カラム。各行に `name`, `qty`, `unit`, `price`, `cost`, `tax_category`, `description`, `delivery_date` などを保持。 |
 | `approval_flow` | JSON 配列。`[{ id, name, status, approved_at }]` の形で承認ステップを記録。 |
@@ -57,3 +57,11 @@
 2. Money Forward へ見積書を発行し、`mf_quote_id` が保存されることを確認。
 3. Money Forward 側で部門が削除された場合に同期がエラーになることを確認し、部門再同期で復旧できること。
 4. 見積一覧でフィルタと一括承認の UI が期待通り動作すること。
+
+## 採番ルール
+### 例: `EST-4-84-252710-001`
+- `EST` … ドラフトではなく本採番。
+- `4` … `staff_id = 4`。
+- `84` … 取引先コード。Money Forward の `partners.code` が `84`。
+- `252710` … 発行日が 2025 年 10 月 27 日（`25`=年, `27`=日, `10`=月）。
+- `001` … 同日・同担当・同取引先組合せで 1 件目の連番。

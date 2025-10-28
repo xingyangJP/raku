@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Estimate;
+use App\Models\Product;
 use App\Models\LocalInvoice;
 use App\Models\MfToken;
 use App\Models\User;
@@ -357,8 +358,26 @@ class MoneyForwardApiService
 
     public function createQuoteFromEstimate(Estimate $estimate, $accessToken)
     {
+        $rawItems = is_array($estimate->items) ? $estimate->items : [];
+        $productIds = [];
+        foreach ($rawItems as $line) {
+            $productId = $line['product_id'] ?? null;
+            if ($productId !== null && $productId !== '') {
+                $productIds[] = (int) $productId;
+            }
+        }
+        $productsById = collect();
+        if (!empty($productIds)) {
+            $productsById = Product::whereIn('id', array_unique($productIds))->get()->keyBy('id');
+        }
+
         $items = [];
-        foreach ($estimate->items as $item) {
+        foreach ($rawItems as $item) {
+            $product = null;
+            if (!empty($item['product_id'])) {
+                $product = $productsById->get((int) $item['product_id']);
+            }
+
             $excise = 'ten_percent'; // Default
             if (isset($item['tax_category'])) {
                 switch ($item['tax_category']) {
@@ -390,6 +409,23 @@ class MoneyForwardApiService
                 'detail' => $item['description'] ?? '',
                 'excise' => $excise,
             ];
+            $lastIndex = array_key_last($items);
+            if ($product instanceof Product) {
+                if (!empty($product->mf_id)) {
+                    $items[$lastIndex]['item_id'] = $product->mf_id;
+                } else {
+                    Log::warning('MF quote create: product missing mf_id for item_id binding', [
+                        'estimate_id' => $estimate->id,
+                        'product_id' => $product->id,
+                        'product_name' => $product->name,
+                    ]);
+                }
+                if (!empty($product->sku)) {
+                    $items[$lastIndex]['code'] = $product->sku;
+                }
+            } elseif (!empty($item['code'])) {
+                $items[$lastIndex]['code'] = $item['code'];
+            }
         }
 
         // Safely resolve dates (fallbacks if null)

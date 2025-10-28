@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Estimate;
+use App\Models\Product;
+use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
@@ -11,6 +13,16 @@ use Illuminate\Support\Facades\Schema;
 
 class MoneyForwardQuoteSynchronizer
 {
+    private array $staffCacheByExternalId = [];
+    private array $staffCacheById = [];
+    private array $staffCacheByEmail = [];
+    private array $productCacheByMfId = [];
+    private array $productCacheBySku = [];
+    private array $mfItemCacheById = [];
+    private array $mfItemCacheByCode = [];
+    private bool $mfItemCacheLoaded = false;
+    private ?string $mfItemCacheToken = null;
+
     public function __construct(
         private readonly MoneyForwardApiService $apiService
     ) {
@@ -85,6 +97,7 @@ class MoneyForwardQuoteSynchronizer
 
     private function syncQuotes(string $accessToken): int
     {
+        $this->ensureMfItemCache($accessToken);
         $page = 1;
         $perPage = (int) config('services.money_forward.quote_sync_page_size', 100);
         $totalSynced = 0;
@@ -142,13 +155,18 @@ class MoneyForwardQuoteSynchronizer
 
         $quoteNumber = Arr::get($quoteData, 'quote_number');
 
+        $linkSource = null;
         $estimate = Estimate::where('mf_quote_id', $quoteId)->first();
+        if ($estimate) {
+            $linkSource = 'mf_quote_id';
+        }
 
         $normalizedQuoteNumber = $this->normalizeQuoteNumber($quoteNumber);
 
         if (!$estimate && $quoteNumber) {
             $estimate = Estimate::where('estimate_number', $quoteNumber)->first();
             if ($estimate) {
+                $linkSource = 'estimate_number';
                 $estimate->mf_quote_id = $quoteId;
                 $estimate->save();
                 Log::info('MF quote linked to estimate by quote_number', [
@@ -162,6 +180,7 @@ class MoneyForwardQuoteSynchronizer
         if (!$estimate && $normalizedQuoteNumber && $normalizedQuoteNumber !== $quoteNumber) {
             $estimate = Estimate::where('estimate_number', $normalizedQuoteNumber)->first();
             if ($estimate) {
+                $linkSource = 'normalized_quote_number';
                 $estimate->mf_quote_id = $quoteId;
                 $estimate->save();
                 Log::info('MF quote linked to estimate by normalized quote_number', [
@@ -179,6 +198,9 @@ class MoneyForwardQuoteSynchronizer
                 $attributes['estimate_number'] = $normalizedQuoteNumber;
             } elseif ($quoteNumber) {
                 $attributes['estimate_number'] = $quoteNumber;
+            }
+            if (!$linkSource) {
+                $linkSource = $attributes ? 'first_or_new_estimate_number' : 'first_or_new_mf_quote_id';
             }
 
             $estimate = Estimate::firstOrNew($attributes ?: ['mf_quote_id' => $quoteId]);
@@ -233,12 +255,6 @@ class MoneyForwardQuoteSynchronizer
             $payload['total_amount'] = (int) round((float) $totalPrice);
         }
 
-        if ($memberId = Arr::get($quoteData, 'member_id')) {
-            if (is_numeric($memberId)) {
-                $payload['staff_id'] = (int) $memberId;
-            }
-        }
-
         if ($memberName = Arr::get($quoteData, 'member_name')) {
             $memberName = trim((string) $memberName);
             if ($memberName !== '') {
@@ -252,6 +268,27 @@ class MoneyForwardQuoteSynchronizer
                 if (preg_match('/自社担当[:：]\\s*(.+)/u', $memo, $matches)) {
                     $payload['staff_name'] = trim($matches[1]);
                 }
+            }
+        }
+
+        $staffResolution = $this->resolveStaffFromQuote($quoteData, $payload['staff_name'] ?? null);
+        if (!is_null($staffResolution['staff_id'] ?? null)) {
+            $payload['staff_id'] = $staffResolution['staff_id'];
+        }
+        if (!empty($staffResolution['staff_name']) && empty($payload['staff_name'])) {
+            $payload['staff_name'] = $staffResolution['staff_name'];
+        }
+        $staffMatchSource = $staffResolution['matched_via'] ?? null;
+        if (empty($payload['staff_id']) && !empty($payload['estimate_number'])) {
+            $parsedStaff = $this->extractStaffIdFromEstimateNumber($payload['estimate_number']);
+            if (!is_null($parsedStaff)) {
+                $payload['staff_id'] = $parsedStaff;
+                $staffMatchSource = $staffMatchSource ?: 'estimate_number';
+                Log::info('MF quote staff matched via estimate number', [
+                    'quote_id' => $quoteId,
+                    'estimate_number' => $payload['estimate_number'],
+                    'staff_id' => $parsedStaff,
+                ]);
             }
         }
 
@@ -290,6 +327,24 @@ class MoneyForwardQuoteSynchronizer
             ], static fn ($value) => !is_null($value));
 
             if (!empty($itemPayload)) {
+                $product = $this->resolveProductFromQuoteItem($item, [
+                    'quote_id' => $quoteId,
+                    'index' => $index,
+                ]);
+                if ($product) {
+                    $itemPayload['product_id'] = $product->id;
+                    $nameCandidate = $itemPayload['name'] ?? '';
+                    if ($nameCandidate === '' || str_starts_with($nameCandidate, '項目')) {
+                        $itemPayload['name'] = $product->name;
+                    }
+                    if (empty($itemPayload['unit']) && !is_null($product->unit)) {
+                        $itemPayload['unit'] = $product->unit;
+                    }
+                    if (empty($itemPayload['description']) && !is_null($product->description)) {
+                        $itemPayload['description'] = $product->description;
+                        $itemPayload['detail'] = $product->description;
+                    }
+                }
                 $items[] = $itemPayload;
             }
         }
@@ -297,6 +352,16 @@ class MoneyForwardQuoteSynchronizer
         if (!empty($items)) {
             $payload['items'] = $items;
         }
+
+        Log::debug('MF quote sync applying payload', [
+            'quote_id' => $quoteId,
+            'estimate_id' => $estimate->id ?? null,
+            'estimate_exists' => $estimate->exists,
+            'link_source' => $linkSource,
+            'staff_id' => $payload['staff_id'] ?? null,
+            'staff_match_source' => $staffMatchSource,
+            'item_count' => count($items),
+        ]);
 
         if ($estimate->mf_deleted_at) {
             $estimate->mf_deleted_at = null;
@@ -363,5 +428,288 @@ class MoneyForwardQuoteSynchronizer
                 $estimate->save();
             }
         });
+    }
+
+    private function ensureMfItemCache(string $accessToken): void
+    {
+        if ($this->mfItemCacheLoaded && $this->mfItemCacheToken === $accessToken) {
+            return;
+        }
+
+        $items = $this->apiService->getItems($accessToken);
+        if (!is_array($items)) {
+            Log::warning('MF quote sync: failed to build item cache.');
+            $this->mfItemCacheLoaded = true;
+            $this->mfItemCacheToken = $accessToken;
+            return;
+        }
+
+        $this->mfItemCacheById = [];
+        $this->mfItemCacheByCode = [];
+
+        foreach ($items as $item) {
+            $id = (string) ($item['id'] ?? '');
+            if ($id !== '') {
+                $this->mfItemCacheById[$id] = $item;
+            }
+            $code = trim((string) ($item['code'] ?? ''));
+            if ($code !== '') {
+                $upper = strtoupper($code);
+                $this->mfItemCacheByCode[$upper] = $item;
+            }
+        }
+
+        Log::info('MF quote sync: item cache loaded', [
+            'count' => count($this->mfItemCacheById),
+        ]);
+
+        $this->mfItemCacheLoaded = true;
+        $this->mfItemCacheToken = $accessToken;
+    }
+
+    private function resolveStaffFromQuote(array $quoteData, ?string $currentStaffName = null): array
+    {
+        $memberName = trim((string) Arr::get($quoteData, 'member_name', ''));
+        $memo = Arr::get($quoteData, 'memo');
+        $fallbackName = $currentStaffName ?: ($memberName !== '' ? $memberName : null);
+
+        if (!$fallbackName && is_string($memo) && $memo !== '') {
+            if (preg_match('/自社担当[:：]\\s*(.+)/u', $memo, $matches)) {
+                $fallbackName = trim($matches[1]);
+            }
+        }
+
+        $lookups = [];
+
+        $memberCode = Arr::get($quoteData, 'member_code');
+        if ($memberCode !== null && (string) $memberCode !== '') {
+            $lookups[] = ['type' => 'external', 'value' => (string) $memberCode];
+        }
+
+        $memberId = Arr::get($quoteData, 'member_id');
+        if ($memberId !== null && (string) $memberId !== '') {
+            $memberIdStr = (string) $memberId;
+            $lookups[] = ['type' => 'external', 'value' => $memberIdStr];
+            if (ctype_digit($memberIdStr)) {
+                $lookups[] = ['type' => 'id', 'value' => $memberIdStr];
+            }
+        }
+
+        $memberEmail = Arr::get($quoteData, 'member_email');
+        if ($memberEmail !== null && trim((string) $memberEmail) !== '') {
+            $lookups[] = ['type' => 'email', 'value' => (string) $memberEmail];
+        }
+
+        foreach ($lookups as $lookup) {
+            $user = match ($lookup['type']) {
+                'external' => $this->getUserByExternalId($lookup['value']),
+                'id' => $this->getUserById((int) $lookup['value']),
+                'email' => $this->getUserByEmail($lookup['value']),
+                default => null,
+            };
+
+            if ($user) {
+                Log::info('MF quote staff matched', [
+                    'quote_id' => Arr::get($quoteData, 'id'),
+                    'matched_via' => $lookup['type'],
+                    'lookup_value' => $lookup['value'],
+                    'user_id' => $user->id,
+                    'user_external_id' => $user->external_user_id,
+                ]);
+                return [
+                    'staff_id' => $user->id,
+                    'staff_name' => $currentStaffName ?: ($user->name ?: $fallbackName),
+                    'matched_via' => $lookup['type'],
+                ];
+            }
+        }
+
+        Log::warning('MF quote staff unresolved', [
+            'quote_id' => Arr::get($quoteData, 'id'),
+            'member_id' => Arr::get($quoteData, 'member_id'),
+            'member_code' => Arr::get($quoteData, 'member_code'),
+            'member_email' => Arr::get($quoteData, 'member_email'),
+            'member_name' => $memberName,
+            'fallback_name' => $fallbackName,
+        ]);
+
+        return [
+            'staff_id' => null,
+            'staff_name' => $fallbackName,
+            'matched_via' => null,
+        ];
+    }
+
+    private function getUserByExternalId(string $externalId): ?User
+    {
+        $externalId = trim($externalId);
+        if ($externalId === '') {
+            return null;
+        }
+
+        if (!array_key_exists($externalId, $this->staffCacheByExternalId)) {
+            $this->staffCacheByExternalId[$externalId] = User::where('external_user_id', $externalId)->first();
+        }
+
+        return $this->staffCacheByExternalId[$externalId];
+    }
+
+    private function getUserById(int $id): ?User
+    {
+        if (!array_key_exists($id, $this->staffCacheById)) {
+            $this->staffCacheById[$id] = User::find($id);
+        }
+
+        return $this->staffCacheById[$id];
+    }
+
+    private function getUserByEmail(string $email): ?User
+    {
+        $normalized = strtolower(trim($email));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (!array_key_exists($normalized, $this->staffCacheByEmail)) {
+            $this->staffCacheByEmail[$normalized] = User::whereRaw('LOWER(email) = ?', [$normalized])->first();
+        }
+
+        return $this->staffCacheByEmail[$normalized];
+    }
+
+    private function resolveProductFromQuoteItem(array $item, array $context = []): ?Product
+    {
+        $selectColumns = ['id', 'name', 'unit', 'description'];
+        $quoteId = $context['quote_id'] ?? null;
+        $index = $context['index'] ?? null;
+        $itemName = Arr::get($item, 'name');
+        $codeCandidates = [];
+        $remoteItem = null;
+
+        $mfItemId = Arr::get($item, 'id') ?? Arr::get($item, 'item_id');
+        if ($mfItemId !== null && (string) $mfItemId !== '') {
+            $mfItemIdStr = (string) $mfItemId;
+            if (!array_key_exists($mfItemIdStr, $this->productCacheByMfId)) {
+                $this->productCacheByMfId[$mfItemIdStr] = Product::query()
+                    ->select($selectColumns)
+                    ->where('mf_id', $mfItemIdStr)
+                    ->first();
+            }
+            $matched = $this->productCacheByMfId[$mfItemIdStr];
+            if ($matched) {
+                Log::info('MF quote item matched product', [
+                    'quote_id' => $quoteId,
+                    'item_index' => $index,
+                    'matched_via' => 'mf_id',
+                    'mf_item_id' => $mfItemIdStr,
+                    'item_code' => Arr::get($item, 'code'),
+                    'item_name' => $itemName,
+                    'product_id' => $matched->id,
+                    'product_name' => $matched->name,
+                ]);
+                return $matched;
+            }
+
+            $remoteItem = $this->mfItemCacheById[$mfItemIdStr] ?? null;
+            if ($remoteItem) {
+                $remoteCode = trim((string) ($remoteItem['code'] ?? ''));
+                if ($remoteCode !== '') {
+                    $codeCandidates[] = $remoteCode;
+                }
+            }
+        }
+
+        foreach (['code', 'item_code'] as $codeKey) {
+            $value = Arr::get($item, $codeKey);
+            if ($value !== null) {
+                $trimmed = trim((string) $value);
+                if ($trimmed !== '') {
+                    $codeCandidates[] = $trimmed;
+                }
+            }
+        }
+
+        $normalizedCandidates = [];
+        foreach ($codeCandidates as $candidate) {
+            $normalizedCandidates[] = $candidate;
+            $upper = strtoupper($candidate);
+            if ($upper !== $candidate) {
+                $normalizedCandidates[] = $upper;
+            }
+        }
+
+        foreach (array_unique($normalizedCandidates) as $candidate) {
+            if (!array_key_exists($candidate, $this->productCacheBySku)) {
+                $this->productCacheBySku[$candidate] = Product::query()
+                    ->select($selectColumns)
+                    ->where('sku', $candidate)
+                    ->first();
+            }
+            $matched = $this->productCacheBySku[$candidate];
+            if ($matched) {
+                $matchedVia = 'sku';
+                if (isset($remoteItem) && !empty($remoteItem) && isset($remoteItem['code'])) {
+                    $remoteCodeUpper = strtoupper((string) ($remoteItem['code'] ?? ''));
+                    if ($remoteCodeUpper === strtoupper($candidate)) {
+                        $matchedVia = 'remote_item_code';
+                    }
+                }
+                Log::info('MF quote item matched product', [
+                    'quote_id' => $quoteId,
+                    'item_index' => $index,
+                    'matched_via' => $matchedVia,
+                    'mf_item_id' => $mfItemId,
+                    'item_code' => $candidate,
+                    'item_name' => $itemName,
+                    'product_id' => $matched->id,
+                    'product_name' => $matched->name,
+                ]);
+                return $matched;
+            }
+        }
+
+        Log::warning('MF quote item unresolved', [
+            'quote_id' => $quoteId,
+            'item_index' => $index,
+            'mf_item_id' => $mfItemId,
+            'item_codes' => $codeCandidates,
+            'item_name' => $itemName,
+            'unit' => Arr::get($item, 'unit'),
+        ]);
+
+        return null;
+    }
+
+    private function extractStaffIdFromEstimateNumber(string $estimateNumber): ?int
+    {
+        $parts = explode('-', $estimateNumber);
+        if (count($parts) < 3) {
+            return null;
+        }
+
+        $candidate = $parts[1] ?? null;
+        if ($candidate === null || $candidate === '') {
+            return null;
+        }
+
+        if (!ctype_digit($candidate)) {
+            return null;
+        }
+
+        $staffId = (int) $candidate;
+        if ($staffId <= 0) {
+            return null;
+        }
+
+        $user = $this->getUserById($staffId);
+        if (!$user) {
+            Log::warning('MF quote staff parsed from estimate number not found locally', [
+                'estimate_number' => $estimateNumber,
+                'staff_id' => $staffId,
+            ]);
+            return null;
+        }
+
+        return $staffId;
     }
 }
