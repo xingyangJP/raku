@@ -861,7 +861,7 @@ useEffect(() => {
                                     <TableBody>
                                         {lineItems.map(item => (
                                             <TableRow key={item.id}>
-                                                <TableCell><Checkbox /></TableCell>
+                                                <TableCell></TableCell>
                                                 <TableCell>
                                                     <Select
                                                         key={`${item.id}-${item.product_id ?? 'none'}`}
@@ -964,7 +964,6 @@ useEffect(() => {
                                 </Table>
                                 <div className="mt-4 flex items-center space-x-2">
                                     <Button type="button" variant="outline" size="sm" onClick={addLineItem}><PlusCircle className="mr-2 h-4 w-4" />行を追加</Button>
-                                    <Button type="button" variant="outline" size="sm"><Copy className="mr-2 h-4 w-4" />選択行を複製</Button>
                                 </div>
                                 {errors.items && <p className="text-sm text-red-600 mt-2">{errors.items}</p>}
                             </CardContent>
