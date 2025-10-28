@@ -11,13 +11,15 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Carbon\Carbon;
+use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Handler\StreamHandler;
 
 class EstimateController extends Controller
 {
@@ -627,8 +629,12 @@ class EstimateController extends Controller
             ],
         ];
 
+        $streamHandler = HandlerStack::create(new StreamHandler());
+
         try {
-            $response = Http::withHeaders([
+            $response = Http::withOptions([
+                'handler' => $streamHandler,
+            ])->withHeaders([
                 'Authorization' => 'Bearer ' . $apiKey,
                 'Content-Type' => 'application/json',
             ])->timeout(20)->post($baseUrl . '/v1/chat/completions', [
