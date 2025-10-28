@@ -816,11 +816,7 @@ useEffect(() => {
                                 </div>
                                 {isInternalView && (
                                     <div className="lg:col-span-2 grid gap-4 lg:grid-cols-2">
-                                        <div className="space-y-2">
-                                            <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
-                                            <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
-                                        </div>
-                                        <div className="space-y-2">
+                                        <div className="space-y-2 lg:col-span-2">
                                             <Label htmlFor="notes-prompt">備考生成プロンプト</Label>
                                             <Textarea
                                                 id="notes-prompt"
@@ -842,6 +838,10 @@ useEffect(() => {
                                                 </Button>
                                                 <p className="text-xs text-slate-500">入力した内容に基づいて対外備考を提案します。</p>
                                             </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
+                                            <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
                                         </div>
                                     </div>
                                 )}

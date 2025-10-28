@@ -602,7 +602,7 @@ class EstimateController extends Controller
         $messages = [
             [
                 'role' => 'system',
-                'content' => 'You write concise Japanese notes for business estimates. Highlight risk sharing, important assumptions, and what actions are required if conditions change. Provide 2〜4 sentences in polite Japanese without markdown bullets. Keep it suitable for the remarks section of a professional estimate.',
+                'content' => 'You compose professional Japanese estimate remarks. Structure the response into multiple sections, each beginning with a full-width bracket label such as「【検収基準】」「【納期】」「【前提条件】」「【変更管理】」「【保守保証】」など、適切な名称を選んでください。各セクションは 1〜2 文で丁寧語（です・ます調）を使い、セクション間には空行を入れて読みやすくします。提供された情報に関連するセクションのみを生成し、箇条書きやハイフン等の記号は使用しません。ユーザーの入力または文脈に「リスク」という語が含まれない限り、応答でも「リスク」という語を使用しないでください。',
             ],
             [
                 'role' => 'user',
