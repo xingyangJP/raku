@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -533,6 +534,121 @@ class EstimateController extends Controller
 
         return redirect()->route('estimates.edit', $newEstimate->id)
             ->with('success', '見積書を複製しました。');
+    }
+
+    public function generateNotes(Request $request)
+    {
+        $validated = $request->validate([
+            'prompt' => ['required', 'string', 'max:2000'],
+            'estimate_id' => ['nullable', 'integer', 'exists:estimates,id'],
+        ]);
+
+        $apiKey = (string) config('services.openai.key', '');
+        if ($apiKey === '') {
+            return response()->json([
+                'message' => 'OpenAI APIキーが未設定のため備考を生成できません。',
+            ], 422);
+        }
+
+        $baseUrl = rtrim((string) config('services.openai.base_url', 'https://api.openai.com'), '/');
+        $model = (string) config('services.openai.model', 'gpt-4o-mini');
+
+        $contextPieces = [];
+        if (!empty($validated['estimate_id'])) {
+            $estimate = Estimate::find($validated['estimate_id']);
+            if ($estimate) {
+                if (!empty($estimate->customer_name)) {
+                    $contextPieces[] = '顧客: ' . $estimate->customer_name;
+                }
+                if (!empty($estimate->title)) {
+                    $contextPieces[] = '案件タイトル: ' . $estimate->title;
+                }
+                if (!empty($estimate->issue_date)) {
+                    $issueDate = $estimate->issue_date instanceof Carbon
+                        ? $estimate->issue_date->format('Y-m-d')
+                        : (string) $estimate->issue_date;
+                    $contextPieces[] = '見積日: ' . $issueDate;
+                }
+                if (is_array($estimate->items) && count($estimate->items) > 0) {
+                    $summaries = collect($estimate->items)
+                        ->take(5)
+                        ->map(function ($item) {
+                            $name = $item['name'] ?? ($item['description'] ?? '項目');
+                            $qty = $item['qty'] ?? $item['quantity'] ?? null;
+                            $unit = $item['unit'] ?? '';
+                            $price = $item['price'] ?? null;
+                            $parts = array_filter([
+                                $name,
+                                $qty ? $qty . ($unit ? $unit : '') : null,
+                                $price ? '単価' . number_format((float) $price) . '円' : null,
+                            ]);
+                            return implode(' / ', $parts);
+                        })
+                        ->filter()
+                        ->all();
+                    if (!empty($summaries)) {
+                        $contextPieces[] = '主要項目: ' . implode(', ', $summaries);
+                    }
+                }
+            }
+        }
+
+        $userPrompt = trim($validated['prompt']);
+        $userContent = $userPrompt;
+        if (!empty($contextPieces)) {
+            $userContent = "参考情報:\n" . implode("\n", $contextPieces) . "\n\n備考に反映したい要望:\n" . $userPrompt;
+        }
+
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => 'You write concise Japanese notes for business estimates. Highlight risk sharing, important assumptions, and what actions are required if conditions change. Provide 2〜4 sentences in polite Japanese without markdown bullets. Keep it suitable for the remarks section of a professional estimate.',
+            ],
+            [
+                'role' => 'user',
+                'content' => $userContent,
+            ],
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $apiKey,
+                'Content-Type' => 'application/json',
+            ])->timeout(20)->post($baseUrl . '/v1/chat/completions', [
+                'model' => $model,
+                'messages' => $messages,
+                'temperature' => 0.3,
+                'max_tokens' => 300,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('OpenAI 備考生成の呼び出しに失敗しました。', [
+                'exception' => $e->getMessage(),
+            ]);
+            return response()->json([
+                'message' => '備考の生成に失敗しました。時間を置いて再度お試しください。',
+            ], 500);
+        }
+
+        if (!$response->successful()) {
+            Log::warning('OpenAI 備考生成の応答が失敗しました。', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return response()->json([
+                'message' => '備考の生成に失敗しました。',
+            ], 500);
+        }
+
+        $notes = trim((string) data_get($response->json(), 'choices.0.message.content', ''));
+        if ($notes === '') {
+            return response()->json([
+                'message' => '有効な文面を生成できませんでした。',
+            ], 500);
+        }
+
+        return response()->json([
+            'notes' => $notes,
+        ]);
     }
 
     public function bulkApprove(Request $request)

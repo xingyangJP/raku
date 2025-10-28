@@ -33,6 +33,7 @@
 - 部門コンボボックスは `/api/partners/{partner}/departments` を呼び出し、部門が1件のみの場合は自動選択。
 - 行明細は Recharts を用いた社内ビュー（粗利率など）と社外ビューを切り替え可能。
 - 承認申請で `approval_flow` を送信、申請直後はローカルフラグで UI を即時切り替え (`approvalLocal` state)。
+- 社内ビューでは「備考生成プロンプト」に入力した要件をもとに、OpenAI 経由で備考（対外）を生成するボタンを提供（`POST /estimates/generate-notes`）。
 
 ## Money Forward Actions
 | ボタン | ルート | コントローラ | 備考 |

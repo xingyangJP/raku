@@ -73,6 +73,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'destroy'])->whereNumber('estimate')->name('estimates.destroy');
     Route::post('/estimates/bulk-approve', [App\Http\Controllers\EstimateController::class, 'bulkApprove'])->name('estimates.bulkApprove');
     Route::post('/estimates/bulk-reassign', [App\Http\Controllers\EstimateController::class, 'bulkReassign'])->name('estimates.bulkReassign');
+    Route::post('/estimates/generate-notes', [App\Http\Controllers\EstimateController::class, 'generateNotes'])->name('estimates.generateNotes');
 
     // Approve current step in approval flow
     Route::put('/estimates/{estimate}/approval', [App\Http\Controllers\EstimateController::class, 'updateApproval'])

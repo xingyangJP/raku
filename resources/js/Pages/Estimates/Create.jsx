@@ -273,6 +273,9 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }));
 
     const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
+    const [notePrompt, setNotePrompt] = useState('');
+    const [notePromptError, setNotePromptError] = useState(null);
+    const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
     const [selectedStaff, setSelectedStaff] = useState(() => (estimate?.staff_id && estimate?.staff_name)
         ? { id: estimate.staff_id, name: estimate.staff_name }
         : null
@@ -519,7 +522,7 @@ useEffect(() => {
     const handleProductSelect = (itemId, productId) => {
         const selectedProduct = products.find(p => p.id === parseInt(productId));
         if (selectedProduct) {
-            setLineItems(prevItems => prevItems.map(item => 
+            setLineItems(prevItems => prevItems.map(item =>
                 item.id === itemId ? {
                     ...item,
                     name: selectedProduct.name,
@@ -530,6 +533,34 @@ useEffect(() => {
                     unit: selectedProduct.unit
                 } : item
             ));
+        }
+    };
+
+    const handleGenerateNotes = async () => {
+        setNotePromptError(null);
+        if (!notePrompt.trim()) {
+            setNotePromptError('プロンプトを入力してください。');
+            return;
+        }
+
+        try {
+            setIsGeneratingNotes(true);
+            const response = await axios.post(route('estimates.generateNotes'), {
+                prompt: notePrompt,
+                estimate_id: data.id ?? null,
+            });
+            const generated = response?.data?.notes ?? '';
+            if (generated !== '') {
+                setData('notes', generated);
+            }
+            setNotePromptError(null);
+        } catch (error) {
+            const message = error?.response?.data?.errors?.prompt?.[0]
+                ?? error?.response?.data?.message
+                ?? '備考の生成に失敗しました。';
+            setNotePromptError(message);
+        } finally {
+            setIsGeneratingNotes(false);
         }
     };
 
@@ -769,9 +800,34 @@ useEffect(() => {
                                     <Textarea id="external-remarks" value={data.notes} onChange={(e) => setData('notes', e.target.value)} placeholder="お見積りの有効期限は発行後1ヶ月です。" />
                                 </div>
                                 {isInternalView && (
-                                    <div className="lg:col-span-2 space-y-2">
-                                        <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
-                                        <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
+                                    <div className="lg:col-span-2 grid gap-4 lg:grid-cols-2">
+                                        <div className="space-y-2">
+                                            <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
+                                            <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="notes-prompt">備考生成プロンプト</Label>
+                                            <Textarea
+                                                id="notes-prompt"
+                                                value={notePrompt}
+                                                onChange={(e) => setNotePrompt(e.target.value)}
+                                                placeholder="例：適用条件、リスク共有、前提条件の変更時の連絡事項など"
+                                            />
+                                            {notePromptError && (
+                                                <p className="text-sm text-red-600">{notePromptError}</p>
+                                            )}
+                                            <div className="flex items-center gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="secondary"
+                                                    onClick={handleGenerateNotes}
+                                                    disabled={isGeneratingNotes}
+                                                >
+                                                    {isGeneratingNotes ? '生成中...' : '備考生成'}
+                                                </Button>
+                                                <p className="text-xs text-slate-500">入力した内容に基づいて対外備考を提案します。</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
                             </CardContent>
