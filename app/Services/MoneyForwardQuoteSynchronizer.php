@@ -344,6 +344,9 @@ class MoneyForwardQuoteSynchronizer
                         $itemPayload['description'] = $product->description;
                         $itemPayload['detail'] = $product->description;
                     }
+                    if (!array_key_exists('cost', $itemPayload) && !is_null($product->cost)) {
+                        $itemPayload['cost'] = (float) $product->cost;
+                    }
                 }
                 $items[] = $itemPayload;
             }
@@ -579,7 +582,7 @@ class MoneyForwardQuoteSynchronizer
 
     private function resolveProductFromQuoteItem(array $item, array $context = []): ?Product
     {
-        $selectColumns = ['id', 'name', 'unit', 'description'];
+        $selectColumns = ['id', 'name', 'unit', 'description', 'cost'];
         $quoteId = $context['quote_id'] ?? null;
         $index = $context['index'] ?? null;
         $itemName = Arr::get($item, 'name');
