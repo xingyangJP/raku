@@ -11,6 +11,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
@@ -47,7 +49,7 @@ jobs:
         echo "${{ secrets.ACTIONS_DEPLOY_KEY }}" > private_key.pem
         chmod 600 private_key.pem
         rsync -avz -e "ssh -i private_key.pem -p 10022 -o StrictHostKeyChecking=no" \
-          --exclude='.git' --exclude='node_modules' --exclude='.env' \
+          --exclude='node_modules' --exclude='.env' \
           ./ xero@xero.xsrv.jp:${{ steps.paths.outputs.deploy_root }}/
 
     - name: Run Post-Deploy Commands on Server
