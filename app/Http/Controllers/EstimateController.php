@@ -9,6 +9,7 @@ use App\Services\MoneyForwardApiService;
 use App\Services\MoneyForwardQuoteSynchronizer;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -540,6 +541,18 @@ class EstimateController extends Controller
         return redirect()->back()->with('success', '承認しました。');
     }
 
+    private function http(): PendingRequest
+    {
+        static $handlerStack = null;
+        if ($handlerStack === null) {
+            $handlerStack = HandlerStack::create(new StreamHandler());
+        }
+
+        return Http::withOptions([
+            'handler' => $handlerStack,
+        ]);
+    }
+
     public function duplicate(Estimate $estimate)
     {
         $newEstimate = $estimate->replicate();
@@ -629,12 +642,8 @@ class EstimateController extends Controller
             ],
         ];
 
-        $streamHandler = HandlerStack::create(new StreamHandler());
-
         try {
-            $response = Http::withOptions([
-                'handler' => $streamHandler,
-            ])->withHeaders([
+            $response = $this->http()->withHeaders([
                 'Authorization' => 'Bearer ' . $apiKey,
                 'Content-Type' => 'application/json',
             ])->timeout(20)->post($baseUrl . '/v1/chat/completions', [
@@ -931,7 +940,7 @@ class EstimateController extends Controller
     private function sendChatNotification(string $webhook, string $message): void
     {
         try {
-            $response = Http::timeout(5)->post($webhook, ['text' => $message]);
+            $response = $this->http()->timeout(5)->post($webhook, ['text' => $message]);
             if (!$response->successful()) {
                 Log::warning('Google Chat通知に失敗しました。', [
                     'status' => $response->status(),
