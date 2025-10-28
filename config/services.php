@@ -56,4 +56,8 @@ return [
         'model' => env('OPENAI_NOTES_MODEL', 'gpt-4o-mini'),
     ],
 
+    'google_chat' => [
+        'approval_webhook' => env('GOOGLE_CHAT_APPROVAL_WEBHOOK'),
+    ],
+
 ];
