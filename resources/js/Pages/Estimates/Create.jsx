@@ -273,7 +273,22 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }));
 
     const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
-    const [notePrompt, setNotePrompt] = useState('');
+    const defaultPromptTemplate = `【検収基準】
+機能一覧の受入テストで合格した時点を検収完了とする。
+
+【納期】
+本見積は合意した要件に基づくもので、正式なスケジュールは別途合意する。
+
+【前提条件】
+クライアント側にて以下を提供する：API仕様書、必要なアクセス権、テスト用アカウント 等。
+
+【変更管理】
+要件変更は別途見積もり・合意の上で追加費用が発生する。
+
+【保守保証】
+納品後30日間は初期不具合対応を無償とする（対象は当社実装範囲内の不具合に限る）。`;
+
+    const [notePrompt, setNotePrompt] = useState(defaultPromptTemplate);
     const [notePromptError, setNotePromptError] = useState(null);
     const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
     const [selectedStaff, setSelectedStaff] = useState(() => (estimate?.staff_id && estimate?.staff_name)
@@ -811,7 +826,7 @@ useEffect(() => {
                                                 id="notes-prompt"
                                                 value={notePrompt}
                                                 onChange={(e) => setNotePrompt(e.target.value)}
-                                                placeholder="例：適用条件、リスク共有、前提条件の変更時の連絡事項など"
+                                                placeholder="リスク共有・前提条件・変更手続き・保証など、備考に盛り込みたい要素を箇条書きで入力"
                                             />
                                             {notePromptError && (
                                                 <p className="text-sm text-red-600">{notePromptError}</p>
