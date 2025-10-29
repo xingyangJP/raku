@@ -633,6 +633,8 @@ class EstimateController extends Controller
         $estimate->approval_flow = [];
         $estimate->save();
 
+        $this->notifyApprovalCancelled($estimate, Auth::user());
+
         return redirect()->route('estimates.edit', $estimate->id)->with('success', '承認申請を取り消しました。');
     }
 
@@ -1110,6 +1112,24 @@ class EstimateController extends Controller
             $estimate->estimate_number,
             $estimate->title ?? '（件名未設定）',
             $estimate->customer_name ?? '（顧客未設定）',
+            route('estimates.edit', $estimate->id)
+        );
+
+        $this->sendChatNotification($webhook, $message);
+    }
+
+    private function notifyApprovalCancelled(Estimate $estimate, ?User $initiator = null): void
+    {
+        $webhook = (string) config('services.google_chat.approval_webhook', '');
+        if ($webhook === '') {
+            return;
+        }
+
+        $message = sprintf(
+            "承認取消: %s\n件名: %s\n取消者: %s\nURL: %s",
+            $estimate->estimate_number,
+            $estimate->title ?? '（件名未設定）',
+            $initiator?->name ?? 'システム',
             route('estimates.edit', $estimate->id)
         );
 
