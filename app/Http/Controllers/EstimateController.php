@@ -1204,25 +1204,25 @@ class EstimateController extends Controller
 
     private function buildCompanyProfile(): array
     {
-        $defaults = [
-            'name' => config('app.name', '熊本コンピュータソフト株式会社'),
-            'address' => "〒862-0976\n熊本県熊本市中央区九品寺5丁目8-9",
-            'phone' => null,
-            'email' => null,
-            'website' => config('app.url'),
-        ];
+        $companyName = env('COMPANY_NAME');
+        $companyAddress = env('COMPANY_ADDRESS');
+        $companyPhone = env('COMPANY_PHONE');
+        $companyEmail = env('COMPANY_EMAIL');
+        $companyWebsite = env('COMPANY_WEBSITE');
 
-        $overrides = [
-            'name' => env('COMPANY_NAME'),
-            'address' => env('COMPANY_ADDRESS'),
-            'phone' => env('COMPANY_PHONE'),
-            'email' => env('COMPANY_EMAIL'),
-            'website' => env('COMPANY_WEBSITE'),
+        return [
+            'name' => $companyName !== null && $companyName !== ''
+                ? $companyName
+                : config('app.name', '熊本コンピュータソフト株式会社'),
+            'address' => $companyAddress !== null && $companyAddress !== ''
+                ? $companyAddress
+                : "〒862-0976\n熊本県熊本市中央区九品寺5丁目8-9",
+            'phone' => $companyPhone !== '' ? $companyPhone : null,
+            'email' => $companyEmail !== '' ? $companyEmail : null,
+            'website' => $companyWebsite !== null && $companyWebsite !== ''
+                ? $companyWebsite
+                : config('app.url'),
         ];
-
-        return array_merge($defaults, array_filter($overrides, function ($value) {
-            return !is_null($value) && $value !== '';
-        }));
     }
 
     private function buildClientProfile(Estimate $estimate): array
