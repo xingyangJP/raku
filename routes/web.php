@@ -97,6 +97,9 @@ Route::middleware('auth')->group(function () {
 
     // View MF Quote PDF via OAuth
     Route::get('/estimates/{estimate}/view-quote', [App\Http\Controllers\EstimateController::class, 'viewMfQuotePdf'])->name('estimates.viewQuote.start');
+    Route::get('/estimates/{estimate}/purchase-order/preview', [App\Http\Controllers\EstimateController::class, 'purchaseOrderPreview'])
+        ->whereNumber('estimate')
+        ->name('estimates.purchaseOrder.preview');
 
     // Create Quote from Estimate
     Route::get('/estimates/{estimate}/create-quote', [App\Http\Controllers\EstimateController::class, 'createMfQuote'])->name('estimates.createQuote.start');

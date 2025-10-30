@@ -1237,9 +1237,17 @@ useEffect(() => {
                                     )}
 
                                     {isEditMode && is_fully_approved && (
-                                        <Button type="button" onClick={() => router.post(route('invoices.fromEstimate', { estimate: estimate.id }))}>
-                                            自社請求書に変換
-                                        </Button>
+                                        <>
+                                            <Button
+                                                type="button"
+                                                onClick={() => window.open(route('estimates.purchaseOrder.preview', { estimate: estimate.id }), '_blank')}
+                                            >
+                                                注文書を印刷
+                                            </Button>
+                                            <Button type="button" onClick={() => router.post(route('invoices.fromEstimate', { estimate: estimate.id }))}>
+                                                自社請求書に変換
+                                            </Button>
+                                        </>
                                     )}
 
                                     {isEditMode && estimate.mf_invoice_pdf_url && (

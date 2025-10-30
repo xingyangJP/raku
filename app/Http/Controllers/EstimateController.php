@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Vite;
 use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Carbon\Carbon;
@@ -350,7 +351,7 @@ class EstimateController extends Controller
             if ($estimate->status !== 'draft') {
                 return response()->json(['message' => 'Only drafts can be updated via saveDraft.'], 422);
             }
-            $validated = $request->validate([
+            $rules = [
                 'customer_name' => 'required|string|max:255',
                 'client_contact_name' => 'nullable|string|max:35',
                 'client_contact_title' => 'nullable|string|max:35',
@@ -368,7 +369,13 @@ class EstimateController extends Controller
                 'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
                 'staff_id' => 'nullable|integer',
                 'staff_name' => 'required|string|max:255',
-            ]);
+            ];
+
+            if (!Schema::hasColumn('estimates', 'client_contact_name')) {
+                unset($rules['client_contact_name'], $rules['client_contact_title']);
+            }
+
+            $validated = $request->validate($rules);
             $estimate->update(array_merge($validated, ['status' => 'draft']));
             $this->updatePartnerContactCache(
                 $validated['client_id'] ?? $estimate->client_id,
@@ -425,7 +432,7 @@ class EstimateController extends Controller
             $request->merge(['client_id' => (string) $clientId]);
         }
 
-        $validated = $request->validate([
+        $rules = [
             'customer_name' => 'required|string|max:255',
             'client_contact_name' => 'nullable|string|max:35',
             'client_contact_title' => 'nullable|string|max:35',
@@ -445,7 +452,13 @@ class EstimateController extends Controller
             'staff_name' => 'nullable|string|max:255',
             'approval_flow' => 'nullable|array',
             'status' => 'nullable|string|in:draft,pending,sent,rejected',
-        ]);
+        ];
+
+        if (!Schema::hasColumn('estimates', 'client_contact_name')) {
+            unset($rules['client_contact_name'], $rules['client_contact_title']);
+        }
+
+        $validated = $request->validate($rules);
 
         if (!empty($validated['issue_date'])) {
             $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
@@ -738,6 +751,21 @@ class EstimateController extends Controller
 
         return redirect()->route('estimates.edit', $newEstimate->id)
             ->with('success', '見積書を複製しました。');
+    }
+
+    public function purchaseOrderPreview(Estimate $estimate)
+    {
+        abort_if($estimate->status !== 'sent', 403, '承認済み見積のみ注文書を表示できます。');
+
+        $company = $this->buildCompanyProfile();
+        $company['logoUrl'] = $this->resolveCompanyLogoUrl();
+
+        return Inertia::render('Estimates/PurchaseOrderPreview', [
+            'estimate' => $estimate,
+            'company' => $company,
+            'client' => $this->buildClientProfile($estimate),
+            'purchaseOrderNumber' => $this->generatePurchaseOrderNumberForPreview($estimate),
+        ]);
     }
 
     public function generateNotes(Request $request)
@@ -1172,6 +1200,192 @@ class EstimateController extends Controller
         }
 
         return $names;
+    }
+
+    private function buildCompanyProfile(): array
+    {
+        $defaults = [
+            'name' => config('app.name', '熊本コンピュータソフト株式会社'),
+            'address' => "〒862-0976\n熊本県熊本市中央区九品寺5丁目8-9",
+            'phone' => null,
+            'email' => null,
+            'website' => config('app.url'),
+        ];
+
+        $overrides = [
+            'name' => env('COMPANY_NAME'),
+            'address' => env('COMPANY_ADDRESS'),
+            'phone' => env('COMPANY_PHONE'),
+            'email' => env('COMPANY_EMAIL'),
+            'website' => env('COMPANY_WEBSITE'),
+        ];
+
+        return array_merge($defaults, array_filter($overrides, function ($value) {
+            return !is_null($value) && $value !== '';
+        }));
+    }
+
+    private function buildClientProfile(Estimate $estimate): array
+    {
+        return [
+            'name' => $estimate->customer_name ?? '',
+            'address' => $this->resolveClientAddress($estimate),
+            'contact_name' => $estimate->client_contact_name,
+            'contact_title' => $estimate->client_contact_title,
+        ];
+    }
+
+    private function resolveClientAddress(Estimate $estimate): ?string
+    {
+        $partnerId = $estimate->client_id;
+        if (!empty($partnerId)) {
+            $partner = Partner::where('mf_partner_id', (string) $partnerId)->first();
+            if ($partner && is_array($partner->payload)) {
+                if (!empty($estimate->mf_department_id)) {
+                    $department = $this->findPartnerNodeById($partner->payload, (string) $estimate->mf_department_id);
+                    if ($department) {
+                        $formatted = $this->formatPartnerAddress($department);
+                        if ($formatted) {
+                            return $formatted;
+                        }
+                    }
+                }
+
+                $fallback = $this->formatPartnerAddress($partner->payload);
+                if ($fallback) {
+                    return $fallback;
+                }
+            }
+        }
+
+        if (!empty($estimate->delivery_location)) {
+            return $estimate->delivery_location;
+        }
+
+        return null;
+    }
+
+    private function findPartnerNodeById(?array $payload, string $targetId): ?array
+    {
+        if (!is_array($payload)) {
+            return null;
+        }
+
+        $stack = [$payload];
+        while ($stack) {
+            $node = array_pop($stack);
+            if (!is_array($node)) {
+                continue;
+            }
+
+            if (isset($node['id']) && (string) $node['id'] === $targetId) {
+                return $node;
+            }
+
+            foreach ($node as $value) {
+                if (is_array($value)) {
+                    $stack[] = $value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function formatPartnerAddress(?array $node): ?string
+    {
+        if (!is_array($node)) {
+            return null;
+        }
+
+        $addressSource = $node;
+        if (isset($node['address']) && is_array($node['address'])) {
+            $addressSource = array_merge($node, $node['address']);
+        }
+
+        $zip = $this->firstNotEmpty($addressSource, ['zip', 'zip_code', 'postal_code']);
+        $lines = [];
+        if ($zip) {
+            $digits = preg_replace('/[^0-9]/', '', (string) $zip);
+            if (strlen($digits) === 7) {
+                $zip = substr($digits, 0, 3) . '-' . substr($digits, 3);
+            }
+            $lines[] = '〒' . $zip;
+        }
+
+        $addressParts = $this->collectAddressParts($addressSource);
+        if ($addressParts) {
+            $lines[] = implode('', $addressParts);
+        }
+
+        if (empty($lines) && isset($node['addresses']) && is_array($node['addresses'])) {
+            foreach ($node['addresses'] as $nested) {
+                $formatted = $this->formatPartnerAddress($nested);
+                if ($formatted) {
+                    return $formatted;
+                }
+            }
+        }
+
+        return $lines ? implode("\n", $lines) : null;
+    }
+
+    private function collectAddressParts(array $node): array
+    {
+        $parts = [];
+        $orderedKeys = [
+            'prefecture', 'prefecture_name', 'city', 'ward', 'town', 'street',
+            'address1', 'address2', 'address3', 'line1', 'line2', 'line3',
+        ];
+
+        foreach ($orderedKeys as $key) {
+            if (!empty($node[$key])) {
+                $parts[] = trim((string) $node[$key]);
+            }
+        }
+
+        if (isset($node['address']) && is_string($node['address']) && trim($node['address']) !== '') {
+            $parts[] = trim($node['address']);
+        }
+
+        return $parts;
+    }
+
+    private function firstNotEmpty(array $source, array $keys): ?string
+    {
+        foreach ($keys as $key) {
+            if (!empty($source[$key])) {
+                return (string) $source[$key];
+            }
+        }
+        return null;
+    }
+
+    private function resolveCompanyLogoUrl(): ?string
+    {
+        $logoPath = resource_path('imgs/kcs_logo.png');
+        if (!is_file($logoPath)) {
+            return null;
+        }
+
+        try {
+            return Vite::asset('resources/imgs/kcs_logo.png');
+        } catch (\Throwable $e) {
+            Log::warning('注文書ロゴのアセット解決に失敗しました。', [
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
+    private function generatePurchaseOrderNumberForPreview(Estimate $estimate): string
+    {
+        $estimateNumber = trim((string) ($estimate->estimate_number ?? ''));
+        if ($estimateNumber !== '') {
+            return 'PO-' . $estimateNumber;
+        }
+
+        return sprintf('PO-%06d', $estimate->id);
     }
 
     private function resolveRedirectUriForAction(?string $action): string
