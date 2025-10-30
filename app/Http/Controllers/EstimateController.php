@@ -1204,11 +1204,13 @@ class EstimateController extends Controller
 
     private function buildCompanyProfile(): array
     {
-        $companyName = trim((string) env('COMPANY_NAME', ''));
-        $companyAddress = trim((string) env('COMPANY_ADDRESS', ''));
-        $companyPhone = trim((string) env('COMPANY_PHONE', ''));
-        $companyEmail = trim((string) env('COMPANY_EMAIL', ''));
-        $companyWebsite = trim((string) env('COMPANY_WEBSITE', ''));
+        $companyConfig = (array) config('company', []);
+
+        $companyName = trim((string) ($companyConfig['name'] ?? ''));
+        $companyAddress = trim((string) ($companyConfig['address'] ?? ''));
+        $companyPhone = trim((string) ($companyConfig['phone'] ?? ''));
+        $companyEmail = trim((string) ($companyConfig['email'] ?? ''));
+        $companyWebsite = trim((string) ($companyConfig['website'] ?? ''));
 
         return [
             'name' => $companyName !== ''
