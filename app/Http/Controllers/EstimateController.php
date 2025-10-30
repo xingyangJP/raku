@@ -759,6 +759,7 @@ class EstimateController extends Controller
 
         $company = $this->buildCompanyProfile();
         $company['logoUrl'] = $this->resolveCompanyLogoUrl();
+        Log::info('purchase order company profile', $company);
 
         return Inertia::render('Estimates/PurchaseOrderPreview', [
             'estimate' => $estimate,
