@@ -759,7 +759,6 @@ class EstimateController extends Controller
 
         $company = $this->buildCompanyProfile();
         $company['logoUrl'] = $this->resolveCompanyLogoUrl();
-        Log::info('purchase order company profile', $company);
 
         return Inertia::render('Estimates/PurchaseOrderPreview', [
             'estimate' => $estimate,
@@ -1205,22 +1204,22 @@ class EstimateController extends Controller
 
     private function buildCompanyProfile(): array
     {
-        $companyName = env('COMPANY_NAME');
-        $companyAddress = env('COMPANY_ADDRESS');
-        $companyPhone = env('COMPANY_PHONE');
-        $companyEmail = env('COMPANY_EMAIL');
-        $companyWebsite = env('COMPANY_WEBSITE');
+        $companyName = trim((string) env('COMPANY_NAME', ''));
+        $companyAddress = trim((string) env('COMPANY_ADDRESS', ''));
+        $companyPhone = trim((string) env('COMPANY_PHONE', ''));
+        $companyEmail = trim((string) env('COMPANY_EMAIL', ''));
+        $companyWebsite = trim((string) env('COMPANY_WEBSITE', ''));
 
         return [
-            'name' => $companyName !== null && $companyName !== ''
+            'name' => $companyName !== ''
                 ? $companyName
                 : config('app.name', '熊本コンピュータソフト株式会社'),
-            'address' => $companyAddress !== null && $companyAddress !== ''
+            'address' => $companyAddress !== ''
                 ? $companyAddress
                 : "〒862-0976\n熊本県熊本市中央区九品寺5丁目8-9",
             'phone' => $companyPhone !== '' ? $companyPhone : null,
             'email' => $companyEmail !== '' ? $companyEmail : null,
-            'website' => $companyWebsite !== null && $companyWebsite !== ''
+            'website' => $companyWebsite !== ''
                 ? $companyWebsite
                 : config('app.url'),
         ];
@@ -1375,6 +1374,18 @@ class EstimateController extends Controller
             Log::warning('注文書ロゴのアセット解決に失敗しました。', [
                 'error' => $e->getMessage(),
             ]);
+
+            $resourcePath = resource_path('imgs/kcs_logo.png');
+            if (is_file($resourcePath)) {
+                try {
+                    return 'data:image/png;base64,' . base64_encode(file_get_contents($resourcePath));
+                } catch (\Throwable $inner) {
+                    Log::warning('注文書ロゴのローカル読込に失敗しました。', [
+                        'error' => $inner->getMessage(),
+                    ]);
+                }
+            }
+
             return null;
         }
     }
