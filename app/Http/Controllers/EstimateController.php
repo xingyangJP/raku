@@ -740,13 +740,35 @@ class EstimateController extends Controller
 
     public function duplicate(Estimate $estimate)
     {
-        $newEstimate = $estimate->replicate();
+        $newEstimate = $estimate->replicate([
+            'estimate_number',
+            'status',
+            'approval_flow',
+            'approval_started',
+            'mf_quote_id',
+            'mf_quote_pdf_url',
+            'mf_invoice_id',
+            'mf_invoice_pdf_url',
+            'mf_deleted_at',
+        ]);
+
         $newEstimate->estimate_number = Estimate::generateReadableEstimateNumber(
             $estimate->staff_id ?? null,
             $estimate->client_id ?? null,
-            true
+            $estimate->status === 'draft'
         );
         $newEstimate->status = 'draft';
+        $newEstimate->approval_flow = [];
+        if (Schema::hasColumn('estimates', 'approval_started')) {
+            $newEstimate->approval_started = false;
+        }
+
+        $newEstimate->mf_quote_id = null;
+        $newEstimate->mf_quote_pdf_url = null;
+        $newEstimate->mf_invoice_id = null;
+        $newEstimate->mf_invoice_pdf_url = null;
+        $newEstimate->mf_deleted_at = null;
+
         $newEstimate->save();
 
         return redirect()->route('estimates.edit', $newEstimate->id)
