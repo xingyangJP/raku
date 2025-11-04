@@ -13,7 +13,7 @@ import { Switch } from '@/Components/ui/switch';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { PlusCircle, MinusCircle, Trash2, ArrowUp, ArrowDown, Copy, FileText, Eye, Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from "@/lib/utils"
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/Components/ui/command"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/Components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog'
 import axios from 'axios';
@@ -24,22 +24,53 @@ function CustomerCombobox({ selectedCustomer, onCustomerChange }) {
     const [open, setOpen] = useState(false);
     const [customers, setCustomers] = useState([]);
     const [search, setSearch] = useState("");
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
+        if (!open) {
+            setSearch("");
+            setCustomers([]);
+            setLoading(false);
+            return;
+        }
+
+        const trimmed = search.trim();
+        if (!trimmed) {
+            setCustomers([]);
+            setLoading(false);
+            return;
+        }
+
+        let ignore = false;
         const fetchCustomers = async () => {
             try {
-                const response = await axios.get('/api/customers', { params: { search } });
-                setCustomers(response.data.map(c => ({
+                setLoading(true);
+                const response = await axios.get('/api/customers', { params: { search: trimmed } });
+                const fetched = response.data.map(c => ({
                     id: c.id,
                     customer_name: c.customer_name,
                     department_id: c.department_id // Assuming department_id is returned
-                })));
+                }));
+                if (!ignore) {
+                    setCustomers(fetched);
+                }
             } catch (error) {
                 console.error("Failed to fetch customers:", error);
+                if (!ignore) {
+                    setCustomers([]);
+                }
+            } finally {
+                if (!ignore) {
+                    setLoading(false);
+                }
             }
         };
         fetchCustomers();
-    }, [search]);
+
+        return () => {
+            ignore = true;
+        };
+    }, [open, search]);
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
@@ -56,30 +87,50 @@ function CustomerCombobox({ selectedCustomer, onCustomerChange }) {
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-full p-0">
+            <PopoverContent
+                align="start"
+                side="bottom"
+                sideOffset={4}
+                avoidCollisions={false}
+                className="w-full p-0"
+            >
                 <Command>
-                    <CommandInput placeholder="顧客を検索..." onValueChange={setSearch} />
-                    <CommandEmpty>顧客が見つかりません。</CommandEmpty>
-                    <CommandGroup>
-                        {customers.map((customer) => (
-                            <CommandItem
-                                key={customer.id}
-                                value={`${customer.customer_name ?? ''} ${customer.id ?? ''}`}
-                                onSelect={() => {
-                                    onCustomerChange(customer);
-                                    setOpen(false);
-                                }}
-                            >
-                                <Check
-                                    className={cn(
-                                        "mr-2 h-4 w-4",
-                                        selectedCustomer?.id === customer.id ? "opacity-100" : "opacity-0"
-                                    )}
-                                />
-                                {customer.customer_name}
-                            </CommandItem>
-                        ))}
-                    </CommandGroup>
+                    <CommandInput
+                        value={search}
+                        placeholder="顧客を検索..."
+                        onValueChange={setSearch}
+                    />
+                    <CommandList>
+                        <CommandEmpty className="px-4 py-3 text-left text-xs text-muted-foreground">
+                            {loading
+                                ? "検索中..."
+                                : search.trim()
+                                    ? "顧客が見つかりません。"
+                                    : "検索キーワードを入力してください。"}
+                        </CommandEmpty>
+                        {customers.length > 0 && (
+                            <CommandGroup>
+                                {customers.map((customer) => (
+                                    <CommandItem
+                                        key={customer.id}
+                                        value={`${customer.customer_name ?? ''} ${customer.id ?? ''}`}
+                                        onSelect={() => {
+                                            onCustomerChange(customer);
+                                            setOpen(false);
+                                        }}
+                                    >
+                                        <Check
+                                            className={cn(
+                                                "mr-2 h-4 w-4",
+                                                selectedCustomer?.id === customer.id ? "opacity-100" : "opacity-0"
+                                            )}
+                                        />
+                                        {customer.customer_name}
+                                    </CommandItem>
+                                ))}
+                            </CommandGroup>
+                        )}
+                    </CommandList>
                 </Command>
             </PopoverContent>
         </Popover>
