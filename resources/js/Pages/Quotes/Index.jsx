@@ -41,7 +41,7 @@ const computeDefaultQuoteMonth = (value) => {
     return `${now.getFullYear()}-${month}`;
 };
 
-const filterEstimatesList = (source, filters) => {
+const filterEstimatesList = (source, filters, options = {}) => {
     let temp = [...source];
 
     if (filters.title) {
@@ -79,10 +79,29 @@ const filterEstimatesList = (source, filters) => {
         temp = temp.filter((e) => (e.status || '') === filters.status);
     }
 
+    const includeId = options.includeEstimateId;
+    if (typeof includeId === 'number' && Number.isFinite(includeId)) {
+        const alreadyIncluded = temp.some((estimate) => estimate.id === includeId);
+        if (!alreadyIncluded) {
+            const target = source.find((estimate) => estimate.id === includeId);
+            if (target) {
+                temp = [target, ...temp];
+            }
+        }
+    }
+
     return temp;
 };
 
-export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncStatus, error, defaultRange, initialFilters }) {
+const parseEstimateId = (value) => {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncStatus, error, defaultRange, initialFilters, focusEstimateId }) {
     const { props } = usePage();
     const [selectedEstimates, setSelectedEstimates] = useState([]);
     const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
@@ -100,8 +119,14 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         status: initialFilters?.status ?? '',
     };
 
+    const initialFocusedEstimateId = parseEstimateId(focusEstimateId);
+
     const [filters, setFilters] = useState(initialFilterState);
-    const [filteredEstimates, setFilteredEstimates] = useState(() => filterEstimatesList(estimates, initialFilterState));
+    const [appliedFilters, setAppliedFilters] = useState(initialFilterState);
+    const [activeDetailId, setActiveDetailId] = useState(initialFocusedEstimateId);
+    const [filteredEstimates, setFilteredEstimates] = useState(() =>
+        filterEstimatesList(estimates, initialFilterState, { includeEstimateId: initialFocusedEstimateId })
+    );
 
     const moneyForwardAuthUrl = (() => {
         if (!moneyForwardConfig) return null;
@@ -239,6 +264,15 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         }
     };
 
+    const handleDetailSheetChange = (estimateId, isOpen) => {
+        setActiveDetailId((prev) => {
+            if (isOpen) {
+                return estimateId;
+            }
+            return prev === estimateId ? null : prev;
+        });
+    };
+
     // 一覧ではプレビューを廃止。MF見積PDFがある場合のみ「PDF表示」を提供します。
 
     const toNumber = (value, fallback = 0) => {
@@ -270,12 +304,27 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
 
     // 統計計算
     useEffect(() => {
-        setFilteredEstimates(filterEstimatesList(estimates, filters));
-    }, [estimates]);
+        setFilteredEstimates(
+            filterEstimatesList(estimates, appliedFilters, { includeEstimateId: activeDetailId })
+        );
+    }, [estimates, appliedFilters, activeDetailId]);
 
     useEffect(() => {
         setSelectedEstimates((prev) => prev.filter((id) => filteredEstimates.some((est) => est.id === id)));
     }, [filteredEstimates]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return;
+        }
+        const url = new URL(window.location.href);
+        if (activeDetailId) {
+            url.searchParams.set('estimate_id', activeDetailId);
+        } else {
+            url.searchParams.delete('estimate_id');
+        }
+        window.history.replaceState({}, '', url);
+    }, [activeDetailId]);
 
     const handleFilterChange = (event) => {
         const { name, value } = event.target;
@@ -286,7 +335,9 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
     };
 
     const applyFilters = () => {
-        setFilteredEstimates(filterEstimatesList(estimates, filters));
+        const nextFilters = { ...filters };
+        setAppliedFilters(nextFilters);
+        setFilteredEstimates(filterEstimatesList(estimates, nextFilters, { includeEstimateId: activeDetailId }));
     };
 
     const resetFilters = () => {
@@ -298,7 +349,8 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
             status: '',
         };
         setFilters(reset);
-        setFilteredEstimates(filterEstimatesList(estimates, reset));
+        setAppliedFilters(reset);
+        setFilteredEstimates(filterEstimatesList(estimates, reset, { includeEstimateId: activeDetailId }));
     };
 
     const totalAmount = filteredEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
@@ -654,7 +706,11 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                         }, {})).map(([itemName, data]) => ({ name: itemName, value: data.cost })) : [];
 
                                         return (
-                                            <Sheet key={estimate.id}>
+                                            <Sheet
+                                                key={estimate.id}
+                                                open={activeDetailId === estimate.id}
+                                                onOpenChange={(isOpen) => handleDetailSheetChange(estimate.id, isOpen)}
+                                            >
                                                 <TableRow className="hover:bg-slate-50 transition-colors group">
                                                     <TableCell className="w-12 text-center">
                                                         <Checkbox

@@ -194,6 +194,8 @@ class EstimateController extends Controller
         $toMonth = $request->query('to');
         $partner = trim((string) $request->query('partner', ''));
         $status = trim((string) $request->query('status', ''));
+        $focusEstimateId = $request->query('estimate_id', $request->query('quote_id'));
+        $focusEstimateId = is_numeric($focusEstimateId) ? (int) $focusEstimateId : null;
 
         $estimatesQuery = Estimate::query()
             ->whereNull('mf_deleted_at')
@@ -253,6 +255,7 @@ class EstimateController extends Controller
             'error' => session('error'),
             'defaultRange' => $defaultRange,
             'initialFilters' => $initialFilters,
+            'focusEstimateId' => $focusEstimateId,
         ]);
     }
 
@@ -1122,7 +1125,7 @@ class EstimateController extends Controller
             $estimate->customer_name ?? '（顧客未設定）',
             $initiatorName,
             $pendingText,
-            route('estimates.edit', $estimate->id)
+            $this->estimateDetailUrl($estimate)
         );
 
         $this->sendChatNotification($webhook, $message);
@@ -1144,7 +1147,7 @@ class EstimateController extends Controller
             $estimate->estimate_number,
             $approverName,
             $pendingText,
-            route('estimates.edit', $estimate->id)
+            $this->estimateDetailUrl($estimate)
         );
 
         $this->sendChatNotification($webhook, $message);
@@ -1162,7 +1165,7 @@ class EstimateController extends Controller
             $estimate->estimate_number,
             $estimate->title ?? '（件名未設定）',
             $estimate->customer_name ?? '（顧客未設定）',
-            route('estimates.edit', $estimate->id)
+            $this->estimateDetailUrl($estimate)
         );
 
         $this->sendChatNotification($webhook, $message);
@@ -1180,10 +1183,15 @@ class EstimateController extends Controller
             $estimate->estimate_number,
             $estimate->title ?? '（件名未設定）',
             $initiator?->name ?? 'システム',
-            route('estimates.edit', $estimate->id)
+            $this->estimateDetailUrl($estimate)
         );
 
         $this->sendChatNotification($webhook, $message);
+    }
+
+    private function estimateDetailUrl(Estimate $estimate): string
+    {
+        return route('quotes.index', ['estimate_id' => $estimate->id]);
     }
 
     private function sendChatNotification(string $webhook, string $message): void
