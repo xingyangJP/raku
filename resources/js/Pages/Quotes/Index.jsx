@@ -727,7 +727,18 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                         </Link>
                                                     </TableCell>
                                                     <TableCell className="max-w-[200px] truncate">
-                                                        {estimate.title}
+                                                        {estimate.mf_quote_id ? (
+                                                            <a
+                                                                href={route('estimates.viewQuote.start', { estimate: estimate.id })}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="text-blue-600 hover:underline"
+                                                            >
+                                                                {estimate.title || '（件名未設定）'}
+                                                            </a>
+                                                        ) : (
+                                                            estimate.title || '（件名未設定）'
+                                                        )}
                                                     </TableCell>
                                                     <TableCell className="font-medium">
                                                         {estimate.customer_name}
