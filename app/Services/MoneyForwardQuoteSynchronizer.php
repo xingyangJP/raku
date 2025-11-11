@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Estimate;
+use App\Models\MfToken;
 use App\Models\Product;
 use App\Models\User;
 use Carbon\Carbon;
@@ -63,16 +64,64 @@ class MoneyForwardQuoteSynchronizer
         }
 
         try {
-            $token = $this->apiService->getValidAccessToken($userId, 'mfc/invoice/data.read');
-            if (!$token) {
+            $tokenUserIds = MfToken::query()->pluck('user_id')->all();
+            if (empty($tokenUserIds)) {
                 return [
                     'status' => 'unauthorized',
-                    'message' => 'Money Forwardのアクセストークンが取得できませんでした。',
+                    'message' => 'Money Forwardのアクセストークンが登録されていません。',
                     'synced_at' => Cache::get($this->lastSyncedCacheKey($userId)),
                 ];
             }
 
-            $totalSynced = $this->syncQuotes($token);
+            $totalSynced = 0;
+            $aggregatedQuoteIds = [];
+            $hadFailure = false;
+            $hadSuccess = false;
+
+            foreach (array_unique($tokenUserIds) as $tokenUserId) {
+                $accessToken = $this->apiService->getValidAccessToken($tokenUserId, 'mfc/invoice/data.read');
+                if (!$accessToken) {
+                    Log::warning('Money Forward access token unavailable for user during sync.', [
+                        'token_user_id' => $tokenUserId,
+                    ]);
+                    $hadFailure = true;
+                    continue;
+                }
+
+                $result = $this->syncQuotesForToken($accessToken);
+                if ($result['failed']) {
+                    $hadFailure = true;
+                    continue;
+                }
+
+                $hadSuccess = true;
+                $totalSynced += $result['count'];
+                if (!empty($result['synced_quote_ids'])) {
+                    $aggregatedQuoteIds = array_merge($aggregatedQuoteIds, $result['synced_quote_ids']);
+                }
+            }
+
+            if (!$hadSuccess) {
+                return [
+                    'status' => 'unauthorized',
+                    'message' => '有効なMoney Forwardアクセストークンがありません。再認証してください。',
+                    'synced_at' => Cache::get($this->lastSyncedCacheKey($userId)),
+                ];
+            }
+
+            if (!$hadFailure && !empty($aggregatedQuoteIds)) {
+                $this->markMissingQuotesAsDeleted(array_values(array_unique($aggregatedQuoteIds)));
+            }
+
+            if ($hadFailure) {
+                return [
+                    'status' => 'error',
+                    'message' => '一部のMoney Forwardアカウントとの同期に失敗しました。',
+                    'count' => $totalSynced,
+                    'synced_at' => Cache::get($this->lastSyncedCacheKey($userId)),
+                ];
+            }
+
             $now = Carbon::now()->toIso8601String();
             Cache::forever($this->lastSyncedCacheKey($userId), $now);
 
@@ -95,7 +144,7 @@ class MoneyForwardQuoteSynchronizer
         }
     }
 
-    private function syncQuotes(string $accessToken): int
+    private function syncQuotesForToken(string $accessToken): array
     {
         $this->ensureMfItemCache($accessToken);
         $page = 1;
@@ -139,11 +188,11 @@ class MoneyForwardQuoteSynchronizer
             $page++;
         } while (!empty($data) && $hasNext);
 
-        if (!$fetchFailed && !empty($syncedQuoteIds)) {
-            $this->markMissingQuotesAsDeleted($syncedQuoteIds);
-        }
-
-        return $totalSynced;
+        return [
+            'count' => $totalSynced,
+            'synced_quote_ids' => $syncedQuoteIds,
+            'failed' => $fetchFailed,
+        ];
     }
 
     private function updateEstimate(array $quoteData): ?Estimate

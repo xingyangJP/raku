@@ -641,6 +641,8 @@ useEffect(() => {
         }
     };
 
+    const isCompleteDateInput = (value) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
     const handleGenerateNotes = async () => {
         setNotePromptError(null);
         if (!notePrompt.trim()) {
@@ -907,15 +909,22 @@ useEffect(() => {
                                             value={data.issue_date}
                                             onChange={(e) => {
                                                 const newIssueDate = e.target.value;
-                                                setData(prevData => {
-                                                    const issueDate = new Date(newIssueDate);
-                                                    const newDueDate = new Date(issueDate);
-                                                    newDueDate.setDate(issueDate.getDate() + 30);
-                                                    return {
+                                                setData((prevData) => {
+                                                    const nextData = {
                                                         ...prevData,
                                                         issue_date: newIssueDate,
-                                                        due_date: newDueDate.toISOString().slice(0, 10),
                                                     };
+
+                                                    if (isCompleteDateInput(newIssueDate)) {
+                                                        const issueDate = new Date(newIssueDate);
+                                                        if (!Number.isNaN(issueDate.getTime())) {
+                                                            const newDueDate = new Date(issueDate);
+                                                            newDueDate.setDate(issueDate.getDate() + 30);
+                                                            nextData.due_date = newDueDate.toISOString().slice(0, 10);
+                                                        }
+                                                    }
+
+                                                    return nextData;
                                                 });
                                             }}
                                         />
