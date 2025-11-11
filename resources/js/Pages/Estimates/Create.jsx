@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Checkbox } from '@/Components/ui/checkbox';
 import { Label } from '@/Components/ui/label';
 import { Switch } from '@/Components/ui/switch';
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
+import { Bar, BarChart, PieChart, Pie, Cell, ResponsiveContainer, XAxis, Tooltip } from 'recharts';
 import { PlusCircle, MinusCircle, Trash2, ArrowUp, ArrowDown, Copy, FileText, Eye, Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from "@/lib/utils"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/Components/ui/command"
@@ -311,19 +311,26 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return fallback;
     };
 
-    const transformIncomingItems = (items = []) => items.map((item, index) => ({
-        id: item.id ?? item.__temp_id ?? Date.now() + index,
-        product_id: item.product_id ?? null,
-        name: item.name ?? '',
-        description: item.description ?? item.detail ?? '',
-        qty: normalizeNumber(item.qty ?? item.quantity, 1) || 1,
-        unit: item.unit ?? '式',
-        price: normalizeNumber(item.price, 0),
-        cost: normalizeNumber(item.cost, 0),
-        tax_category: item.tax_category ?? 'standard',
-    }));
+const transformIncomingItems = (items = []) => items.map((item, index) => ({
+    id: item.id ?? item.__temp_id ?? Date.now() + index,
+    product_id: item.product_id ?? null,
+    name: item.name ?? '',
+    description: item.description ?? item.detail ?? '',
+    qty: normalizeNumber(item.qty ?? item.quantity, 1) || 1,
+    unit: item.unit ?? '式',
+    price: normalizeNumber(item.price, 0),
+    cost: normalizeNumber(item.cost, 0),
+    tax_category: item.tax_category ?? 'standard',
+    display_mode: item.display_mode ?? 'calculated',
+    display_qty: normalizeNumber(item.display_qty, 1) || 1,
+    display_unit: item.display_unit ?? '式',
+}));
 
     const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
+    const displayModeOptions = [
+        { value: 'calculated', label: '数量表示' },
+        { value: 'lump', label: '1式表示' },
+    ];
     const notePromptPlaceholder = '例: 検収基準・納期の条件・クライアント提供物・変更手続き・保守保証など備考に明記したい要素';
 
     const [notePrompt, setNotePrompt] = useState('');
@@ -516,6 +523,9 @@ useEffect(() => {
         price: normalizeNumber(item.price, 0),
         cost: normalizeNumber(item.cost, 0),
         tax_category: item.tax_category,
+        display_mode: item.display_mode,
+        display_qty: normalizeNumber(item.display_qty, 0),
+        display_unit: item.display_unit,
     }));
 
     setData(prevData => ({
@@ -605,6 +615,10 @@ useEffect(() => {
                 unit: '式',
                 price: 0,
                 cost: 0,
+                tax_category: 'standard',
+                display_mode: 'calculated',
+                display_qty: 1,
+                display_unit: '式',
             }
         ]);
     };
@@ -613,10 +627,15 @@ useEffect(() => {
         setLineItems(prevItems => prevItems.filter(item => item.id !== id));
     };
 
-    const numericFields = new Set(['qty', 'price', 'cost']);
+    const numericFields = new Set(['qty', 'price', 'cost', 'display_qty']);
 
     const handleItemChange = (id, field, value) => {
-        const normalizedValue = numericFields.has(field) ? normalizeNumber(value, 0) : value;
+        let normalizedValue = numericFields.has(field) ? normalizeNumber(value, 0) : value;
+
+        if (field === 'display_qty' && (normalizedValue === null || normalizedValue <= 0)) {
+            normalizedValue = 1;
+        }
+
         setLineItems(prevItems =>
             prevItems.map(item =>
                 item.id === id ? { ...item, [field]: normalizedValue } : item
@@ -693,6 +712,21 @@ useEffect(() => {
         name: itemName,
         value: data.cost,
     }));
+
+    const effortData = lineItems.reduce((acc, item) => {
+        const key = item.name && item.name !== '' ? item.name : '未設定';
+        const qty = normalizeNumber(item.qty, 0);
+        if (qty === 0) return acc;
+        acc[key] = (acc[key] || 0) + qty;
+        return acc;
+    }, {});
+
+    const effortChartData = Object.entries(effortData).map(([name, value]) => ({
+        name,
+        value,
+    }));
+
+    const totalEffort = effortChartData.reduce((sum, entry) => sum + entry.value, 0);
 
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
@@ -1037,27 +1071,67 @@ useEffect(() => {
                                                 <TableCell className="text-right">
                                                     <Input
                                                         type="number"
+                                                        step="0.1"
+                                                        min="0"
                                                         value={item.qty}
                                                         onChange={(e) => {
-                                                            const val = parseInt(e.target.value) || 0;
-                                                            if (val <= 999) {
+                                                            const val = parseFloat(e.target.value);
+                                                            if (!Number.isNaN(val) && val <= 999.9) {
                                                                 handleItemChange(item.id, 'qty', val);
+                                                            } else if (e.target.value === '') {
+                                                                handleItemChange(item.id, 'qty', 0);
                                                             }
                                                         }}
-                                                        className="w-16 text-right"
-                                                        max="999"
+                                                        className="w-20 text-right"
                                                     />
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Input
-                                                        value={item.unit}
-                                                        onChange={(e) => {
-                                                            const val = e.target.value.slice(0, 3);
-                                                            handleItemChange(item.id, 'unit', val);
-                                                        }}
-                                                        className="w-12"
-                                                        maxLength="3"
-                                                    />
+                                                    <div className="space-y-2">
+                                                        <Input
+                                                            value={item.unit}
+                                                            onChange={(e) => {
+                                                                const val = e.target.value.slice(0, 3);
+                                                                handleItemChange(item.id, 'unit', val);
+                                                            }}
+                                                            className="w-16"
+                                                            maxLength="3"
+                                                        />
+                                                        <div className="flex items-center gap-2">
+                                                            <Select
+                                                                value={item.display_mode}
+                                                                onValueChange={(value) => handleItemChange(item.id, 'display_mode', value)}
+                                                            >
+                                                                <SelectTrigger className="w-28 h-8 text-xs">
+                                                                    <SelectValue placeholder="表示形式" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {displayModeOptions.map(option => (
+                                                                        <SelectItem key={option.value} value={option.value}>
+                                                                            {option.label}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        {item.display_mode === 'lump' && (
+                                                            <div className="flex items-center gap-2 text-xs">
+                                                                <Input
+                                                                    type="number"
+                                                                    step="0.1"
+                                                                    className="w-16 text-right"
+                                                                    value={item.display_qty}
+                                                                    min="0"
+                                                                    onChange={(e) => handleItemChange(item.id, 'display_qty', parseFloat(e.target.value) || 0)}
+                                                                />
+                                                                <Input
+                                                                    value={item.display_unit}
+                                                                    onChange={(e) => handleItemChange(item.id, 'display_unit', e.target.value.slice(0, 3))}
+                                                                    className="w-16"
+                                                                    maxLength="3"
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <Input
@@ -1267,6 +1341,47 @@ useEffect(() => {
                                                         <span>合計:</span>
                                                         <span>{totalGrossProfit.toLocaleString()}円（{totalCost.toLocaleString()}円）</span>
                                                     </p>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                )}
+                                {isInternalView && effortChartData.length > 0 && (
+                                    <Card className="mt-6">
+                                        <CardHeader>
+                                            <CardTitle>工数明細（社内用）</CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                            <div className="h-64">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <BarChart data={effortChartData}>
+                                                        <XAxis dataKey="name" hide />
+                                                        <Tooltip formatter={(value) => `${value.toFixed(1)} 工数`} />
+                                                        <Bar dataKey="value" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                                                    </BarChart>
+                                                </ResponsiveContainer>
+                                                <div className="flex justify-center mt-2 text-sm text-muted-foreground">
+                                                    項目別工数
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <p className="font-bold">工数一覧</p>
+                                                {effortChartData.map((entry, idx) => (
+                                                    <p key={entry.name} className="flex justify-between">
+                                                        <span className="flex items-center">
+                                                            <span
+                                                                aria-hidden
+                                                                className="inline-block w-3 h-3 rounded-sm mr-2"
+                                                                style={{ backgroundColor: COLORS[idx % COLORS.length] }}
+                                                            />
+                                                            {entry.name}
+                                                        </span>
+                                                        <span>{entry.value.toFixed(1)} 工数</span>
+                                                    </p>
+                                                ))}
+                                                <div className="border-t pt-2 mt-2 flex justify-between font-semibold">
+                                                    <span>合計</span>
+                                                    <span>{totalEffort.toFixed(1)} 工数</span>
                                                 </div>
                                             </div>
                                         </CardContent>

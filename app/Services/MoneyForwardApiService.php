@@ -410,6 +410,19 @@ class MoneyForwardApiService
                 'excise' => $excise,
             ];
             $lastIndex = array_key_last($items);
+            $lineAmount = $items[$lastIndex]['price'] * $items[$lastIndex]['quantity'];
+
+            if (($item['display_mode'] ?? 'calculated') === 'lump') {
+                $displayQty = (float) ($item['display_qty'] ?? 1);
+                if ($displayQty <= 0) {
+                    $displayQty = 1;
+                }
+                $displayUnit = trim((string) ($item['display_unit'] ?? '式'));
+                $items[$lastIndex]['quantity'] = $displayQty;
+                $items[$lastIndex]['unit'] = $displayUnit;
+                $items[$lastIndex]['price'] = $displayQty !== 0.0 ? $lineAmount / $displayQty : $lineAmount;
+            }
+
             if ($product instanceof Product) {
                 if (!empty($product->mf_id)) {
                     $items[$lastIndex]['item_id'] = $product->mf_id;

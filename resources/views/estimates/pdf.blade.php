@@ -312,6 +312,23 @@
                 </thead>
                 <tbody>
                     @foreach ($estimateData['lineItems'] ?? [] as $index => $item)
+                    @php
+                        $calcQty = (float) ($item['qty'] ?? 0);
+                        $calcPrice = (float) ($item['price'] ?? 0);
+                        $lineAmount = $calcQty * $calcPrice;
+                        $displayQty = $calcQty;
+                        $displayUnit = $item['unit'] ?? '';
+                        $displayPrice = $calcPrice;
+                        if (($item['display_mode'] ?? 'calculated') === 'lump') {
+                            $displayQty = (float) ($item['display_qty'] ?? 1);
+                            if ($displayQty <= 0) {
+                                $displayQty = 1;
+                            }
+                            $displayUnit = $item['display_unit'] ?? '式';
+                            $displayPrice = $displayQty !== 0.0 ? $lineAmount / $displayQty : $lineAmount;
+                        }
+                        $formattedQty = rtrim(rtrim(number_format($displayQty, 2, '.', ''), '0'), '.');
+                    @endphp
                     <tr>
                         <td class="text-center teal">{{ $index + 1 }}</td>
                         <td>
@@ -320,10 +337,10 @@
                                 <div class="text-sm teal">{{ $item['description'] }}</div>
                             @endif
                         </td>
-                        <td class="text-center dark-gray">{{ $item['qty'] ?? 0 }}</td>
-                        <td class="text-center dark-gray">{{ $item['unit'] ?? '' }}</td>
-                        <td class="text-right dark-gray">¥{{ number_format($item['price'] ?? 0) }}</td>
-                        <td class="text-right font-bold orange">¥{{ number_format(($item['qty'] ?? 0) * ($item['price'] ?? 0)) }}</td>
+                        <td class="text-center dark-gray">{{ $formattedQty }}</td>
+                        <td class="text-center dark-gray">{{ $displayUnit }}</td>
+                        <td class="text-right dark-gray">¥{{ number_format($displayPrice) }}</td>
+                        <td class="text-right font-bold orange">¥{{ number_format($lineAmount) }}</td>
                     </tr>
                     @endforeach
                 </tbody>
