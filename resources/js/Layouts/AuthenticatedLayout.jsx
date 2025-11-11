@@ -34,6 +34,7 @@ export default function AuthenticatedLayout({ header, children }) {
         { name: '請求・売掛管理', href: route('billing.index'), icon: FileText, current: route().current('billing.index') },
         // { name: '在庫管理', href: route('inventory.index'), icon: Boxes, current: route().current('inventory.index') },
         { name: '商品管理', href: route('products.index'), icon: Package, current: route().current('products.index') },
+        { name: '事業区分集計', href: route('businessDivisions.summary'), icon: LineChart, current: route().current('businessDivisions.summary') },
         { name: 'ヘルプ', href: route('help.index'), icon: LifeBuoy, current: route().current('help.index') },
     ];
 

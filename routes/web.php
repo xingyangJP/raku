@@ -3,6 +3,7 @@
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\BusinessDivisionReportController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Models\Estimate; // Add this import
@@ -39,6 +40,8 @@ Route::middleware('auth')->group(function () {
     Route::get('products/auth/callback', [ProductController::class, 'handleCallback'])->name('products.auth.callback');
 
     Route::resource('products', ProductController::class);
+        Route::get('/business-divisions', [BusinessDivisionReportController::class, 'index'])->name('businessDivisions.summary');
+        Route::post('/business-divisions/product/{product}', [BusinessDivisionReportController::class, 'updateProductDivision'])->name('businessDivisions.updateProduct');
     // Legacy helper API (not used anymore): Route::get('/api/product-categories', [ProductController::class, 'getCategories']);
 
     // Categories API for CategoryDialog.jsx

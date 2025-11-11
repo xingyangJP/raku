@@ -301,17 +301,11 @@ class ProductController extends Controller
                 return redirect()->route('products.index')->with('error', 'Product to sync not found.');
             }
             return $this->doSyncOne($product, $token, $apiService);
+        } elseif ($action === 'sync_from_mf') {
+            return $this->doSyncFromMf($token, $apiService);
         }
 
         return redirect()->route('products.index')->with('error', 'Unknown sync action.');
-    }
-
-    private function doSyncAll(string $token, MoneyForwardApiService $apiService)
-    {
-        $result = $this->performSyncAll($token, $apiService);
-        $flashKey = ($result['status'] ?? null) === 'success' ? 'success' : 'error';
-
-        return redirect()->route('products.index')->with($flashKey, $result['message'] ?? '同期結果が不明です。');
     }
 
     private function doSyncOne(Product $product, string $token, MoneyForwardApiService $apiService)
@@ -384,7 +378,7 @@ class ProductController extends Controller
     private function performSyncAllToMf(string $token, MoneyForwardApiService $apiService): array
     {
         $remoteItems = $apiService->getItems($token);
-        if ($remoteItems === null) {
+        if (!is_array($remoteItems)) {
             return [
                 'status' => 'error',
                 'message' => 'Money Forwardの品目一覧取得に失敗しました。',
@@ -393,23 +387,22 @@ class ProductController extends Controller
 
         $remoteById = [];
         $remoteByCode = [];
-
-        foreach ($remoteItems as $remoteItem) {
-            $remoteId = $remoteItem['id'] ?? null;
-            if ($remoteId) {
-                $remoteById[$remoteId] = $remoteItem;
+        foreach ($remoteItems as $item) {
+            $id = $item['id'] ?? null;
+            if ($id) {
+                $remoteById[$id] = $item;
             }
-
-            $remoteCode = $remoteItem['code'] ?? null;
-            if ($remoteCode) {
-                $remoteByCode[$remoteCode] = $remoteItem;
+            if (!empty($item['code'])) {
+                $remoteByCode[$item['code']] = $item;
             }
         }
 
-        $processedRemoteIds = [];
-        $createdCount = 0;
-        $updatedCount = 0;
-        $deletedCount = 0;
+        $stats = [
+            'updated_remote' => 0,
+            'created_remote' => 0,
+            'updated_local' => 0,
+            'created_local' => 0,
+        ];
         $errors = [];
 
         Product::query()->orderBy('id')->chunkById(100, function ($products) use (
@@ -417,138 +410,199 @@ class ProductController extends Controller
             $token,
             &$remoteById,
             &$remoteByCode,
-            &$processedRemoteIds,
-            &$createdCount,
-            &$updatedCount,
+            &$stats,
             &$errors
         ) {
-            /** @var \Illuminate\Support\Collection<int, Product> $products */
             foreach ($products as $product) {
-                $payload = $this->buildMfItemPayload($product);
-
-                $targetId = null;
-                $targetItem = null;
+                $remoteItem = null;
+                $remoteId = null;
 
                 if ($product->mf_id && isset($remoteById[$product->mf_id])) {
-                    $targetId = $product->mf_id;
-                    $targetItem = $remoteById[$product->mf_id];
+                    $remoteId = $product->mf_id;
+                    $remoteItem = $remoteById[$remoteId];
                 } elseif (isset($remoteByCode[$product->sku])) {
-                    $targetItem = $remoteByCode[$product->sku];
-                    $targetId = $targetItem['id'] ?? null;
+                    $remoteItem = $remoteByCode[$product->sku];
+                    $remoteId = $remoteItem['id'] ?? null;
                 }
 
-                $result = null;
-                $action = null;
+                if ($remoteItem) {
+                    unset($remoteById[$remoteId]);
+                    if (!empty($remoteItem['code'])) {
+                        unset($remoteByCode[$remoteItem['code']]);
+                    }
 
-                if ($targetId) {
-                    $result = $apiService->updateItem($token, $targetId, $payload);
-                    $action = 'update';
+                    $remoteUpdatedAt = $this->parseRemoteTimestamp($remoteItem['updated_at'] ?? null);
+                    $localUpdatedAt = $product->updated_at ?? $product->created_at;
 
-                    if (is_array($result) && isset($result['error']) && $result['error'] === 'not_found') {
-                        Log::info('MF item not found during bulk sync, fallback to create.', [
-                            'product_id' => $product->id,
-                            'stale_mf_id' => $targetId,
-                            'payload' => $payload,
-                        ]);
-                        $result = $apiService->createItem($token, $payload);
-                        $action = 'create';
+                    if ($remoteUpdatedAt && (!$localUpdatedAt || $remoteUpdatedAt->gt($localUpdatedAt))) {
+                        $this->applyRemoteItemToProduct($product, $remoteItem, $remoteUpdatedAt);
+                        $product->save();
+                        $stats['updated_local']++;
+                    } else {
+                        $result = $this->syncProductToMoneyForward($product, $token, $apiService, $remoteId);
+                        if ($result === null) {
+                            $errors[] = ['product_id' => $product->id, 'action' => 'update'];
+                        } elseif ($result === 'created') {
+                            $stats['created_remote']++;
+                        } else {
+                            $stats['updated_remote']++;
+                        }
                     }
                 } else {
-                    $result = $apiService->createItem($token, $payload);
-                    $action = 'create';
-                }
-
-                if (!$this->isSuccessfulMfResponse($result)) {
-                    $errors[] = [
-                        'product_id' => $product->id,
-                        'payload' => $payload,
-                        'response' => $result,
-                    ];
-                    Log::error('MF bulk sync failed for product.', [
-                        'product_id' => $product->id,
-                        'result' => $result,
-                    ]);
-                    continue;
-                }
-
-                $resultId = $result['id'] ?? $targetId;
-                if ($resultId) {
-                    $processedRemoteIds[] = $resultId;
-                    $remoteById[$resultId] = $result;
-                    $remoteCode = $result['code'] ?? ($targetItem['code'] ?? $product->sku);
-                    if ($remoteCode) {
-                        $remoteByCode[$remoteCode] = $result;
+                    $result = $this->syncProductToMoneyForward($product, $token, $apiService, null);
+                    if ($result === null) {
+                        $errors[] = ['product_id' => $product->id, 'action' => 'create'];
+                    } else {
+                        $stats['created_remote']++;
                     }
-                }
-
-                if (isset($result['id'])) {
-                    $product->mf_id = $result['id'];
-                } elseif ($targetId) {
-                    $product->mf_id = $targetId;
-                }
-
-                if (!empty($result['updated_at'])) {
-                    try {
-                        $product->mf_updated_at = Carbon::parse($result['updated_at']);
-                    } catch (\Exception $e) {
-                        Log::warning('Failed to parse Money Forward updated_at after bulk sync', [
-                            'product_id' => $product->id,
-                            'updated_at' => $result['updated_at'],
-                            'exception' => $e->getMessage(),
-                        ]);
-                    }
-                }
-
-                $product->save();
-
-                if ($action === 'create') {
-                    $createdCount++;
-                } else {
-                    $updatedCount++;
                 }
             }
         });
 
-        $processedRemoteIds = array_unique($processedRemoteIds);
-        $remoteIdsToDelete = array_diff(array_keys($remoteById), $processedRemoteIds);
-
-        foreach ($remoteIdsToDelete as $remoteId) {
-            $remoteItem = $remoteById[$remoteId] ?? [];
-            $remoteCode = $remoteItem['code'] ?? null;
-
-            $deleted = $apiService->deleteItem($token, $remoteId);
-            if ($deleted) {
-                $deletedCount++;
-                if ($remoteCode && isset($remoteByCode[$remoteCode])) {
-                    unset($remoteByCode[$remoteCode]);
-                }
-            } else {
-                $errors[] = [
-                    'remote_id' => $remoteId,
-                    'code' => $remoteCode,
-                    'action' => 'delete',
-                ];
-                Log::error('MF bulk sync failed to delete item.', [
-                    'remote_id' => $remoteId,
-                    'code' => $remoteCode,
-                ]);
+        foreach ($remoteById as $item) {
+            $mfId = (string) ($item['id'] ?? '');
+            if ($mfId === '') {
+                continue;
             }
+
+            $baseSku = !empty($item['code']) ? $item['code'] : 'MF-' . $mfId;
+            $sku = $this->ensureUniqueSku($baseSku);
+
+            $product = Product::create([
+                'mf_id' => $mfId,
+                'sku' => $sku,
+                'name' => $item['name'] ?? '名称未設定',
+                'description' => $item['detail'] ?? null,
+                'unit' => $item['unit'] ?? '式',
+                'price' => $this->normalizeNumber($item['price'] ?? 0, 0.0) ?? 0,
+                'quantity' => $this->normalizeNumber($item['quantity'] ?? null),
+                'tax_category' => $this->mapExciseToTaxCategory($item['excise'] ?? null),
+                'is_deduct_withholding_tax' => $this->normalizeBoolean($item['is_deduct_withholding_tax'] ?? null),
+                'business_division' => null,
+                'cost' => 0,
+                'category_id' => null,
+                'seq' => null,
+            ]);
+
+            if (!empty($item['updated_at'])) {
+                try {
+                    $product->mf_updated_at = Carbon::parse($item['updated_at']);
+                    $product->save();
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to parse Money Forward item updated_at during import', [
+                        'item_id' => $mfId,
+                        'exception' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            $stats['created_local']++;
         }
 
-        $message = "Money Forwardへ同期しました（更新: {$updatedCount}件 / 作成: {$createdCount}件 / 削除: {$deletedCount}件）";
+        $message = sprintf(
+            'Money Forwardと同期しました（MF更新: %d件 / MF作成: %d件 / ローカル更新: %d件 / ローカル作成: %d件）',
+            $stats['updated_remote'],
+            $stats['created_remote'],
+            $stats['updated_local'],
+            $stats['created_local']
+        );
 
         if (!empty($errors)) {
-            $message .= ' 一部の品目で同期に失敗しました。詳細はログを確認してください。';
+            $message .= ' 一部の品目で同期に失敗しました。ログを確認してください。';
         }
 
         return [
             'status' => empty($errors) ? 'success' : 'error',
             'message' => $message,
-            'created' => $createdCount,
-            'updated' => $updatedCount,
-            'deleted' => $deletedCount,
             'errors' => $errors,
         ];
+    }
+
+    private function syncProductToMoneyForward(Product $product, string $token, MoneyForwardApiService $apiService, ?string $remoteId = null): ?string
+    {
+        $payload = $this->buildMfItemPayload($product);
+        $action = 'updated';
+        $result = null;
+
+        if ($remoteId) {
+            $result = $apiService->updateItem($token, $remoteId, $payload);
+            if (is_array($result) && isset($result['error']) && $result['error'] === 'not_found') {
+                Log::info('MF item not found during sync, creating new one.', [
+                    'product_id' => $product->id,
+                    'stale_mf_id' => $remoteId,
+                ]);
+                $remoteId = null;
+                $result = null;
+            }
+        }
+
+        if (!$remoteId) {
+            $result = $apiService->createItem($token, $payload);
+            $action = 'created';
+        }
+
+        if (!$this->isSuccessfulMfResponse($result)) {
+            Log::error('Failed to sync product to Money Forward.', [
+                'product_id' => $product->id,
+                'payload' => $payload,
+                'response' => $result,
+            ]);
+            return null;
+        }
+
+        $mfId = $result['id'] ?? $remoteId;
+        if ($mfId) {
+            $product->mf_id = $mfId;
+        }
+
+        if (!empty($result['updated_at'])) {
+            $parsed = $this->parseRemoteTimestamp($result['updated_at']);
+            if ($parsed) {
+                $product->mf_updated_at = $parsed;
+            }
+        }
+
+        $product->save();
+
+        return $action;
+    }
+
+    private function applyRemoteItemToProduct(Product $product, array $remoteItem, ?Carbon $remoteUpdatedAt = null): void
+    {
+        $product->mf_id = (string) ($remoteItem['id'] ?? $product->mf_id);
+        $product->name = $remoteItem['name'] ?? $product->name;
+        $product->description = $remoteItem['detail'] ?? $product->description;
+        $product->unit = $remoteItem['unit'] ?? $product->unit;
+        $product->price = $this->normalizeNumber($remoteItem['price'] ?? $product->price, $product->price) ?? $product->price;
+        $qty = $this->normalizeNumber($remoteItem['quantity'] ?? null);
+        if ($qty !== null) {
+            $product->quantity = $qty;
+        }
+        $product->tax_category = $this->mapExciseToTaxCategory($remoteItem['excise'] ?? null);
+        $withholding = $this->normalizeBoolean($remoteItem['is_deduct_withholding_tax'] ?? null);
+        if ($withholding !== null) {
+            $product->is_deduct_withholding_tax = $withholding;
+        }
+        if ($remoteUpdatedAt) {
+            $product->mf_updated_at = $remoteUpdatedAt;
+        }
+    }
+
+    private function parseRemoteTimestamp(?string $timestamp): ?Carbon
+    {
+        if (!$timestamp) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($timestamp);
+        } catch (\Throwable $e) {
+            Log::warning('Failed to parse remote timestamp', [
+                'timestamp' => $timestamp,
+                'exception' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 
     private function buildMfItemPayload(Product $product): array
@@ -663,5 +717,30 @@ class ProductController extends Controller
         }
 
         return null;
+    }
+
+    private function mapExciseToTaxCategory(?string $excise): string
+    {
+        return match ($excise) {
+            'ten_percent' => 'ten_percent',
+            'eight_percent', 'eight_percent_reduced', 'eight_percent_as_reduced_tax_rate' => 'eight_percent_as_reduced_tax_rate',
+            'five_percent' => 'five_percent',
+            'tax_exemption' => 'tax_exemption',
+            'non_taxable' => 'non_taxable',
+            'untaxable' => 'untaxable',
+            default => 'ten_percent',
+        };
+    }
+
+    private function ensureUniqueSku(string $baseSku): string
+    {
+        $candidate = $baseSku;
+        $suffix = 1;
+        while (Product::where('sku', $candidate)->exists()) {
+            $candidate = $baseSku . '-' . $suffix;
+            $suffix++;
+        }
+
+        return $candidate;
     }
 }
