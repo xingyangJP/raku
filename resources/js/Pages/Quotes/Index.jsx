@@ -35,7 +35,6 @@ import {
     Activity,
     BarChart2
 } from 'lucide-react';
-import { Checkbox } from '@/Components/ui/checkbox';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog';
@@ -110,7 +109,6 @@ const parseEstimateId = (value) => {
 
 export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncStatus, error, defaultRange, initialFilters, focusEstimateId }) {
     const { props } = usePage();
-    const [selectedEstimates, setSelectedEstimates] = useState([]);
     const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
     const [approverNames, setApproverNames] = useState([]);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -204,22 +202,6 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
             setApproverNames(names);
         }
     }, [props.flash]);
-
-    const handleSelectAll = (checked) => {
-        if (checked) {
-            setSelectedEstimates(filteredEstimates.map((estimate) => estimate.id));
-        } else {
-            setSelectedEstimates([]);
-        }
-    };
-
-    const handleSelectItem = (id, checked) => {
-        if (checked) {
-            setSelectedEstimates(prev => [...prev, id]);
-        } else {
-            setSelectedEstimates(prev => prev.filter(item => item !== id));
-        }
-    };
 
     const getStatusBadge = (status) => {
         const configs = {
@@ -316,10 +298,6 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
             filterEstimatesList(estimates, appliedFilters, { includeEstimateId: activeDetailId })
         );
     }, [estimates, appliedFilters, activeDetailId]);
-
-    useEffect(() => {
-        setSelectedEstimates((prev) => prev.filter((id) => filteredEstimates.some((est) => est.id === id)));
-    }, [filteredEstimates]);
 
     useEffect(() => {
         if (typeof window === 'undefined') {
@@ -721,7 +699,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                     見積一覧
                                 </CardTitle>
                                 <CardDescription className="mt-1">
-                                    全 {filteredEstimates.length} 件 | 選択中: {selectedEstimates.length} 件
+                                    全 {filteredEstimates.length} 件
                                 </CardDescription>
                             </div>
                             <div className="flex flex-wrap gap-2">
@@ -746,12 +724,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                             <Table>
                                 <TableHeader>
                                     <TableRow className="bg-slate-50 hover:bg-slate-50">
-                                        <TableHead className="w-12 text-center font-semibold">
-                                            <Checkbox
-                                                checked={filteredEstimates.length > 0 && filteredEstimates.every((estimate) => selectedEstimates.includes(estimate.id))}
-                                                onCheckedChange={handleSelectAll}
-                                            />
-                                        </TableHead>
+                                        <TableHead className="w-16 text-center font-semibold">受注</TableHead>
                                         <TableHead className="font-semibold">見積番号</TableHead>
                                         <TableHead className="font-semibold">件名</TableHead>
                                         <TableHead className="font-semibold">顧客名</TableHead>
@@ -793,11 +766,12 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                 onOpenChange={(isOpen) => handleDetailSheetChange(estimate.id, isOpen)}
                                             >
                                                 <TableRow className="hover:bg-slate-50 transition-colors group">
-                                                    <TableCell className="w-12 text-center">
-                                                        <Checkbox
-                                                            checked={selectedEstimates.includes(estimate.id)}
-                                                            onCheckedChange={(checked) => handleSelectItem(estimate.id, checked)}
-                                                        />
+                                                    <TableCell className="text-center w-16">
+                                                        {estimate.is_order_confirmed ? (
+                                                            <CheckCircle className="h-4 w-4 text-green-600 inline-block" />
+                                                        ) : (
+                                                            <span className="text-slate-300 text-xs">—</span>
+                                                        )}
                                                     </TableCell>
                                                     <TableCell className="font-medium text-blue-700">
                                                         <Link
