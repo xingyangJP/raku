@@ -22,6 +22,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 use Carbon\Carbon;
 use GuzzleHttp\HandlerStack;
 use GuzzleHttp\Handler\StreamHandler;
+use App\Models\MfToken;
 
 class EstimateController extends Controller
 {
@@ -488,12 +489,18 @@ class EstimateController extends Controller
             $normalizedFlow = [];
             foreach ($validated['approval_flow'] as $step) {
                 $approvedAt = $status === 'pending' ? null : ($step['approved_at'] ?? null);
-                if (empty($approvedAt)) { $hasUnapproved = true; }
+                $rejectedAt = $status === 'pending' ? null : ($step['rejected_at'] ?? null);
+                $statusValue = $approvedAt
+                    ? 'approved'
+                    : ($rejectedAt ? 'rejected' : 'pending');
+                if ($statusValue !== 'approved') { $hasUnapproved = true; }
                 $normalizedFlow[] = [
                     'id' => $step['id'] ?? null,
                     'name' => $step['name'] ?? null,
                     'approved_at' => $approvedAt,
-                    'status' => $approvedAt ? 'approved' : 'pending',
+                    'rejected_at' => $statusValue === 'rejected' ? $rejectedAt : null,
+                    'rejection_reason' => $statusValue === 'rejected' ? ($step['rejection_reason'] ?? null) : null,
+                    'status' => $statusValue,
                 ];
             }
             $validated['approval_flow'] = $normalizedFlow;
@@ -574,11 +581,24 @@ class EstimateController extends Controller
         }
 
         $originalStatus = $estimate->status;
+        $originalClientId = $estimate->client_id;
         $status = $validated['status'] ?? $estimate->status;
         unset($validated['status']);
 
+        $clientChanged = array_key_exists('client_id', $validated)
+            && (string) ($validated['client_id'] ?? '') !== (string) ($originalClientId ?? '');
+
         if (!Schema::hasColumn('estimates', 'approval_flow')) {
             unset($validated['approval_flow']);
+        }
+
+        if ($clientChanged && !empty($estimate->mf_quote_id)) {
+            if ($status === 'sent') {
+                $status = 'pending';
+            }
+            if ($status !== 'draft' && Schema::hasColumn('estimates', 'approval_started')) {
+                $validated['approval_started'] = true;
+            }
         }
 
         if (isset($validated['approval_flow']) && is_array($validated['approval_flow'])) {
@@ -605,6 +625,8 @@ class EstimateController extends Controller
                     'id' => $s['id'] ?? null,
                     'name' => $s['name'] ?? null,
                     'approved_at' => null,
+                    'rejected_at' => null,
+                    'rejection_reason' => null,
                     'status' => 'pending',
                 ];
             }, $estimate->approval_flow);
@@ -632,7 +654,14 @@ class EstimateController extends Controller
             $validated['client_contact_name'] ?? $estimate->client_contact_name,
             $validated['client_contact_title'] ?? $estimate->client_contact_title
         );
+        $wasMfQuotePresent = !empty($estimate->mf_quote_id);
         $estimate->refresh();
+
+        if ($wasMfQuotePresent && (($originalStatus === 'sent' && $status !== 'sent') || $clientChanged)) {
+            $this->deleteMoneyForwardQuote($estimate->mf_quote_id);
+            $this->clearMoneyForwardQuoteState($estimate, false);
+            $estimate->save();
+        }
 
         if ($originalStatus !== 'pending' && $status === 'pending') {
             $this->notifyApprovalRequested($estimate, Auth::user());
@@ -644,6 +673,11 @@ class EstimateController extends Controller
 
     public function cancel(Estimate $estimate)
     {
+        if (!empty($estimate->mf_quote_id)) {
+            $this->deleteMoneyForwardQuote($estimate->mf_quote_id);
+            $this->clearMoneyForwardQuoteState($estimate, false);
+        }
+
         $estimate->status = 'draft';
         $estimate->approval_started = false;
         $estimate->approval_flow = [];
@@ -656,6 +690,10 @@ class EstimateController extends Controller
 
     public function destroy(Estimate $estimate)
     {
+        if (!empty($estimate->mf_quote_id)) {
+            $this->deleteMoneyForwardQuote($estimate->mf_quote_id);
+        }
+
         $estimate->delete();
         return redirect()->route('quotes.index')->with('success', '見積書を削除しました。');
     }
@@ -666,9 +704,10 @@ class EstimateController extends Controller
         return view('estimates.pdf', compact('estimateData'));
     }
 
-    public function updateApproval(Estimate $estimate)
+    public function updateApproval(Request $request, Estimate $estimate)
     {
         $user = Auth::user();
+        $action = $request->input('action', 'approve');
 
         $flow = $estimate->approval_flow;
         if (!is_array($flow) || empty($flow)) {
@@ -677,13 +716,17 @@ class EstimateController extends Controller
 
         $currentIndex = -1;
         foreach ($flow as $idx => $step) {
-            if (empty($step['approved_at'])) {
+            $status = $step['status'] ?? (empty($step['approved_at']) ? 'pending' : 'approved');
+            if ($status !== 'approved' && $status !== 'rejected') {
                 $currentIndex = $idx;
                 break;
             }
         }
 
         if ($currentIndex === -1) {
+            if ($estimate->status === 'rejected') {
+                return redirect()->back()->withErrors(['approval' => 'この見積書は却下されています。']);
+            }
             if ($estimate->status !== 'sent') {
                 $estimate->status = 'sent';
                 $estimate->save();
@@ -701,14 +744,37 @@ class EstimateController extends Controller
             return redirect()->back()->withErrors(['approval' => '現在の承認ステップの担当者ではありません。']);
         }
 
+        if ($action === 'reject') {
+            $reason = trim((string) $request->input('reason', ''));
+            if ($reason === '') {
+                return redirect()->back()->withErrors(['approval' => '却下理由を入力してください。']);
+            }
+
+            $flow[$currentIndex]['approved_at'] = null;
+            $flow[$currentIndex]['rejected_at'] = now()->toDateTimeString();
+            $flow[$currentIndex]['status'] = 'rejected';
+            $flow[$currentIndex]['rejection_reason'] = $reason;
+            $estimate->approval_flow = $flow;
+            $estimate->status = 'rejected';
+            $estimate->approval_started = false;
+            $estimate->save();
+
+            $this->notifyApprovalRejected($estimate, $flow[$currentIndex], $user, $reason);
+
+            return redirect()->back()->with('success', '却下しました。');
+        }
+
         $flow[$currentIndex]['approved_at'] = now()->toDateTimeString();
         $flow[$currentIndex]['status'] = 'approved';
+        $flow[$currentIndex]['rejected_at'] = null;
+        $flow[$currentIndex]['rejection_reason'] = null;
         $updatedStep = $flow[$currentIndex];
         $estimate->approval_flow = $flow;
 
         $allApproved = true;
         foreach ($flow as $step) {
-            if (empty($step['approved_at'])) {
+            $status = $step['status'] ?? (empty($step['approved_at']) ? 'pending' : 'approved');
+            if ($status !== 'approved') {
                 $allApproved = false;
                 break;
             }
@@ -1047,6 +1113,9 @@ class EstimateController extends Controller
             if (isset($result['pdf_url'])) {
                 $estimate->mf_quote_pdf_url = $result['pdf_url'];
             }
+            if (Schema::hasColumn('estimates', 'mf_deleted_at')) {
+                $estimate->mf_deleted_at = null;
+            }
             $estimate->save();
             return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Successfully created quote in Money Forward.');
         } else {
@@ -1153,6 +1222,26 @@ class EstimateController extends Controller
         $this->sendChatNotification($webhook, $message);
     }
 
+    private function notifyApprovalRejected(Estimate $estimate, array $step, ?User $actor = null, ?string $reason = null): void
+    {
+        $webhook = (string) config('services.google_chat.approval_webhook', '');
+        if ($webhook === '') {
+            return;
+        }
+
+        $rejector = $step['name'] ?? $actor?->name ?? '承認者';
+        $reasonLine = $reason ? "\n理由: " . $reason : '';
+        $message = sprintf(
+            "承認却下: %s\n却下者: %s%s\nURL: %s",
+            $estimate->estimate_number,
+            $rejector,
+            $reasonLine,
+            $this->estimateDetailUrl($estimate)
+        );
+
+        $this->sendChatNotification($webhook, $message);
+    }
+
     private function notifyApprovalCompleted(Estimate $estimate): void
     {
         $webhook = (string) config('services.google_chat.approval_webhook', '');
@@ -1219,9 +1308,8 @@ class EstimateController extends Controller
 
         $names = [];
         foreach ($flow as $step) {
-            $approved = $step['approved_at'] ?? null;
-            $status = $step['status'] ?? null;
-            if (empty($approved) && ($status === 'pending' || $status === null)) {
+            $status = $step['status'] ?? (empty($step['approved_at']) ? 'pending' : 'approved');
+            if ($status === 'pending') {
                 $name = $step['name'] ?? null;
                 if ($name) {
                     $names[] = $name;
@@ -1440,5 +1528,44 @@ class EstimateController extends Controller
             'view_quote_pdf' => env('MONEY_FORWARD_QUOTE_VIEW_REDIRECT_URI', url('/estimates/view-quote/callback')),
             default => env('MONEY_FORWARD_QUOTE_REDIRECT_URI', route('estimates.auth.callback')),
         };
+    }
+    private function deleteMoneyForwardQuote(?string $mfQuoteId): void
+    {
+        if (!$mfQuoteId) {
+            return;
+        }
+
+        $tokens = MfToken::query()->pluck('access_token')->filter();
+        foreach ($tokens as $accessToken) {
+            try {
+                $client = new \GuzzleHttp\Client();
+                $response = $client->delete(config('services.money_forward.api_url') . "/quotes/{$mfQuoteId}", [
+                    'headers' => [
+                        'Authorization' => 'Bearer ' . $accessToken,
+                        'Accept' => 'application/json',
+                    ],
+                ]);
+                if ($response->getStatusCode() < 500) {
+                    break;
+                }
+            } catch (\Throwable $e) {
+                continue;
+            }
+        }
+    }
+
+    private function clearMoneyForwardQuoteState(Estimate $estimate, bool $markDeleted = true): void
+    {
+        $estimate->mf_quote_id = null;
+        $estimate->mf_quote_pdf_url = null;
+        if (Schema::hasColumn('estimates', 'mf_invoice_id')) {
+            $estimate->mf_invoice_id = null;
+        }
+        if (Schema::hasColumn('estimates', 'mf_invoice_pdf_url')) {
+            $estimate->mf_invoice_pdf_url = null;
+        }
+        if ($markDeleted && Schema::hasColumn('estimates', 'mf_deleted_at')) {
+            $estimate->mf_deleted_at = now();
+        }
     }
 }

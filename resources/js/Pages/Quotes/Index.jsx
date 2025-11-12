@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/Components/ui/badge";
 import { Button } from "@/Components/ui/button";
 import { Input } from "@/Components/ui/input";
+import { Textarea } from "@/Components/ui/textarea";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger, SheetFooter } from "@/Components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/Components/ui/accordion";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
@@ -26,6 +27,7 @@ import {
     Copy,
     Clock,
     AlertCircle,
+    XCircle,
     Target
 } from 'lucide-react';
 import { Checkbox } from '@/Components/ui/checkbox';
@@ -127,6 +129,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
     const [filteredEstimates, setFilteredEstimates] = useState(() =>
         filterEstimatesList(estimates, initialFilterState, { includeEstimateId: initialFocusedEstimateId })
     );
+    const [rejectForm, setRejectForm] = useState({ id: null, reason: '' });
 
     const moneyForwardAuthUrl = (() => {
         if (!moneyForwardConfig) return null;
@@ -1073,7 +1076,13 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                 const steps = flow.length ? flow : [];
                                                                 // 現行ステップ index（approved_at 基準）
                                                                 let currentStepIndex = -1;
-                                                                for (let i = 0; i < steps.length; i++) { if (!steps[i].approved_at) { currentStepIndex = i; break; } }
+                                                                for (let i = 0; i < steps.length; i++) {
+                                                                    const status = steps[i].status ?? (steps[i].approved_at ? 'approved' : 'pending');
+                                                                    if (status !== 'approved' && status !== 'rejected') {
+                                                                        currentStepIndex = i;
+                                                                        break;
+                                                                    }
+                                                                }
                                                                 const meId = props.auth?.user?.id;
                                                                 const meExt = props.auth?.user?.external_user_id;
                                                                 const isMeCurrent = (() => {
@@ -1085,25 +1094,49 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                     return false;
                                                                 })();
                                                                 const derived = steps.map((s, idx) => {
-                                                                    const isApproved = !!s.approved_at;
-                                                                    const isCurrent = !isApproved && idx === currentStepIndex;
+                                                                    const statusValue = s.status ?? (s.approved_at ? 'approved' : 'pending');
+                                                                    const isApproved = statusValue === 'approved';
+                                                                    const isRejected = statusValue === 'rejected';
+                                                                    const isCurrent = !isApproved && !isRejected && idx === currentStepIndex;
                                                                     return {
                                                                         name: s.name,
                                                                         avatar: s.name?.[0] || '承',
                                                                         role: idx === 0 ? '第1承認者' : `第${idx+1}承認者`,
-                                                                        status: isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中'),
-                                                                        date: isApproved ? new Date(s.approved_at).toLocaleDateString('ja-JP') : '',
+                                                                        status: isRejected ? '却下' : (isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中')),
+                                                                        date: isRejected
+                                                                            ? (s.rejected_at ? new Date(s.rejected_at).toLocaleDateString('ja-JP') : '')
+                                                                            : (isApproved && s.approved_at ? new Date(s.approved_at).toLocaleDateString('ja-JP') : ''),
                                                                         originalApprover: s,
+                                                                        isRejected,
+                                                                        rejectionReason: s.rejection_reason ?? '',
                                                                         isCurrent,
                                                                     };
                                                                 });
                                                                 const approveFromSheet = () => {
                                                                     if (!confirm('この見積書を承認しますか？')) return;
-                                                                    router.put(route('estimates.updateApproval', estimate.id), {}, {
-                                                                        onSuccess: () => { router.reload({ preserveScroll: true }); },
+                                                                    router.put(route('estimates.updateApproval', estimate.id), { action: 'approve' }, {
+                                                                        onSuccess: () => {
+                                                                            router.reload({ preserveScroll: true });
+                                                                            setRejectForm({ id: null, reason: '' });
+                                                                        },
                                                                         onError: (errors) => { alert(errors?.approval || '承認中にエラーが発生しました。'); }
                                                                     });
                                                                 };
+                                                                const submitRejectFromSheet = () => {
+                                                                    if (rejectForm.id !== estimate.id || !rejectForm.reason.trim()) {
+                                                                        alert('却下理由を入力してください。');
+                                                                        return;
+                                                                    }
+                                                                    if (!confirm('この見積書を却下しますか？')) return;
+                                                                    router.put(route('estimates.updateApproval', estimate.id), { action: 'reject', reason: rejectForm.reason }, {
+                                                                        onSuccess: () => {
+                                                                            router.reload({ preserveScroll: true });
+                                                                            setRejectForm({ id: null, reason: '' });
+                                                                        },
+                                                                        onError: (errors) => { alert(errors?.approval || '却下処理中にエラーが発生しました。'); }
+                                                                    });
+                                                                };
+                                                                const isRejectingThis = rejectForm.id === estimate.id;
                                                                 return (
                                                             <Card>
                                                                 <CardHeader>
@@ -1136,31 +1169,53 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                                                     <div>
                                                                                                         <h4 className="font-semibold text-lg">{step.name}</h4>
                                                                                                         <p className="text-sm text-slate-500">{step.role}</p>
+                                                                                                        {step.rejectionReason && (
+                                                                                                            <p className="text-xs text-red-600 mt-1">理由: {step.rejectionReason}</p>
+                                                                                                        )}
                                                                                                     </div>
                                                                                                     <div className="text-right">
-                                                                                                        <div className="flex items-center justify-end gap-2 mb-1">
-                                                                                                            {step.isCurrent && isMeCurrent && (
-                                                                                                                <Button onClick={approveFromSheet} size="sm" className="bg-black hover:bg-black/90 text-white">承認する</Button>
-                                                                                                            )}
-                                                                                                            <Badge 
-                                                                                                            variant={step.status === '承認済' ? 'default' : 'secondary'}
-                                                                                                            className={cn(
-                                                                                                                "flex items-center gap-1",
-                                                                                                                step.status === '承認済' 
-                                                                                                                    ? 'bg-green-100 text-green-800' 
-                                                                                                                    : 'bg-amber-100 text-amber-800'
-                                                                                                            )}
-                                                                                                        >
-                                                                                                            {step.status === '承認済' 
-                                                                                                                ? <CheckCircle className="h-3 w-3" />
-                                                                                                                : <Clock className="h-3 w-3" />
-                                                                                                            }
-                                                                                                            {step.status}
-                                                                                                        </Badge>
-                                                                                                        </div>
-                                                                                                        {step.date && (
-                                                                                                            <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                                                                                                                <Calendar className="h-3 w-3" />
+                                                                                <div className="flex items-center justify-end gap-2 mb-1">
+                                                                                    {step.isCurrent && isMeCurrent && (
+                                                                                        isRejectingThis ? (
+                                                                                            <div className="flex flex-col gap-2 w-56">
+                                                                                                <Textarea
+                                                                                                    value={rejectForm.reason}
+                                                                                                    onChange={(e) => setRejectForm({ id: estimate.id, reason: e.target.value })}
+                                                                                                    placeholder="却下理由を入力"
+                                                                                                    className="text-sm"
+                                                                                                    rows={3}
+                                                                                                />
+                                                                                                <div className="flex items-center gap-2">
+                                                                                                    <Button onClick={submitRejectFromSheet} size="sm" variant="destructive">理由を送信</Button>
+                                                                                                    <Button onClick={() => setRejectForm({ id: null, reason: '' })} size="sm" variant="outline">キャンセル</Button>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <Button onClick={approveFromSheet} size="sm" className="bg-black hover:bg-black/90 text-white">承認する</Button>
+                                                                                                <Button onClick={() => setRejectForm({ id: estimate.id, reason: '' })} size="sm" variant="destructive">却下する</Button>
+                                                                                            </div>
+                                                                                        )
+                                                                                    )}
+                                                                                    <Badge 
+                                                                                        className={cn(
+                                                                                            "flex items-center gap-1",
+                                                                                            step.status === '承認済'
+                                                                                                ? 'bg-green-100 text-green-800'
+                                                                                                : step.status === '却下'
+                                                                                                    ? 'bg-red-100 text-red-800'
+                                                                                                    : 'bg-amber-100 text-amber-800'
+                                                                                        )}
+                                                                                    >
+                                                                                        {step.status === '承認済' && <CheckCircle className="h-3 w-3" />}
+                                                                                        {step.status === '却下' && <XCircle className="h-3 w-3" />}
+                                                                                        {step.status !== '承認済' && step.status !== '却下' && <Clock className="h-3 w-3" />}
+                                                                                        {step.status}
+                                                                                    </Badge>
+                                                                                </div>
+                                                                                    {step.date && (
+                                                                                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                                                                            <Calendar className="h-3 w-3" />
                                                                                                                 {step.date}
                                                                                                             </p>
                                                                                                         )}
@@ -1168,7 +1223,11 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                                                 </div>
                                                                                                 
                                                                                                 <div className="text-sm text-slate-600">
-                                                                                                    {step.status === '承認済' ? '承認が完了しました。' : (step.isCurrent ? '承認待ちです。' : '前段の承認待ちです。')}
+                                                                                                    {step.status === '承認済'
+                                                                                                        ? '承認が完了しました。'
+                                                                                                        : step.status === '却下'
+                                                                                                            ? `このステップで却下されました。${step.rejectionReason ? `理由: ${step.rejectionReason}` : ''}`
+                                                                                                            : (step.isCurrent ? '承認待ちです。' : '前段の承認待ちです。')}
                                                                                                 </div>
                                                                                             </CardContent>
                                                                                         </Card>

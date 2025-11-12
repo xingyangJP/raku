@@ -18,6 +18,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog'
 import axios from 'axios';
 
+const REQUIRED_FIELD_LABELS = {
+    title: '件名',
+    customer_name: '顧客名',
+    mf_department_id: '取引先部門',
+    staff_name: '自社担当者',
+    issue_date: '発行日',
+    items: '明細',
+};
+
 // --- Components defined outside EstimateCreate to prevent state loss on re-render ---
 
 function CustomerCombobox({ selectedCustomer, onCustomerChange }) {
@@ -311,26 +320,31 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return fallback;
     };
 
-const transformIncomingItems = (items = []) => items.map((item, index) => ({
-    id: item.id ?? item.__temp_id ?? Date.now() + index,
-    product_id: item.product_id ?? null,
-    name: item.name ?? '',
-    description: item.description ?? item.detail ?? '',
-    qty: normalizeNumber(item.qty ?? item.quantity, 1) || 1,
-    unit: item.unit ?? '式',
-    price: normalizeNumber(item.price, 0),
-    cost: normalizeNumber(item.cost, 0),
-    tax_category: item.tax_category ?? 'standard',
-    display_mode: item.display_mode ?? 'calculated',
-    display_qty: normalizeNumber(item.display_qty, 1) || 1,
-    display_unit: item.display_unit ?? '式',
-}));
+    const transformIncomingItems = (items = []) => items.map((item, index) => ({
+        id: item.id ?? item.__temp_id ?? Date.now() + index,
+        product_id: item.product_id ?? null,
+        name: item.name ?? '',
+        description: item.description ?? item.detail ?? '',
+        qty: normalizeNumber(item.qty ?? item.quantity, 1) || 1,
+        unit: item.unit ?? '式',
+        price: normalizeNumber(item.price, 0),
+        cost: normalizeNumber(item.cost, 0),
+        tax_category: item.tax_category ?? 'standard',
+        display_mode: item.display_mode ?? 'calculated',
+        display_qty: normalizeNumber(item.display_qty, 1) || 1,
+        display_unit: item.display_unit ?? '式',
+    }));
 
     const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
     const displayModeOptions = [
         { value: 'calculated', label: '数量表示' },
         { value: 'lump', label: '1式表示' },
     ];
+    const preventArrowKeyChange = (event) => {
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            event.preventDefault();
+        }
+    };
     const notePromptPlaceholder = '例: 検収基準・納期の条件・クライアント提供物・変更手続き・保守保証など備考に明記したい要素';
 
     const [notePrompt, setNotePrompt] = useState('');
@@ -410,6 +424,7 @@ const transformIncomingItems = (items = []) => items.map((item, index) => ({
     
 
     const [submitErrors, setSubmitErrors] = useState([]);
+    const [hasRequiredError, setHasRequiredError] = useState(false);
 
     useEffect(() => {
         setLineItems(transformIncomingItems(estimate?.items));
@@ -418,7 +433,6 @@ const transformIncomingItems = (items = []) => items.map((item, index) => ({
     // data.status を直接参照して、現在のUIの状態を正しく判定する
     const isInApproval = useMemo(() => {
         if (approvalLocal) return true; // 申請直後は即座に取消へ
-        // `data.status` を見ることで、申請取消などの操作後の状態を即座に反映
         return data.status === 'pending';
     }, [approvalLocal, data.status]);
 
@@ -524,8 +538,12 @@ useEffect(() => {
         cost: normalizeNumber(item.cost, 0),
         tax_category: item.tax_category,
         display_mode: item.display_mode,
-        display_qty: normalizeNumber(item.display_qty, 0),
-        display_unit: item.display_unit,
+        display_qty: item.display_mode === 'lump'
+            ? (normalizeNumber(item.display_qty, 1) || 1)
+            : null,
+        display_unit: item.display_mode === 'lump'
+            ? (item.display_unit || '式')
+            : null,
     }));
 
     setData(prevData => ({
@@ -591,9 +609,13 @@ useEffect(() => {
     const ErrorBanner = () => {
         const keys = Object.keys(errors || {});
         if (keys.length === 0 && submitErrors.length === 0) return null;
+        const submitErrorMessages = hasRequiredError
+            ? submitErrors.map((name) => `${name}が未入力です。`)
+            : submitErrors;
+
         const allMsgs = [
             ...keys.map(k => errors[k]).filter(Boolean),
-            ...submitErrors.filter(Boolean),
+            ...submitErrorMessages.filter(Boolean),
         ];
         if (allMsgs.length === 0) return null;
         return (
@@ -746,15 +768,23 @@ useEffect(() => {
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        // 申請中の見積は最初から「申請取消」状態にする
-        const hasUnapproved = Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at);
-        if (estimate?.status === 'pending' || hasUnapproved) setApprovalStatus('success');
+        if (isInApproval) {
+            setApprovalStatus('success');
+        } else {
+            setApprovalStatus('');
+        }
         setOpenApproval(true);
     };
 
     const submitWithApprovers = () => {
         // 送信直前に明確な payload を構築して、状態更新の非同期に依存しない
         const payload = { ...data, status: 'pending' };
+        if (!payload.title || payload.title.trim() === '') {
+            setSubmitErrors(['件名']);
+            setHasRequiredError(true);
+            setApprovalStatus('error');
+            return;
+        }
         if (!(isEditMode && approvers.length === 0 && Array.isArray(estimate?.approval_flow) && estimate.approval_flow.length > 0)) {
             // 新規 or モーダルで承認者を設定した場合のみ明示送信
             payload.approval_flow = approvers;
@@ -771,11 +801,27 @@ useEffect(() => {
                 setOpenApproval(true);
                 setApprovalLocal(true); // 即座にフッターボタンを申請取消に切替
                 setSubmitErrors([]);
+                setHasRequiredError(false);
+                setData('status', 'pending');
             },
             onError: (errors) => {
                 console.error('承認申請エラー:', errors);
-                const msgs = Object.values(errors || {}).map(e => String(e));
-                setSubmitErrors(msgs.length ? msgs : ['送信に失敗しました。入力内容をご確認ください。']);
+                const missingRequired = Object.keys(errors || {}).reduce((acc, key) => {
+                    if (REQUIRED_FIELD_LABELS[key]) {
+                        acc.add(REQUIRED_FIELD_LABELS[key]);
+                    }
+                    return acc;
+                }, new Set());
+
+                if (missingRequired.size > 0) {
+                    setSubmitErrors(Array.from(missingRequired));
+                    setHasRequiredError(true);
+                } else {
+                    const msgs = Object.values(errors || {}).map(e => String(e));
+                    setSubmitErrors(msgs.length ? msgs : ['送信に失敗しました。入力内容をご確認ください。']);
+                    setHasRequiredError(false);
+                }
+
                 setApprovalStatus('error');
             },
             preserveState: true,
@@ -800,6 +846,7 @@ useEffect(() => {
                 setApprovalStatus('');
                 setOpenApproval(false);
                 setApprovalLocal(false);
+                setData('status', 'draft');
                 setApprovers([]);
             },
             onError: (e) => {
@@ -813,17 +860,15 @@ useEffect(() => {
 
     // ダイアログを開いた時点で pending なら「申請取消」表示にする（再申請も統一）
     useEffect(() => {
-        const hasUnapproved = Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at);
-        if (openApproval && (estimate?.status === 'pending' || hasUnapproved)) setApprovalStatus('success');
-    }, [openApproval, estimate?.status, estimate?.approval_flow]);
+        if (openApproval) {
+            setApprovalStatus(isInApproval ? 'success' : '');
+        }
+    }, [openApproval, isInApproval]);
 
-    // 編集画面アクセス時にも状況を先に判定しておく（ダイアログを開いた直後に取消を出すための準備）
     useEffect(() => {
-        const hasUnapproved = Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at);
-        if (estimate?.status === 'pending' || hasUnapproved) {
-            setApprovalStatus('success');
-        } else {
-            setApprovalStatus('');
+        setApprovalStatus(data.status === 'pending' ? 'success' : '');
+        if (data.status !== 'pending') {
+            setApprovalLocal(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [estimate?.id]);
@@ -879,12 +924,12 @@ useEffect(() => {
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                     <div className="space-y-2">
-                                        <Label htmlFor="customer">顧客名</Label>
+                                        <Label htmlFor="customer">顧客名 <span className="text-red-500 ml-1">*</span></Label>
                                         <CustomerCombobox selectedCustomer={selectedCustomer} onCustomerChange={setSelectedCustomer} />
                                         {errors.customer_name && <p className="text-sm text-red-600 mt-1">{errors.customer_name}</p>}
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="department">取引先部門</Label>
+                                        <Label htmlFor="department">取引先部門 <span className="text-red-500 ml-1">*</span></Label>
                                         <DepartmentCombobox
                                             partnerId={selectedCustomer?.id || null}
                                             selectedDepartment={selectedDepartment}
@@ -924,19 +969,19 @@ useEffect(() => {
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
-                                        <Label htmlFor="project-name">件名</Label>
+                                        <Label htmlFor="project-name">件名 <span className="text-red-500 ml-1">*</span></Label>
                                         <Input id="project-name" value={data.title} onChange={(e) => setData('title', e.target.value)} placeholder="新会計システム導入" />
                                         {errors.title && <p className="text-sm text-red-600 mt-1">{errors.title}</p>}
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="staff">自社担当者</Label>
+                                        <Label htmlFor="staff">自社担当者 <span className="text-red-500 ml-1">*</span></Label>
                                         <StaffCombobox selectedStaff={selectedStaff} onStaffChange={setSelectedStaff} />
                                         {errors.staff_name && <p className="text-sm text-red-600 mt-1">{errors.staff_name}</p>}
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                                     <div className="space-y-2">
-                                        <Label htmlFor="issue-date">発行日</Label>
+                                        <Label htmlFor="issue-date">発行日 <span className="text-red-500 ml-1">*</span></Label>
                                         <Input
                                             type="date"
                                             id="issue-date"
@@ -1016,7 +1061,10 @@ useEffect(() => {
 
                         <Card>
                             <CardHeader>
-                                <CardTitle>明細</CardTitle>
+                                <CardTitle className="flex items-center gap-1">
+                                    明細
+                                    <span className="text-red-500 leading-none">*</span>
+                                </CardTitle>
                             </CardHeader>
                             <CardContent>
                                 <Table>
@@ -1073,16 +1121,11 @@ useEffect(() => {
                                                         type="number"
                                                         step="0.1"
                                                         min="0"
+                                                        inputMode="decimal"
                                                         value={item.qty}
-                                                        onChange={(e) => {
-                                                            const val = parseFloat(e.target.value);
-                                                            if (!Number.isNaN(val) && val <= 999.9) {
-                                                                handleItemChange(item.id, 'qty', val);
-                                                            } else if (e.target.value === '') {
-                                                                handleItemChange(item.id, 'qty', 0);
-                                                            }
-                                                        }}
+                                                        onChange={(e) => handleItemChange(item.id, 'qty', e.target.value)}
                                                         className="w-20 text-right"
+                                                        onKeyDown={preventArrowKeyChange}
                                                     />
                                                 </TableCell>
                                                 <TableCell>
@@ -1121,7 +1164,9 @@ useEffect(() => {
                                                                     className="w-16 text-right"
                                                                     value={item.display_qty}
                                                                     min="0"
-                                                                    onChange={(e) => handleItemChange(item.id, 'display_qty', parseFloat(e.target.value) || 0)}
+                                                                    inputMode="decimal"
+                                                                    onChange={(e) => handleItemChange(item.id, 'display_qty', e.target.value)}
+                                                                    onKeyDown={preventArrowKeyChange}
                                                                 />
                                                                 <Input
                                                                     value={item.display_unit}
@@ -1208,34 +1253,55 @@ useEffect(() => {
                                                         );
                                                     }
                                                     let currentIdx = -1;
-                                                    for (let i = 0; i < baseFlow.length; i++) { if (!baseFlow[i].approved_at) { currentIdx = i; break; } }
+                                                    for (let i = 0; i < baseFlow.length; i++) {
+                                                        const status = baseFlow[i].status ?? (baseFlow[i].approved_at ? 'approved' : 'pending');
+                                                        if (status !== 'approved' && status !== 'rejected') { currentIdx = i; break; }
+                                                    }
                                                     const derived = baseFlow.map((s, idx) => {
-                                                        const isApproved = !!s.approved_at;
-                                                        const isCurrent = !isApproved && idx === currentIdx;
+                                                        const statusValue = s.status ?? (s.approved_at ? 'approved' : 'pending');
+                                                        const isApproved = statusValue === 'approved';
+                                                        const isRejected = statusValue === 'rejected';
+                                                        const isCurrent = !isApproved && !isRejected && idx === currentIdx;
                                                         return {
                                                             id: s.id,
                                                             name: s.name,
                                                             approved_at: s.approved_at || '',
-                                                            status: isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中'),
-                                                            date: isApproved ? new Date(s.approved_at).toLocaleDateString('ja-JP') : '',
+                                                            status: isRejected ? '却下' : (isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中')),
+                                                            rejection_reason: isRejected ? (s.rejection_reason ?? '') : '',
+                                                            date: isRejected
+                                                                ? (s.rejected_at ? new Date(s.rejected_at).toLocaleDateString('ja-JP') : '')
+                                                                : (isApproved && s.approved_at ? new Date(s.approved_at).toLocaleDateString('ja-JP') : ''),
                                                             order: idx + 1,
                                                         };
                                                     });
                                                     return (
                                                         <ol className="space-y-2 list-decimal list-inside">
                                                             {derived.map(step => (
-                                                                <li key={`${step.id}-${step.order}`} className="flex items-center justify-between gap-2">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">{step.order}</span>
-                                                                        <span className="font-medium">{step.name}</span>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-3">
-                                                                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${step.status==='承認済' ? 'bg-green-100 text-green-800' : (step.status==='未承認' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700')}`}>
-                                                                            {step.status}
-                                                                        </span>
-                                                                        {step.date && (
-                                                                            <span className="text-xs text-slate-500">{step.date}</span>
-                                                                        )}
+                                                                <li key={`${step.id}-${step.order}`} className="flex flex-col gap-1">
+                                                                    <div className="flex items-center justify-between gap-2">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">{step.order}</span>
+                                                                            <div>
+                                                                                <span className="font-medium">{step.name}</span>
+                                                                                {step.rejection_reason && (
+                                                                                    <p className="text-xs text-red-600">理由: {step.rejection_reason}</p>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-3">
+                                                                            <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
+                                                                                step.status==='承認済'
+                                                                                    ? 'bg-green-100 text-green-800'
+                                                                                    : step.status==='却下'
+                                                                                        ? 'bg-red-100 text-red-800'
+                                                                                        : 'bg-amber-100 text-amber-800'
+                                                                            }`}>
+                                                                                {step.status}
+                                                                            </span>
+                                                                            {step.date && (
+                                                                                <span className="text-xs text-slate-500">{step.date}</span>
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                 </li>
                                                             ))}
@@ -1485,14 +1551,27 @@ useEffect(() => {
                                 </div>
                             </div>
                             <DialogFooter className="flex items-center gap-2">
-                                { (approvalStatus === 'success' || estimate?.status === 'pending' || (Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at))) && (
+                                { (isInApproval || approvalStatus === 'success') && (
                                     <span className="mr-auto inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-red-600 text-white">承認申請を開始しました</span>
                                 )}
                                 {approvalStatus === 'error' && (
-                                    <span className="mr-auto inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-red-600 text-white">エラーが発生しました。</span>
+                                    <div className="mr-auto flex max-w-xs flex-col gap-1 rounded bg-red-600 px-3 py-2 text-xs text-white">
+                                        <span className="font-semibold">
+                                            {hasRequiredError ? '必須項目が未入力です。' : 'エラーが発生しました。'}
+                                        </span>
+                                        {submitErrors.length > 0 && (
+                                            <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-red-100">
+                                                {submitErrors.map((msg, idx) => (
+                                                    <li key={`submit-error-${idx}`}>
+                                                        {hasRequiredError ? `${msg}` : msg}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </div>
                                 )}
                                 <Button variant="secondary" type="button" onClick={() => { setOpenApproval(false); setApprovalStatus(''); }}>キャンセル</Button>
-                                {!(approvalStatus === 'success' || estimate?.status === 'pending' || (Array.isArray(estimate?.approval_flow) && estimate.approval_flow.some(s => !s.approved_at))) ? (
+                                {!isInApproval ? (
                                     <Button type="button" onClick={submitWithApprovers} disabled={approvalStatus === 'submitting'}>
                                         {approvalStatus === 'submitting' ? '申請中..' : '申請する'}
                                     </Button>

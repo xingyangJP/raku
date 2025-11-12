@@ -1,17 +1,19 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/Components/ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { Badge } from "@/Components/ui/badge";
 import { Button } from "@/Components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
+import { Textarea } from "@/Components/ui/textarea";
 import {
     FileText,
     TrendingUp,
     Calendar,
     CheckCircle,
     Clock,
-    Target
+    Target,
+    XCircle
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cn } from "@/lib/utils";
@@ -19,10 +21,19 @@ import { usePage, router } from '@inertiajs/react'; // Import usePage and router
 
 export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
     const { auth } = usePage().props; // Get auth user from usePage
+    const [isRejecting, setIsRejecting] = useState(false);
+    const [rejectReason, setRejectReason] = useState('');
 
     if (!estimate) {
         return null;
     }
+
+    useEffect(() => {
+        if (!isOpen) {
+            setIsRejecting(false);
+            setRejectReason('');
+        }
+    }, [isOpen]);
 
     const getStatusBadge = (status) => {
         const configs = {
@@ -93,15 +104,37 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
 
     const handleApprove = () => {
         if (!confirm('この見積書を承認しますか？')) return;
-        router.put(route('estimates.updateApproval', estimate.id), {}, {
+        router.put(route('estimates.updateApproval', estimate.id), { action: 'approve' }, {
             onSuccess: () => {
                 // Reload to reflect approved_at and task lists
                 router.reload({ preserveScroll: true });
                 onClose();
+                setIsRejecting(false);
+                setRejectReason('');
             },
             onError: (errors) => {
                 console.error('Approval error:', errors);
                 alert(errors?.approval || '承認中にエラーが発生しました。');
+            }
+        });
+    };
+
+    const handleRejectSubmit = () => {
+        if (!rejectReason.trim()) {
+            alert('却下理由を入力してください。');
+            return;
+        }
+        if (!confirm('この見積書を却下しますか？')) return;
+        router.put(route('estimates.updateApproval', estimate.id), { action: 'reject', reason: rejectReason }, {
+            onSuccess: () => {
+                router.reload({ preserveScroll: true });
+                onClose();
+                setIsRejecting(false);
+                setRejectReason('');
+            },
+            onError: (errors) => {
+                console.error('Reject error:', errors);
+                alert(errors?.approval || '却下処理中にエラーが発生しました。');
             }
         });
     };
@@ -381,7 +414,11 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                             // 現行ステップを approved_at に基づいて決定
                             let currentStepIndex = -1;
                             for (let i = 0; i < steps.length; i++) {
-                                if (!steps[i].approved_at) { currentStepIndex = i; break; }
+                                const status = steps[i].status ?? (steps[i].approved_at ? 'approved' : 'pending');
+                                if (status !== 'approved' && status !== 'rejected') {
+                                    currentStepIndex = i;
+                                    break;
+                                }
                             }
 
                             // 自分が現行承認者か（users.id または external_user_id で突合）
@@ -398,17 +435,22 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
 
                             // 行ごとの表示を approved_at ベースで作成
                             const derived = steps.map((s, idx) => {
-                                const isApproved = !!s.approved_at;
-                                const isCurrent = !isApproved && idx === currentStepIndex;
-                                const statusLabel = isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中');
-                                const dateStr = isApproved ? new Date(s.approved_at).toLocaleDateString('ja-JP') : '';
+                                const statusValue = s.status ?? (s.approved_at ? 'approved' : 'pending');
+                                const isApproved = statusValue === 'approved';
+                                const isRejected = statusValue === 'rejected';
+                                const isCurrent = !isApproved && !isRejected && idx === currentStepIndex;
+                                const statusLabel = isRejected ? '却下' : (isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中'));
+                                const decidedAt = isRejected
+                                    ? (s.rejected_at ? new Date(s.rejected_at).toLocaleDateString('ja-JP') : '')
+                                    : (isApproved && s.approved_at ? new Date(s.approved_at).toLocaleDateString('ja-JP') : '');
                                 return {
                                     name: s.name,
                                     avatar: s.name?.[0] || '承',
                                     role: idx === 0 ? '第1承認者' : `第${idx+1}承認者`,
                                     status: statusLabel,
-                                    date: dateStr,
+                                    date: decidedAt,
                                     originalApprover: s,
+                                    isRejected,
                                     isCurrent,
                                 };
                             });
@@ -445,34 +487,57 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                                                         <div>
                                                                             <h4 className="font-semibold text-lg">{step.name}</h4>
                                                                             <p className="text-sm text-slate-500">{step.role}</p>
+                                                                            {step.rejectionReason && (
+                                                                                <p className="text-xs text-red-600 mt-1">理由: {step.rejectionReason}</p>
+                                                                            )}
                                                                         </div>
                                                                         <div className="text-right flex flex-col items-end gap-1">
-                                                                             <Badge
-                                                                                 variant={step.status === '承認済' ? 'default' : 'secondary'}
-                                                                                 className={cn(
-                                                                                     "flex items-center gap-1",
-                                                                                     step.status === '承認済'
-                                                                                         ? 'bg-green-100 text-green-800'
-                                                                                         : 'bg-amber-100 text-amber-800'
-                                                                                 )}
-                                                                             >
-                                                                                 {step.status === '承認済'
-                                                                                     ? <CheckCircle className="h-3 w-3" />
-                                                                                     : <Clock className="h-3 w-3" />
-                                                                                 }
-                                                                                 {step.status}
-                                                                             </Badge>
+                                                                            <Badge
+                                                                                className={cn(
+                                                                                    "flex items-center gap-1",
+                                                                                    step.status === '承認済'
+                                                                                        ? 'bg-green-100 text-green-800'
+                                                                                        : step.status === '却下'
+                                                                                            ? 'bg-red-100 text-red-800'
+                                                                                            : 'bg-amber-100 text-amber-800'
+                                                                                )}
+                                                                            >
+                                                                                {step.status === '承認済' && <CheckCircle className="h-3 w-3" />}
+                                                                                {step.status === '却下' && <XCircle className="h-3 w-3" />}
+                                                                                {step.status !== '承認済' && step.status !== '却下' && <Clock className="h-3 w-3" />}
+                                                                                {step.status}
+                                                                            </Badge>
                                                                             <div className="flex items-center gap-2 mt-1">
                                                                                 {step.isCurrent && isCurrentUserNextApprover && (
-                                                                                    <Button data-testid="approve-button" onClick={handleApprove} size="sm" className="bg-black hover:bg-black/90 text-white">
-                                                                                        承認する
-                                                                                    </Button>
+                                                                                    isRejecting ? (
+                                                                                        <div className="flex flex-col gap-2 w-56">
+                                                                                            <Textarea
+                                                                                                value={rejectReason}
+                                                                                                onChange={(e) => setRejectReason(e.target.value)}
+                                                                                                placeholder="却下理由を入力"
+                                                                                                className="text-sm"
+                                                                                                rows={3}
+                                                                                            />
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <Button data-testid="reject-submit-button" variant="destructive" size="sm" onClick={handleRejectSubmit}>
+                                                                                                    理由を送信
+                                                                                                </Button>
+                                                                                                <Button variant="outline" size="sm" onClick={() => { setIsRejecting(false); setRejectReason(''); }}>
+                                                                                                    キャンセル
+                                                                                                </Button>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <Button data-testid="approve-button" onClick={handleApprove} size="sm" className="bg-black hover:bg-black/90 text-white">
+                                                                                                承認する
+                                                                                            </Button>
+                                                                                            <Button data-testid="reject-button" variant="destructive" size="sm" onClick={() => { setIsRejecting(true); setRejectReason(''); }}>
+                                                                                                却下する
+                                                                                            </Button>
+                                                                                        </div>
+                                                                                    )
                                                                                 )}
-                                                                                <Badge
-                                                                                    variant={step.status === '承認済' ? 'default' : 'secondary'}
-                                                                                    className="hidden"
-                                                                                />
-                                                                                {/* keep spacing consistent */}
                                                                             </div>
                                                                             {step.date && (
                                                                                 <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
@@ -484,7 +549,11 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                                                     </div>
 
                                                                     <div className="text-sm text-slate-600">
-                                                                        {step.status === '承認済' ? '承認が完了しました。' : (step.isCurrent ? '承認待ちです。' : '前段の承認待ちです。')}
+                                                                        {step.status === '承認済'
+                                                                            ? '承認が完了しました。'
+                                                                            : step.status === '却下'
+                                                                                ? 'このステップで却下されました。'
+                                                                                : (step.isCurrent ? '承認待ちです。' : '前段の承認待ちです。')}
                                                                     </div>
                                                                     {/* ボタンは右肩に移動済み */}
                                                                 </CardContent>
