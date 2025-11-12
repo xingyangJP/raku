@@ -14,6 +14,7 @@
 | `approval_flow` | JSON 配列。`[{ id, name, status, approved_at }]` の形で承認ステップを記録。 |
 | `client_id`, `mf_department_id` | Money Forward の取引先 / 部門 ID。ダッシュボード同期で補完される。 |
 | `mf_quote_id`, `mf_quote_pdf_url`, `mf_invoice_id` | Money Forward 側で生成された ID / PDF URL を保存。 |
+| `is_order_confirmed` | 注文確定フラグ。承認済み (`sent`) の見積のみ ON 可能。予実管理（実績集計）に使用。 |
 
 ## Status & Workflow
 1. **Draft** (`draft`): 新規作成直後または申請取消後。編集・削除が可能。
@@ -37,6 +38,7 @@
 - 社内ビューでは「備考生成プロンプト」に入力した要件をもとに、OpenAI 経由で備考（対外）を生成するボタンを提供（`POST /estimates/generate-notes`）。
 - 各明細行は「計算モード」を切り替えられる。デフォルトは人月／人日など数量ベースの計算だが、スイッチで「見積書表示のみ 1 式」に変更すると内部計算値（例: 単価 60 万 × 0.5 人月 = 30 万）を保持したまま、PDF や Money Forward へ送信する際の表示だけを `単価 300,000 円 × 1 式` に置き換える。必要に応じて元の数量表示へ戻すこともできる。
 - 社内ビューには「原価・粗利分析」のほか「工数明細（社内用）」カードを追加。品目ごとの工数（小数第1位まで入力可）と合計工数を棒グラフ＋リストで確認できる。
+- 承認済み (`sent`) の見積には「受注確定/受注取消」ボタンが表示され、確定済み金額は見積一覧の予実カード（予算/実績/達成率）へ反映される。
 
 ## Money Forward Actions
 | ボタン | ルート | コントローラ | 備考 |
@@ -44,6 +46,11 @@
 | マネーフォワードで見積書発行 | `GET /estimates/{estimate}/create-quote` | `EstimateController@createMfQuote` | アクセストークンが無い場合は `/estimates/auth/start` にフォールバック。 |
 | MF見積PDFを表示 | `GET /estimates/{estimate}/view-quote` | `EstimateController@viewMfQuotePdf` | 有効なトークンが無い場合は OAuth → PDF ストリーミング。 |
 | 請求へ変換 | `GET /estimates/{estimate}/convert-to-billing` | `EstimateController@convertMfQuoteToBilling` | Money Forward API `/quotes/{id}/convert_to_billing` を呼び出す。 |
+
+## Business Division Summary
+- `/business-divisions` では Money Forward から同期した `billings` と、ローカルの `local_invoices` の両方を集計する。
+- `local_invoices.mf_billing_id` が Money Forward 請求 (`billings.id`) と一致する場合は、重複計上を防ぐためローカル側の金額をスキップ。
+- ローカル請求のみ存在する場合でも、品目ごとの金額・粗利が事業区分集計へ反映される。
 
 ### Quote Synchronizer
 - `MoneyForwardQuoteSynchronizer` は `/quotes` 表示時に OAuth トークンをチェックし、無効なら `/quotes/mf/auth/start` へ遷移。

@@ -103,4 +103,6 @@ input[type="number"]::-webkit-inner-spin-button {
 /* Firefox */
 input[type="number"] {
   -moz-appearance: textfield;
+  caret-color: inherit;
+  font-variant-numeric: normal;
 }

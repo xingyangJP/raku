@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/Components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog'
+import { Badge } from '@/Components/ui/badge';
 import axios from 'axios';
 
 const REQUIRED_FIELD_LABELS = {
@@ -383,6 +384,27 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         router.visit(route('estimates.convertToBilling.start', { estimate: estimate.id }));
     };
 
+    const triggerOrderConfirmation = (mode) => {
+        setOrderConfirmMode(mode);
+        setOrderConfirmDialogOpen(true);
+    };
+
+    const submitOrderConfirmation = () => {
+        if (!estimate?.id) return;
+        router.post(route('estimates.orderConfirmation', estimate.id), {
+            confirmed: orderConfirmMode === 'confirm',
+        }, {
+            onSuccess: () => {
+                setOrderConfirmDialogOpen(false);
+                setData('is_order_confirmed', orderConfirmMode === 'confirm');
+            },
+            onError: (errors) => {
+                alert(errors?.order || '受注確定処理でエラーが発生しました。');
+            },
+            preserveScroll: true,
+        });
+    };
+
     const formatDate = (dateString) => {
         if (!dateString) return '';
         if (typeof dateString === 'string' && dateString.includes('T')) {
@@ -419,16 +441,25 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         staff_name: estimate?.staff_name || (estimate?.staff ? estimate.staff.name : null) || null,
         approval_flow: Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : [],
         status: estimate?.status || 'draft',
+        is_order_confirmed: estimate?.is_order_confirmed ?? false,
     });
 
     
 
     const [submitErrors, setSubmitErrors] = useState([]);
     const [hasRequiredError, setHasRequiredError] = useState(false);
+    const [orderConfirmDialogOpen, setOrderConfirmDialogOpen] = useState(false);
+    const [orderConfirmMode, setOrderConfirmMode] = useState('confirm');
 
     useEffect(() => {
         setLineItems(transformIncomingItems(estimate?.items));
     }, [estimate?.items]);
+
+    useEffect(() => {
+        if (data.status !== 'sent' && data.is_order_confirmed) {
+            setData('is_order_confirmed', false);
+        }
+    }, [data.status]);
 
     // data.status を直接参照して、現在のUIの状態を正しく判定する
     const isInApproval = useMemo(() => {
@@ -903,8 +934,8 @@ useEffect(() => {
                         {/* 承認フロー概要は明細下の合計の隣に移動 */}
 
                         <Card>
-                            <CardHeader>
-                                <div className="flex items-center justify-between gap-3">
+                            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex items-center gap-3">
                                     <CardTitle className="flex items-center gap-2">
                                         <span>基本情報</span>
                                         {isEditMode && ['sent', 'approved'].includes(String(estimate?.status || '').toLowerCase()) && (
@@ -912,8 +943,22 @@ useEffect(() => {
                                                 承認済
                                             </span>
                                         )}
+                                        {data.is_order_confirmed && (
+                                            <span className="inline-flex items-center rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white">
+                                                受注確定
+                                            </span>
+                                        )}
                                     </CardTitle>
                                 </div>
+                                {isEditMode && estimate?.status === 'sent' && (
+                                    <Button
+                                        type="button"
+                                        variant={data.is_order_confirmed ? 'destructive' : 'default'}
+                                        onClick={() => triggerOrderConfirmation(data.is_order_confirmed ? 'cancel' : 'confirm')}
+                                    >
+                                        {data.is_order_confirmed ? '受注取消' : '受注確定'}
+                                    </Button>
+                                )}
                             </CardHeader>
                             <CardContent className="space-y-4">
                                 <div className="space-y-2">
@@ -1603,6 +1648,30 @@ useEffect(() => {
                             </div>
                             <DialogFooter>
                                 <Button onClick={() => setOpenApprovalStarted(false)}>OK</Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                    <Dialog open={orderConfirmDialogOpen} onOpenChange={setOrderConfirmDialogOpen}>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>{orderConfirmMode === 'confirm' ? '受注を確定しますか？' : '受注確定を解除しますか？'}</DialogTitle>
+                                <DialogDescription>
+                                    {orderConfirmMode === 'confirm'
+                                        ? '承認済みの見積を実績として計上します。'
+                                        : 'この見積の受注確定を解除します。'}
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter className="flex items-center gap-2">
+                                <Button type="button" variant="secondary" onClick={() => setOrderConfirmDialogOpen(false)}>
+                                    いいえ
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant={orderConfirmMode === 'confirm' ? 'default' : 'destructive'}
+                                    onClick={submitOrderConfirmation}
+                                >
+                                    はい
+                                </Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>

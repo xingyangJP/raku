@@ -24,6 +24,7 @@ Money Forward との見積書連携とローカル承認ワークフローを安
 | L-04 | 承認者 ID のバリデーション | `approval_flow` に存在しない user.id / external_user_id を混在 | `EstimateController@updateApproval` が「現在の承認ステップの担当者ではありません。」を返し操作できない。 |
 | L-05 | 日付 UI 例外 | 10 月 31 日の見積日を月だけ 11 月へ変更 → フロントで日も 31 日のまま | `Create.jsx` 日付入力で `isCompleteDateInput` に反しエラー。`due_date <= issue_date` の場合に自動補正されることを確認（無限ロードが無い）。 |
 | L-06 | 却下操作 | 現行承認者が「却下する」を押下 | `status=rejected` に遷移し、以降の承認者は操作できない。Google Chat に却下通知が飛ぶ。 |
+| L-07 | 注文確定トグル | 承認済み見積の編集画面で注文確定を ON/OFF | `is_order_confirmed` が更新され、予実カード（予算/実績/達成率）に即時反映される。承認前はトグルが無効。 |
 
 ---
 

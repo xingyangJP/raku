@@ -72,6 +72,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/estimates', [App\Http\Controllers\EstimateController::class, 'store'])->name('estimates.store');
     Route::post('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'update'])->whereNumber('estimate')->name('estimates.update');
     Route::patch('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'update'])->whereNumber('estimate');
+    Route::post('/estimates/{estimate}/order-confirmation', [App\Http\Controllers\EstimateController::class, 'updateOrderConfirmation'])->whereNumber('estimate')->name('estimates.orderConfirmation');
     Route::patch('estimates/{estimate}/cancel', [App\Http\Controllers\EstimateController::class, 'cancel'])->name('estimates.cancel');
     Route::delete('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'destroy'])->whereNumber('estimate')->name('estimates.destroy');
     Route::post('/estimates/bulk-approve', [App\Http\Controllers\EstimateController::class, 'bulkApprove'])->name('estimates.bulkApprove');

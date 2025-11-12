@@ -28,7 +28,12 @@ import {
     Clock,
     AlertCircle,
     XCircle,
-    Target
+    Target,
+    ClipboardCheck,
+    Percent,
+    Layers,
+    Activity,
+    BarChart2
 } from 'lucide-react';
 import { Checkbox } from '@/Components/ui/checkbox';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
@@ -356,11 +361,25 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         setFilteredEstimates(filterEstimatesList(estimates, reset, { includeEstimateId: activeDetailId }));
     };
 
+    const sumEstimateGross = (estimate) => {
+        const items = Array.isArray(estimate?.items) ? estimate.items : [];
+        return items.reduce((sum, item) => sum + calculateGrossProfit(item), 0);
+    };
+    const sumEstimateEffort = (estimate) => {
+        const items = Array.isArray(estimate?.items) ? estimate.items : [];
+        return items.reduce((sum, item) => sum + getQuantity(item), 0);
+    };
+
     const totalAmount = filteredEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
+    const totalGross = filteredEstimates.reduce((sum, est) => sum + sumEstimateGross(est), 0);
     const totalCount = filteredEstimates.length;
-    const draftCount = filteredEstimates.filter((est) => est.status === 'draft').length;
-    const approvedCount = filteredEstimates.filter((est) => est.status === 'sent').length;
-    const approvedPercentage = totalCount > 0 ? Math.round((approvedCount / totalCount) * 100) : 0;
+
+    const confirmedEstimates = filteredEstimates.filter((est) => est.is_order_confirmed);
+    const confirmedAmount = confirmedEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
+    const confirmedGross = confirmedEstimates.reduce((sum, est) => sum + sumEstimateGross(est), 0);
+    const confirmedEffort = confirmedEstimates.reduce((sum, est) => sum + sumEstimateEffort(est), 0);
+    const confirmedCount = confirmedEstimates.length;
+    const executionRate = totalAmount > 0 ? Math.round((confirmedAmount / totalAmount) * 100) : 0;
 
     return (
         <AuthenticatedLayout 
@@ -453,7 +472,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                     <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-blue-50 to-blue-100 shadow-lg">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium text-blue-700">
-                                総見積金額
+                                予算（見積合計）
                             </CardTitle>
                             <div className="rounded-full bg-blue-500 p-2">
                                 <DollarSign className="h-4 w-4 text-white" />
@@ -465,70 +484,129 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                             </div>
                             <p className="text-xs text-blue-600 flex items-center mt-1">
                                 <TrendingUp className="h-3 w-3 mr-1" />
-                                今月の合計
+                                フィルタ適用後の合計
                             </p>
                         </CardContent>
                         <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-blue-200 opacity-20" />
                     </Card>
 
-                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-green-50 to-green-100 shadow-lg">
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-emerald-50 to-emerald-100 shadow-lg">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium text-green-700">
-                                承認済み
+                                実績（注文確定）
                             </CardTitle>
                             <div className="rounded-full bg-green-500 p-2">
                                 <CheckCircle className="h-4 w-4 text-white" />
                             </div>
                         </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold text-green-900">
-                                    {approvedCount}件
-                                </div>
-                                <p className="text-xs text-green-600">
-                                全体の {approvedPercentage}%
-                                </p>
-                            </CardContent>
-                            <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-green-200 opacity-20" />
+                        <CardContent>
+                            <div className="text-2xl font-bold text-green-900">
+                                ¥{confirmedAmount.toLocaleString()}
+                            </div>
+                            <p className="text-xs text-green-600 flex items-center mt-1">
+                                <ClipboardCheck className="h-3 w-3 mr-1" />
+                                注文確定済みの合計
+                            </p>
+                        </CardContent>
+                        <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-green-200 opacity-20" />
                     </Card>
 
-                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-amber-50 to-amber-100 shadow-lg">
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-indigo-50 to-indigo-100 shadow-lg">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium text-amber-700">
-                                ドラフト
+                            <CardTitle className="text-sm font-medium text-indigo-700">
+                                実績率
                             </CardTitle>
-                            <div className="rounded-full bg-amber-500 p-2">
-                                <Edit className="h-4 w-4 text-white" />
+                            <div className="rounded-full bg-indigo-500 p-2">
+                                <Percent className="h-4 w-4 text-white" />
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold text-amber-900">
-                                {draftCount}件
+                            <div className="text-2xl font-bold text-indigo-900">
+                                {executionRate}%
                             </div>
-                            <p className="text-xs text-amber-600">
-                                要対応案件
+                            <p className="text-xs text-indigo-600">
+                                予算に対する達成率
                             </p>
                         </CardContent>
-                        <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-amber-200 opacity-20" />
+                        <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-indigo-200 opacity-20" />
                     </Card>
 
                     <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-purple-50 to-purple-100 shadow-lg">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium text-purple-700">
-                                総件数
+                                注文確定件数
                             </CardTitle>
                             <div className="rounded-full bg-purple-500 p-2">
                                 <Target className="h-4 w-4 text-white" />
                             </div>
                         </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold text-purple-900">
-                                {totalCount}件
-                                </div>
-                                <p className="text-xs text-purple-600">
-                                管理中の見積書
-                                </p>
-                            </CardContent>
+                            <div className="text-2xl font-bold text-purple-900">
+                                {confirmedCount}件
+                            </div>
+                            <p className="text-xs text-purple-600">
+                                全{totalCount}件中の注文確定
+                            </p>
+                        </CardContent>
                         <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-purple-200 opacity-20" />
+                    </Card>
+                </div>
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mt-6">
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-blue-50 to-blue-100 shadow">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-blue-700">
+                                予算（粗利合計）
+                            </CardTitle>
+                            <div className="rounded-full bg-blue-500 p-2">
+                                <Layers className="h-4 w-4 text-white" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-blue-900">
+                                ¥{totalGross.toLocaleString()}
+                            </div>
+                            <p className="text-xs text-blue-600">
+                                全見積の粗利合計
+                            </p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-green-50 to-green-100 shadow">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-green-700">
+                                実績（粗利合計）
+                            </CardTitle>
+                            <div className="rounded-full bg-green-500 p-2">
+                                <Activity className="h-4 w-4 text-white" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-green-900">
+                                ¥{confirmedGross.toLocaleString()}
+                            </div>
+                            <p className="text-xs text-green-600">
+                                注文確定した見積の粗利
+                            </p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-violet-50 to-violet-100 shadow">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-violet-700">
+                                受注工数
+                            </CardTitle>
+                            <div className="rounded-full bg-violet-500 p-2">
+                                <BarChart2 className="h-4 w-4 text-white" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-violet-900">
+                                {confirmedEffort.toFixed(1)} 工数
+                            </div>
+                            <p className="text-xs text-violet-600">
+                                注文確定品目の数量合計
+                            </p>
+                        </CardContent>
                     </Card>
                 </div>
 

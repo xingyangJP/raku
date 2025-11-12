@@ -163,11 +163,12 @@ class MoneyForwardApiService
         }
 
         if (!$this->hasRequiredScopes($mfToken->scope, $requiredScopes)) {
-            Log::info('MF token missing required scopes', [
+            Log::info('MF token missing required scopes and will be discarded.', [
                 'user_id' => $userId,
                 'token_scope' => $mfToken->scope,
                 'required' => $requiredScopes,
             ]);
+            $mfToken->delete();
             return null;
         }
 
@@ -177,8 +178,7 @@ class MoneyForwardApiService
 
             if (!$newTokenData) {
                 Log::error('MF token refresh failed.', ['user_id' => $userId]);
-                // Optionally delete the invalid token
-                // $mfToken->delete();
+                $mfToken->delete();
                 return null; // Refresh failed, user needs to re-authorize
             }
 
@@ -191,6 +191,7 @@ class MoneyForwardApiService
                     'token_scope' => $newTokenData['scope'] ?? '',
                     'required' => $requiredScopes,
                 ]);
+                MfToken::where('user_id', $userId)->delete();
                 return null;
             }
 
@@ -401,6 +402,8 @@ class MoneyForwardApiService
                 $name = '項目';
             }
 
+            $displayMode = $item['display_mode'] ?? 'calculated';
+
             $items[] = [
                 'name' => $name,
                 'price' => (float) ($item['price'] ?? 0),
@@ -410,19 +413,11 @@ class MoneyForwardApiService
                 'excise' => $excise,
             ];
             $lastIndex = array_key_last($items);
-            $lineAmount = $items[$lastIndex]['price'] * $items[$lastIndex]['quantity'];
 
-            if (($item['display_mode'] ?? 'calculated') === 'lump') {
-                $displayQty = (float) ($item['display_qty'] ?? 1);
-                if ($displayQty <= 0) {
-                    $displayQty = 1;
-                }
+            if ($displayMode === 'lump') {
                 $displayUnit = trim((string) ($item['display_unit'] ?? '式'));
-                $items[$lastIndex]['quantity'] = $displayQty;
-                $items[$lastIndex]['unit'] = $displayUnit;
-                $items[$lastIndex]['price'] = $displayQty !== 0.0 ? $lineAmount / $displayQty : $lineAmount;
+                $items[$lastIndex]['unit'] = $displayUnit !== '' ? $displayUnit : '式';
             }
-
             if ($product instanceof Product) {
                 if (!empty($product->mf_id)) {
                     $items[$lastIndex]['item_id'] = $product->mf_id;

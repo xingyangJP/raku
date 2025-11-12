@@ -456,6 +456,7 @@ class EstimateController extends Controller
             'staff_name' => 'nullable|string|max:255',
             'approval_flow' => 'nullable|array',
             'status' => 'nullable|string|in:draft,pending,sent,rejected',
+            'is_order_confirmed' => 'sometimes|boolean',
         ];
 
         if (!Schema::hasColumn('estimates', 'client_contact_name')) {
@@ -484,6 +485,10 @@ class EstimateController extends Controller
         }
         $status = $validated['status'] ?? 'sent';
         unset($validated['status']);
+        $requestedOrderConfirmed = array_key_exists('is_order_confirmed', $validated)
+            ? (bool) $validated['is_order_confirmed']
+            : false;
+        $validated['is_order_confirmed'] = $status === 'sent' ? $requestedOrderConfirmed : false;
         if (isset($validated['approval_flow']) && is_array($validated['approval_flow'])) {
             $hasUnapproved = false;
             $normalizedFlow = [];
@@ -509,7 +514,10 @@ class EstimateController extends Controller
                 $validated['approval_started'] = $hasUnapproved;
             }
         }
-        $estimate = Estimate::create(array_merge($validated, ['status' => $status]));
+        $estimate = Estimate::create(array_merge($validated, [
+            'status' => $status,
+            'is_order_confirmed' => $validated['is_order_confirmed'],
+        ]));
 
         $this->updatePartnerContactCache(
             $validated['client_id'] ?? null,
@@ -571,6 +579,7 @@ class EstimateController extends Controller
             'staff_name' => 'nullable|string|max:255',
             'approval_flow' => 'nullable|array',
             'status' => 'nullable|string|in:draft,pending,sent,rejected',
+            'is_order_confirmed' => 'sometimes|boolean',
         ]);
 
         if (!empty($validated['issue_date'])) {
@@ -584,6 +593,10 @@ class EstimateController extends Controller
         $originalClientId = $estimate->client_id;
         $status = $validated['status'] ?? $estimate->status;
         unset($validated['status']);
+        $requestedOrderConfirmed = array_key_exists('is_order_confirmed', $validated)
+            ? (bool) $validated['is_order_confirmed']
+            : $estimate->is_order_confirmed;
+        unset($validated['is_order_confirmed']);
 
         $clientChanged = array_key_exists('client_id', $validated)
             && (string) ($validated['client_id'] ?? '') !== (string) ($originalClientId ?? '');
@@ -647,6 +660,8 @@ class EstimateController extends Controller
             );
         }
 
+        $validated['is_order_confirmed'] = $status === 'sent' ? $requestedOrderConfirmed : false;
+
         $estimate->update(array_merge($validated, ['status' => $status]));
         $this->updatePartnerContactCache(
             $estimate->client_id,
@@ -681,6 +696,7 @@ class EstimateController extends Controller
         $estimate->status = 'draft';
         $estimate->approval_started = false;
         $estimate->approval_flow = [];
+        $estimate->is_order_confirmed = false;
         $estimate->save();
 
         $this->notifyApprovalCancelled($estimate, Auth::user());
@@ -696,6 +712,24 @@ class EstimateController extends Controller
 
         $estimate->delete();
         return redirect()->route('quotes.index')->with('success', '見積書を削除しました。');
+    }
+
+    public function updateOrderConfirmation(Request $request, Estimate $estimate)
+    {
+        if ($estimate->status !== 'sent') {
+            return redirect()->back()->withErrors(['order' => '承認済みの見積のみ受注確定できます。']);
+        }
+
+        $confirmed = $request->boolean('confirmed');
+        $estimate->is_order_confirmed = $confirmed;
+        $estimate->save();
+
+        if ($confirmed) {
+            $this->notifyOrderConfirmed($estimate, Auth::user());
+            return redirect()->back()->with('success', '受注を確定しました。');
+        }
+
+        return redirect()->back()->with('success', '受注確定を解除しました。');
     }
 
     public function previewPdf(Request $request)
@@ -1254,6 +1288,25 @@ class EstimateController extends Controller
             $estimate->estimate_number,
             $estimate->title ?? '（件名未設定）',
             $estimate->customer_name ?? '（顧客未設定）',
+            $this->estimateDetailUrl($estimate)
+        );
+
+        $this->sendChatNotification($webhook, $message);
+    }
+
+    private function notifyOrderConfirmed(Estimate $estimate, ?User $initiator = null): void
+    {
+        $webhook = (string) config('services.google_chat.approval_webhook', '');
+        if ($webhook === '') {
+            return;
+        }
+
+        $message = sprintf(
+            "受注確定: %s\n件名: %s\n顧客: %s\n確定者: %s\nURL: %s",
+            $estimate->estimate_number,
+            $estimate->title ?? '（件名未設定）',
+            $estimate->customer_name ?? '（顧客未設定）',
+            $initiator?->name ?? 'システム',
             $this->estimateDetailUrl($estimate)
         );
 

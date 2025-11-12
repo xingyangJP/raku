@@ -3,8 +3,6 @@ import { router } from '@inertiajs/core';
 import { Link, usePage } from '@inertiajs/react';
 import { Bell, Home, Package2, Users, LineChart, Settings, Package, FileText, Landmark, Boxes, ChevronsLeft, ChevronsRight, LifeBuoy } from 'lucide-react';
 
-console.log('AuthenticatedLayout rendered');
-
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/Components/ui/dropdown-menu';

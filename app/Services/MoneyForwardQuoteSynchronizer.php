@@ -81,10 +81,17 @@ class MoneyForwardQuoteSynchronizer
             foreach (array_unique($tokenUserIds) as $tokenUserId) {
                 $accessToken = $this->apiService->getValidAccessToken($tokenUserId, 'mfc/invoice/data.read');
                 if (!$accessToken) {
-                    Log::warning('Money Forward access token unavailable for user during sync.', [
-                        'token_user_id' => $tokenUserId,
-                    ]);
-                    $hadFailure = true;
+                    $tokenStillExists = MfToken::where('user_id', $tokenUserId)->exists();
+                    if ($tokenStillExists) {
+                        Log::warning('Money Forward access token unavailable for user during sync.', [
+                            'token_user_id' => $tokenUserId,
+                        ]);
+                        $hadFailure = true;
+                    } else {
+                        Log::info('Money Forward access token for user removed or revoked; skipping from sync.', [
+                            'token_user_id' => $tokenUserId,
+                        ]);
+                    }
                     continue;
                 }
 

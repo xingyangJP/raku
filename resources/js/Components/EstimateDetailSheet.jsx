@@ -153,8 +153,14 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                 {estimate.estimate_number} / {estimate.customer_name}
                             </SheetDescription>
                         </div>
-                        <div data-testid="status-badge">
+                        <div data-testid="status-badge" className="flex items-center gap-2">
                             {getStatusBadge(estimate.status)}
+                            {estimate.is_order_confirmed && (
+                                <Badge className="flex items-center gap-1 bg-emerald-100 text-emerald-700">
+                                    <CheckCircle className="h-3 w-3" />
+                                    注文確定
+                                </Badge>
+                            )}
                         </div>
                     </div>
                 </SheetHeader>
