@@ -60,4 +60,8 @@ return [
         'approval_webhook' => env('GOOGLE_CHAT_APPROVAL_WEBHOOK'),
     ],
 
+    'customer_portal' => [
+        'base_url' => env('CUSTOMER_PORTAL_BASE_URL', 'https://pm.xerographix.co.jp/customers'),
+    ],
+
 ];

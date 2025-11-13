@@ -228,6 +228,20 @@ class EstimateController extends Controller
 
         $estimates = $estimatesQuery->get();
 
+        $partnerCodes = collect();
+        $clientIds = $estimates->pluck('client_id')->filter()->unique();
+        if ($clientIds->isNotEmpty() && Schema::hasTable('partners')) {
+            $partnerCodes = Partner::whereIn('mf_partner_id', $clientIds)->pluck('code', 'mf_partner_id');
+        }
+
+        $estimates->each(function ($estimate) use ($partnerCodes) {
+            $source = $partnerCodes[$estimate->client_id] ?? $estimate->client_id;
+            $pmCusId = $this->extractPmCustomerId($source);
+            if ($pmCusId !== null) {
+                $estimate->setAttribute('pm_customer_id', $pmCusId);
+            }
+        });
+
         $moneyForwardConfig = [
             'client_id' => config('services.money_forward.client_id'),
             'redirect_uri' => config('services.money_forward.quote_redirect_uri'),
@@ -257,6 +271,7 @@ class EstimateController extends Controller
             'defaultRange' => $defaultRange,
             'initialFilters' => $initialFilters,
             'focusEstimateId' => $focusEstimateId,
+            'customerPortalBase' => rtrim(config('services.customer_portal.base_url', 'https://pm.xerographix.co.jp/customers'), '/'),
         ]);
     }
 
@@ -1620,5 +1635,18 @@ class EstimateController extends Controller
         if ($markDeleted && Schema::hasColumn('estimates', 'mf_deleted_at')) {
             $estimate->mf_deleted_at = now();
         }
+    }
+
+    private function extractPmCustomerId(?string $source): ?int
+    {
+        if (empty($source)) {
+            return null;
+        }
+
+        if (preg_match('/(\d+)/', (string) $source, $matches)) {
+            return (int) $matches[1];
+        }
+
+        return null;
     }
 }

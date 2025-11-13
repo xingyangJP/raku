@@ -1,6 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { Badge } from "@/Components/ui/badge";
@@ -33,7 +33,8 @@ import {
     Percent,
     Layers,
     Activity,
-    BarChart2
+    BarChart2,
+    ShoppingCart
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cn } from "@/lib/utils";
@@ -107,8 +108,33 @@ const parseEstimateId = (value) => {
     return Number.isFinite(parsed) ? parsed : null;
 };
 
-export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncStatus, error, defaultRange, initialFilters, focusEstimateId }) {
+export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncStatus, error, defaultRange, initialFilters, focusEstimateId, customerPortalBase }) {
     const { props } = usePage();
+    const products = useMemo(() => Array.isArray(props.products) ? props.products : [], [props.products]);
+    const productLookups = useMemo(() => {
+        const skuMap = new Map();
+        const nameMap = new Map();
+        products.forEach((product) => {
+            const sku = (product?.sku ?? '').trim().toLowerCase();
+            if (sku) {
+                skuMap.set(sku, product);
+            }
+            const name = (product?.name ?? '').trim().toLowerCase();
+            if (name) {
+                nameMap.set(name, product);
+            }
+        });
+        return { skuMap, nameMap };
+    }, [products]);
+    const FIRST_BUSINESS_KEY = 'first_business';
+    const normalizedCustomerPortalBase = useMemo(() => {
+        if (!customerPortalBase) {
+            return null;
+        }
+        return customerPortalBase.endsWith('/')
+            ? customerPortalBase.replace(/\/+$/, '')
+            : customerPortalBase;
+    }, [customerPortalBase]);
     const [openApprovalStarted, setOpenApprovalStarted] = useState(false);
     const [approverNames, setApproverNames] = useState([]);
     const [isSyncing, setIsSyncing] = useState(false);
@@ -290,6 +316,39 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
 
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
+    const resolveProductForItem = (item) => {
+        if (!item) {
+            return null;
+        }
+        const sku = String(item.code ?? item.product_code ?? '')
+            .trim()
+            .toLowerCase();
+        if (sku && productLookups.skuMap.has(sku)) {
+            return productLookups.skuMap.get(sku);
+        }
+        const name = String(item.name ?? item.product_name ?? '')
+            .trim()
+            .toLowerCase();
+        if (name && productLookups.nameMap.has(name)) {
+            return productLookups.nameMap.get(name);
+        }
+        return null;
+    };
+
+    const calculateFirstDivisionCost = (items) => {
+        if (!Array.isArray(items) || !items.length) {
+            return 0;
+        }
+        return items.reduce((sum, item) => {
+            const product = resolveProductForItem(item);
+            if (!product || product.business_division !== FIRST_BUSINESS_KEY) {
+                return sum;
+            }
+            const unitCost = toNumber(item?.cost ?? product?.cost, 0);
+            return sum + getQuantity(item) * unitCost;
+        }, 0);
+    };
+
     // approval history is rendered from estimate.approval_flow in the detail view
 
     // 統計計算
@@ -356,6 +415,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
     const confirmedAmount = confirmedEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
     const confirmedGross = confirmedEstimates.reduce((sum, est) => sum + sumEstimateGross(est), 0);
     const confirmedEffort = confirmedEstimates.reduce((sum, est) => sum + sumEstimateEffort(est), 0);
+    const confirmedFirstDivisionCost = confirmedEstimates.reduce((sum, est) => sum + calculateFirstDivisionCost(est?.items), 0);
     const confirmedCount = confirmedEstimates.length;
     const executionRate = totalAmount > 0 ? Math.round((confirmedAmount / totalAmount) * 100) : 0;
 
@@ -529,7 +589,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                         <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-purple-200 opacity-20" />
                     </Card>
                 </div>
-                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mt-6">
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mt-6">
                     <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-blue-50 to-blue-100 shadow">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium text-blue-700">
@@ -583,6 +643,25 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                             </div>
                             <p className="text-xs text-violet-600">
                                 注文確定品目の数量合計
+                            </p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-amber-50 to-amber-100 shadow">
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium text-amber-800">
+                                仕入れ合計（確定）
+                            </CardTitle>
+                            <div className="rounded-full bg-amber-500 p-2">
+                                <ShoppingCart className="h-4 w-4 text-white" />
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-amber-900">
+                                ¥{confirmedFirstDivisionCost.toLocaleString()}
+                            </div>
+                            <p className="text-xs text-amber-700">
+                                第1種事業の原価合計
                             </p>
                         </CardContent>
                     </Card>
@@ -740,6 +819,9 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                         const totalCost = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateCostAmount(item), 0) : 0;
                                         const totalGrossProfit = subtotal - totalCost;
                                         const totalGrossMargin = subtotal !== 0 ? (totalGrossProfit / subtotal) * 100 : 0;
+                                        const customerPortalUrl = normalizedCustomerPortalBase && estimate.pm_customer_id
+                                            ? `${normalizedCustomerPortalBase}/${estimate.pm_customer_id}`
+                                            : null;
 
                                         const grossProfitChartData = estimate.items ? Object.entries(estimate.items.reduce((acc, item) => {
                                             const itemName = item.name;
@@ -796,7 +878,18 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="font-medium">
-                                                        {estimate.customer_name}
+                                                        {customerPortalUrl ? (
+                                                            <a
+                                                                href={customerPortalUrl}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="text-blue-600 hover:underline"
+                                                            >
+                                                                {estimate.customer_name || '（顧客未設定）'}
+                                                            </a>
+                                                        ) : (
+                                                            estimate.customer_name || '（顧客未設定）'
+                                                        )}
                                                     </TableCell>
                                                     <TableCell className="font-bold text-green-700">
                                                         ¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}
