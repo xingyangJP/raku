@@ -205,8 +205,19 @@ class ProductController extends Controller
         return redirect()->route('products.index')->with('success', '商品を更新しました。必要に応じてコードを再採番しました。');
     }
 
-    public function destroy(Product $product)
+    public function destroy(Product $product, MoneyForwardApiService $apiService)
     {
+        if ($product->mf_id) {
+            $token = $apiService->getValidAccessToken(null, 'mfc/invoice/data.write');
+            if ($token) {
+                $apiService->deleteItem($token, $product->mf_id);
+            } else {
+                Log::warning('Unable to delete MF item due to missing token.', [
+                    'product_id' => $product->id,
+                    'mf_id' => $product->mf_id,
+                ]);
+            }
+        }
         $product->delete();
         return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
     }
@@ -402,6 +413,7 @@ class ProductController extends Controller
             'created_remote' => 0,
             'updated_local' => 0,
             'created_local' => 0,
+            'deleted_local' => 0,
         ];
         $errors = [];
 
@@ -449,6 +461,13 @@ class ProductController extends Controller
                         }
                     }
                 } else {
+                    if ($product->mf_id) {
+                        // Remoteで削除されたとみなしてローカルも削除
+                        $product->delete();
+                        $stats['deleted_local']++;
+                        continue;
+                    }
+
                     $result = $this->syncProductToMoneyForward($product, $token, $apiService, null);
                     if ($result === null) {
                         $errors[] = ['product_id' => $product->id, 'action' => 'create'];
@@ -478,7 +497,7 @@ class ProductController extends Controller
                 'quantity' => $this->normalizeNumber($item['quantity'] ?? null),
                 'tax_category' => $this->mapExciseToTaxCategory($item['excise'] ?? null),
                 'is_deduct_withholding_tax' => $this->normalizeBoolean($item['is_deduct_withholding_tax'] ?? null),
-                'business_division' => null,
+                'business_division' => $this->defaultBusinessDivision(),
                 'cost' => 0,
                 'category_id' => null,
                 'seq' => null,
@@ -500,11 +519,12 @@ class ProductController extends Controller
         }
 
         $message = sprintf(
-            'Money Forwardと同期しました（MF更新: %d件 / MF作成: %d件 / ローカル更新: %d件 / ローカル作成: %d件）',
+            'Money Forwardと同期しました（MF更新: %d件 / MF作成: %d件 / ローカル更新: %d件 / ローカル作成: %d件 / ローカル削除: %d件）',
             $stats['updated_remote'],
             $stats['created_remote'],
             $stats['updated_local'],
-            $stats['created_local']
+            $stats['created_local'],
+            $stats['deleted_local']
         );
 
         if (!empty($errors)) {
