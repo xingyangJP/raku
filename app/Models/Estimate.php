@@ -31,6 +31,7 @@ class Estimate extends Model
         'approval_started',
         'internal_memo',
         'requirement_summary',
+        'structured_requirements',
         'delivery_location',
         'mf_quote_id',
         'mf_quote_pdf_url',
@@ -48,6 +49,7 @@ class Estimate extends Model
         'approval_started' => 'boolean',
         'mf_deleted_at' => 'datetime',
         'is_order_confirmed' => 'boolean',
+        'structured_requirements' => 'array',
     ];
 
     // No local FK relation for staff; staff_id refers to external directory

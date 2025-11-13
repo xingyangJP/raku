@@ -306,6 +306,30 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
 
 // --- Main Component ---
 
+const mapStructuredRequirements = (payload) => {
+    if (!payload || typeof payload !== 'object') {
+        return { functional: [], nonFunctional: [] };
+    }
+
+    const functional = Array.isArray(payload.functional)
+        ? payload.functional
+        : Array.isArray(payload.functional_requirements)
+            ? payload.functional_requirements
+            : [];
+    const nonFunctional = Array.isArray(payload.nonFunctional)
+        ? payload.nonFunctional
+        : Array.isArray(payload.non_functional)
+            ? payload.non_functional
+            : Array.isArray(payload.non_functional_requirements)
+                ? payload.non_functional_requirements
+                : [];
+
+    return {
+        functional,
+        nonFunctional,
+    };
+};
+
 export default function EstimateCreate({ auth, products, users = [], estimate = null, is_fully_approved = false }) {
     const isEditMode = estimate !== null;
 
@@ -353,10 +377,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [notePrompt, setNotePrompt] = useState('');
     const [notePromptError, setNotePromptError] = useState(null);
     const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
-    const [structuredRequirements, setStructuredRequirements] = useState({
-        functional: [],
-        nonFunctional: [],
-    });
+    const [structuredRequirements, setStructuredRequirements] = useState(() => mapStructuredRequirements(estimate?.structured_requirements));
     const [isStructuringRequirements, setIsStructuringRequirements] = useState(false);
     const [structureError, setStructureError] = useState(null);
     const [pmSupportRequired, setPmSupportRequired] = useState(false);
@@ -457,9 +478,18 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         approval_flow: Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : [],
         status: estimate?.status || 'draft',
         is_order_confirmed: estimate?.is_order_confirmed ?? false,
+        structured_requirements: estimate?.structured_requirements ?? null,
     });
 
     const hasRequirementSummary = (data.requirement_summary ?? '').trim() !== '';
+
+    useEffect(() => {
+        const hasContent = structuredRequirements.functional.length > 0 || structuredRequirements.nonFunctional.length > 0;
+        setData('structured_requirements', hasContent ? {
+            functional: structuredRequirements.functional,
+            non_functional: structuredRequirements.nonFunctional,
+        } : null);
+    }, [structuredRequirements]);
 
     const [submitErrors, setSubmitErrors] = useState([]);
     const [hasRequiredError, setHasRequiredError] = useState(false);
@@ -482,11 +512,6 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return data.status === 'pending';
     }, [approvalLocal, data.status]);
 
-    useEffect(() => {
-        if (!data.requirement_summary || data.requirement_summary.trim() === '') {
-            setStructuredRequirements({ functional: [], nonFunctional: [] });
-        }
-    }, [data.requirement_summary]);
     
 
     const prevPartnerIdRef = useRef(estimate?.client_id || null);
@@ -791,10 +816,10 @@ useEffect(() => {
                 requirement_summary: data.requirement_summary,
                 estimate_id: data.id ?? null,
             });
-            setStructuredRequirements({
+            setStructuredRequirements(mapStructuredRequirements({
                 functional: response?.data?.functional_requirements ?? [],
-                nonFunctional: response?.data?.non_functional_requirements ?? [],
-            });
+                non_functional: response?.data?.non_functional_requirements ?? [],
+            }));
         } catch (error) {
             const message = error?.response?.data?.message ?? '要件整理に失敗しました。';
             setStructureError(message);

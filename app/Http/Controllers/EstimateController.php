@@ -400,6 +400,7 @@ class EstimateController extends Controller
                 'staff_id' => 'nullable|integer',
                 'staff_name' => 'required|string|max:255',
                 'requirement_summary' => 'nullable|string|max:4000',
+                'structured_requirements' => 'nullable|array',
             ];
 
             if (!Schema::hasColumn('estimates', 'client_contact_name')) {
@@ -407,6 +408,7 @@ class EstimateController extends Controller
             }
 
             $validated = $request->validate($rules);
+            $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
             $estimate->update(array_merge($validated, ['status' => 'draft']));
             $this->updatePartnerContactCache(
                 $validated['client_id'] ?? $estimate->client_id,
@@ -435,7 +437,10 @@ class EstimateController extends Controller
                 'staff_id' => 'nullable|integer',
                 'staff_name' => 'required|string|max:255',
                 'requirement_summary' => 'nullable|string|max:4000',
+                'structured_requirements' => 'nullable|array',
             ]);
+
+            $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
 
             if (empty($validated['estimate_number'])) {
                 $validated['estimate_number'] = Estimate::generateReadableEstimateNumber(
@@ -486,6 +491,7 @@ class EstimateController extends Controller
             'status' => 'nullable|string|in:draft,pending,sent,rejected',
             'is_order_confirmed' => 'sometimes|boolean',
             'requirement_summary' => 'nullable|string|max:4000',
+            'structured_requirements' => 'nullable|array',
         ];
 
         if (!Schema::hasColumn('estimates', 'client_contact_name')) {
@@ -493,6 +499,7 @@ class EstimateController extends Controller
         }
 
         $validated = $request->validate($rules);
+        $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
 
         if (!empty($validated['issue_date'])) {
             $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
@@ -610,7 +617,10 @@ class EstimateController extends Controller
             'status' => 'nullable|string|in:draft,pending,sent,rejected',
             'is_order_confirmed' => 'sometimes|boolean',
             'requirement_summary' => 'nullable|string|max:4000',
+            'structured_requirements' => 'nullable|array',
         ]);
+
+        $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
 
         if (!empty($validated['issue_date'])) {
             $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
@@ -936,6 +946,73 @@ class EstimateController extends Controller
         return null;
     }
 
+    private function normalizeStructuredRequirements($value): ?array
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+
+        $functionalSource = $value['functional']
+            ?? $value['functional_requirements']
+            ?? $value['functionalRequirements']
+            ?? [];
+        $nonFunctionalSource = $value['non_functional']
+            ?? $value['nonFunctional']
+            ?? $value['non_functional_requirements']
+            ?? $value['nonFunctionalRequirements']
+            ?? [];
+
+        $functional = $this->normalizeRequirementLines($functionalSource);
+        $nonFunctional = $this->normalizeRequirementLines($nonFunctionalSource);
+
+        if (empty($functional) && empty($nonFunctional)) {
+            return null;
+        }
+
+        return [
+            'functional' => $functional,
+            'non_functional' => $nonFunctional,
+        ];
+    }
+
+    private function normalizeRequirementLines($lines): array
+    {
+        if (!is_array($lines)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($lines as $line) {
+            if (is_array($line) || is_object($line)) {
+                $line = json_encode($line, JSON_UNESCAPED_UNICODE);
+            }
+            $line = trim((string) $line);
+            if ($line !== '') {
+                $normalized[] = $line;
+            }
+        }
+
+        return $normalized;
+    }
+
+    private function resolveFeatureDescription(?string $summary, ?string $productName, ?string $fallbackDescription): string
+    {
+        $text = trim((string) $summary);
+        if ($text !== '' && $productName) {
+            $pattern = '/^' . preg_quote($productName, '/') . '\s*(?:[|｜:：-]\s*)?/u';
+            $stripped = preg_replace($pattern, '', $text, 1);
+            if (is_string($stripped) && $stripped !== $text) {
+                $text = trim($stripped);
+            }
+        }
+
+        if ($text === '') {
+            $text = trim((string) $fallbackDescription);
+        }
+
+        return $text;
+    }
+
     private function logAiEvent(?int $estimateId, string $action, array $structured, array $messages, ?string $aiResponse): void
     {
         if (!Schema::hasTable('estimate_ai_logs')) {
@@ -1081,21 +1158,28 @@ class EstimateController extends Controller
             ->values()
             ->all();
 
+        $structured = $this->normalizeStructuredRequirements([
+            'functional' => $functional,
+            'non_functional' => $nonFunctional,
+        ]) ?? ['functional' => [], 'non_functional' => []];
+
+        if (!empty($validated['estimate_id'])) {
+            Estimate::whereKey($validated['estimate_id'])->update([
+                'structured_requirements' => $structured,
+            ]);
+        }
+
         $this->logAiEvent(
             $validated['estimate_id'] ?? null,
             'structure_requirements',
-            [
-                'summary' => $validated['requirement_summary'],
-                'functional' => $functional,
-                'non_functional' => $nonFunctional,
-            ],
+            array_merge(['summary' => $validated['requirement_summary']], $structured),
             $messages,
             data_get($response->json(), 'choices.0.message.content', '')
         );
 
         return response()->json([
-            'functional_requirements' => $functional,
-            'non_functional_requirements' => $nonFunctional,
+            'functional_requirements' => $structured['functional'] ?? [],
+            'non_functional_requirements' => $structured['non_functional'] ?? [],
         ]);
     }
 
@@ -1242,11 +1326,17 @@ class EstimateController extends Controller
                 continue;
             }
 
+            $description = $this->resolveFeatureDescription(
+                $item['summary'] ?? null,
+                $product->name,
+                $product->description
+            );
+
             $aiItems[] = [
                 'product_id' => $product->id,
                 'code' => $product->sku,
                 'name' => $product->name,
-                'description' => trim((string) ($item['summary'] ?? $product->description ?? '')),
+                'description' => $description,
                 'qty' => $personMonths,
                 'unit' => '人月',
                 'price' => (float) $product->price,
