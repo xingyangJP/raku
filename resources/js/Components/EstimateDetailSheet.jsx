@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/Components/ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
@@ -74,9 +74,28 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
         );
     };
 
-    const calculateAmount = (item) => item.qty * item.price;
-    const calculateCostAmount = (item) => item.qty * item.cost;
+    const calculateAmount = (item) => (item.qty ?? 0) * (item.price ?? 0);
+    const calculateCostAmount = (item) => (item.qty ?? 0) * (item.cost ?? 0);
     const calculateGrossProfit = (item) => calculateAmount(item) - calculateCostAmount(item);
+    const formatCurrency = (value) => `¥${Number(value || 0).toLocaleString()}`;
+    const formatGrossMargin = (gross, amount) => {
+        if (!amount) return '—';
+        return `${((gross / amount) * 100).toFixed(1)}%`;
+    };
+    const formatDate = (value) => {
+        if (!value) return '—';
+        if (typeof value === 'string') {
+            const isoMatch = value.match(/^\d{4}-\d{2}-\d{2}/);
+            if (isoMatch) {
+                return isoMatch[0];
+            }
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return value;
+        }
+        return parsed.toLocaleDateString('ja-JP');
+    };
 
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
@@ -84,23 +103,37 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
     const totalCost = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateCostAmount(item), 0) : 0;
     const totalGrossProfit = subtotal - totalCost;
 
-    const grossProfitChartData = estimate.items ? Object.entries(estimate.items.reduce((acc, item) => {
-        const itemName = item.name;
-        if (!acc[itemName]) {
-            acc[itemName] = { grossProfit: 0 };
+    const aggregates = useMemo(() => {
+        const summary = {};
+        if (!Array.isArray(estimate.items)) {
+            return { gross: {}, cost: {}, list: [] };
         }
-        acc[itemName].grossProfit += calculateGrossProfit(item);
-        return acc;
-    }, {})).map(([itemName, data]) => ({ name: itemName, value: data.grossProfit })) : [];
 
-    const costChartData = estimate.items ? Object.entries(estimate.items.reduce((acc, item) => {
-        const itemName = item.name;
-        if (!acc[itemName]) {
-            acc[itemName] = { cost: 0 };
-        }
-        acc[itemName].cost += calculateCostAmount(item);
-        return acc;
-    }, {})).map(([itemName, data]) => ({ name: itemName, value: data.cost })) : [];
+        estimate.items.forEach((item) => {
+            const name = item.name || '項目';
+            if (!summary[name]) {
+                summary[name] = { grossProfit: 0, cost: 0, amount: 0 };
+            }
+            const amount = calculateAmount(item);
+            const cost = calculateCostAmount(item);
+            summary[name].grossProfit += amount - cost;
+            summary[name].cost += cost;
+            summary[name].amount += amount;
+        });
+
+        const list = Object.entries(summary).map(([name, data]) => ({
+            name,
+            ...data,
+        }));
+
+        const grossData = list.map(({ name, grossProfit }) => ({ name, value: grossProfit }));
+        const costData = list.map(({ name, cost }) => ({ name, value: cost }));
+
+        return { grossData, costData, list };
+    }, [estimate.items]);
+
+    const grossProfitChartData = aggregates.grossData;
+    const costChartData = aggregates.costData;
 
     const handleApprove = () => {
         if (!confirm('この見積書を承認しますか？')) return;
@@ -206,7 +239,7 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                     </div>
                                     <div>
                                         <p className="text-sm text-slate-500">発行日</p>
-                                        <p data-testid="created-date" className="font-semibold">{estimate.issue_date}</p>
+                                        <p data-testid="created-date" className="font-semibold">{formatDate(estimate.issue_date)}</p>
                                     </div>
                                     <div>
                                         <p className="text-sm text-slate-500">自社担当者</p>
@@ -297,36 +330,31 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                 </div>
                                 <div className="mt-6 space-y-2">
                                     <p className="font-bold mb-4">品目別 粗利・原価分析</p>
-                                    {Object.entries(estimate.items ? estimate.items.reduce((acc, item) => {
-                                        const itemName = item.name;
-                                        if (!acc[itemName]) {
-                                            acc[itemName] = { grossProfit: 0, cost: 0 };
-                                        }
-                                        acc[itemName].grossProfit += calculateGrossProfit(item);
-                                        acc[itemName].cost += calculateCostAmount(item);
-                                        return acc;
-                                    }, {}) : {}).map(([itemName, data]) => (
-                                        <div key={itemName} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
-                                            <span className="font-medium">{itemName}</span>
-                                            <div className="text-right">
-                                                <div className="font-bold text-green-600">
-                                                    粗利: ¥{data.grossProfit.toLocaleString()}
-                                                </div>
-                                                <div className="text-sm text-slate-500">
-                                                    原価: ¥{data.cost.toLocaleString()}
+                                    {aggregates.list.map((item) => {
+                                        const margin = formatGrossMargin(item.grossProfit, item.amount);
+                                        return (
+                                            <div key={item.name} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
+                                                <span className="font-medium">{item.name}</span>
+                                                <div className="text-right">
+                                                    <div className="font-bold text-green-600">
+                                                        粗利: {formatCurrency(item.grossProfit)}（粗利率: {margin}）
+                                                    </div>
+                                                    <div className="text-sm text-slate-500">
+                                                        原価: {formatCurrency(item.cost)}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                     <div className="border-t pt-4 mt-4">
                                         <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg">
                                             <span className="font-bold text-lg">合計</span>
                                             <div className="text-right">
                                                 <div className="font-bold text-xl text-green-600">
-                                                    粗利: ¥{totalGrossProfit.toLocaleString()}
+                                                    粗利: {formatCurrency(totalGrossProfit)}（粗利率: {formatGrossMargin(totalGrossProfit, subtotal)}）
                                                 </div>
                                                 <div className="text-sm text-slate-600">
-                                                    原価: ¥{totalCost.toLocaleString()}
+                                                    原価: {formatCurrency(totalCost)}
                                                 </div>
                                             </div>
                                         </div>

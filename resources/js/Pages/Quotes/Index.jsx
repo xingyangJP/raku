@@ -313,6 +313,25 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         const amount = calculateAmount(item);
         return amount !== 0 ? (calculateGrossProfit(item) / amount) * 100 : 0;
     };
+    const formatCurrency = (value) => `¥${Number(value || 0).toLocaleString()}`;
+    const formatGrossRate = (gross, amount) => {
+        if (!amount) return '—';
+        return `${((gross / amount) * 100).toFixed(1)}%`;
+    };
+    const formatIssueDate = (value) => {
+        if (!value) return '—';
+        if (typeof value === 'string') {
+            const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+            if (match) {
+                return match[0];
+            }
+        }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return value;
+        }
+        return parsed.toLocaleDateString('ja-JP');
+    };
 
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
@@ -822,24 +841,22 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                         const customerPortalUrl = normalizedCustomerPortalBase && estimate.pm_customer_id
                                             ? `${normalizedCustomerPortalBase}/${estimate.pm_customer_id}`
                                             : null;
-
-                                        const grossProfitChartData = estimate.items ? Object.entries(estimate.items.reduce((acc, item) => {
-                                            const itemName = item.name;
+                                        const itemSummaryMap = estimate.items ? estimate.items.reduce((acc, item) => {
+                                            const itemName = item.name || '項目';
                                             if (!acc[itemName]) {
-                                                acc[itemName] = { grossProfit: 0 };
+                                                acc[itemName] = { grossProfit: 0, cost: 0, amount: 0 };
                                             }
-                                            acc[itemName].grossProfit += calculateGrossProfit(item);
+                                            const amount = calculateAmount(item);
+                                            const cost = calculateCostAmount(item);
+                                            acc[itemName].grossProfit += amount - cost;
+                                            acc[itemName].cost += cost;
+                                            acc[itemName].amount += amount;
                                             return acc;
-                                        }, {})).map(([itemName, data]) => ({ name: itemName, value: data.grossProfit })) : [];
+                                        }, {}) : {};
+                                        const summaryList = Object.entries(itemSummaryMap).map(([name, data]) => ({ name, ...data }));
 
-                                        const costChartData = estimate.items ? Object.entries(estimate.items.reduce((acc, item) => {
-                                            const itemName = item.name;
-                                            if (!acc[itemName]) {
-                                                acc[itemName] = { cost: 0 };
-                                            }
-                                            acc[itemName].cost += calculateCostAmount(item);
-                                            return acc;
-                                        }, {})).map(([itemName, data]) => ({ name: itemName, value: data.cost })) : [];
+                                        const grossProfitChartData = summaryList.map(({ name, grossProfit }) => ({ name, value: grossProfit }));
+                                        const costChartData = summaryList.map(({ name, cost }) => ({ name, value: cost }));
 
                                         return (
                                             <Sheet
@@ -1004,7 +1021,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                         </div>
                                                                         <div>
                                                                             <p className="text-sm text-slate-500">発行日</p>
-                                                                            <p className="font-semibold">{estimate.issue_date}</p>
+                                                                            <p className="font-semibold">{formatIssueDate(estimate.issue_date)}</p>
                                                                         </div>
                                                                         <div>
                                                                             <p className="text-sm text-slate-500">自社担当者</p>
@@ -1100,40 +1117,32 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                     </div>
                                                                     <div className="mt-6 space-y-2">
                                                                         <p className="font-bold mb-4">品目別 粗利・原価分析</p>
-                                                                        {Object.entries(estimate.items ? estimate.items.reduce((acc, item) => {
-                                                                            const itemName = item.name;
-                                                                            if (!acc[itemName]) {
-                                                                                acc[itemName] = { grossProfit: 0, cost: 0 };
-                                                                            }
-                                                                            acc[itemName].grossProfit += calculateGrossProfit(item);
-                                                                            acc[itemName].cost += calculateCostAmount(item);
-                                                                            return acc;
-                                                                        }, {}) : {}).map(([itemName, data]) => (
-                                                                            <div key={itemName} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
-                                                                                <span className="font-medium">{itemName}</span>
-                                                                                <div className="text-right">
-                                                                                    <div className="font-bold text-green-600">
-                                                                                        粗利: ¥{data.grossProfit.toLocaleString()}
-                                                                                    </div>
-                                                                                    <div className="text-sm text-slate-500">
-                                                                                        原価: ¥{data.cost.toLocaleString()}
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        ))}
-                                                                        <div className="border-t pt-4 mt-4">
-                                                                            <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg">
-                                                                                <span className="font-bold text-lg">合計</span>
-                                                                                <div className="text-right">
-                                                                                    <div className="font-bold text-xl text-green-600">
-                                                                                        粗利: ¥{totalGrossProfit.toLocaleString()}
-                                                                                    </div>
-                                                                                    <div className="text-sm text-slate-600">
-                                                                                        原価: ¥{totalCost.toLocaleString()}
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
+                                    {summaryList.map((item) => (
+                                        <div key={item.name} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
+                                            <span className="font-medium">{item.name}</span>
+                                            <div className="text-right">
+                                                <div className="font-bold text-green-600">
+                                                    粗利: {formatCurrency(item.grossProfit)}（粗利率: {formatGrossRate(item.grossProfit, item.amount)}）
+                                                </div>
+                                                <div className="text-sm text-slate-500">
+                                                    原価: {formatCurrency(item.cost)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div className="border-t pt-4 mt-4">
+                                        <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg">
+                                            <span className="font-bold text-lg">合計</span>
+                                            <div className="text-right">
+                                                <div className="font-bold text-xl text-green-600">
+                                                    粗利: {formatCurrency(totalGrossProfit)}（粗利率: {formatGrossRate(totalGrossProfit, subtotal)}）
+                                                </div>
+                                                <div className="text-sm text-slate-600">
+                                                    原価: {formatCurrency(totalCost)}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                                                     </div>
                                                                 </CardContent>
                                                             </Card>

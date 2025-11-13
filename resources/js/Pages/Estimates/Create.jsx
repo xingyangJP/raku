@@ -324,6 +324,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const transformIncomingItems = (items = []) => items.map((item, index) => ({
         id: item.id ?? item.__temp_id ?? Date.now() + index,
         product_id: item.product_id ?? null,
+        code: item.code ?? item.sku ?? null,
         name: item.name ?? '',
         description: item.description ?? item.detail ?? '',
         qty: normalizeNumber(item.qty ?? item.quantity, 1) || 1,
@@ -697,11 +698,12 @@ useEffect(() => {
     };
 
     const handleProductSelect = (itemId, productId) => {
-        const selectedProduct = products.find(p => p.id === parseInt(productId));
+        const selectedProduct = products.find(p => Number(p.id) === Number(productId));
         if (selectedProduct) {
             setLineItems(prevItems => prevItems.map(item =>
                 item.id === itemId ? {
                     ...item,
+                    code: selectedProduct.sku,
                     name: selectedProduct.name,
                     price: selectedProduct.price,
                     cost: selectedProduct.cost,
@@ -766,7 +768,59 @@ useEffect(() => {
         value: data.cost,
     }));
 
+    const productDivisionMaps = useMemo(() => {
+        const byId = new Map();
+        const bySku = new Map();
+        const byName = new Map();
+        products.forEach((product) => {
+            const division = product?.business_division || null;
+            if (product?.id !== undefined && product?.id !== null) {
+                byId.set(Number(product.id), division);
+            }
+            const sku = (product?.sku ?? '').trim().toLowerCase();
+            if (sku) {
+                bySku.set(sku, division);
+            }
+            const name = (product?.name ?? '').trim().toLowerCase();
+            if (name) {
+                byName.set(name, division);
+            }
+        });
+        return { byId, bySku, byName };
+    }, [products]);
+
+    const EXCLUDED_DIVISION = 'first_business';
+
+    const resolveBusinessDivisionForItem = (item) => {
+        if (!item) {
+            return null;
+        }
+        if (item.product_id !== undefined && item.product_id !== null) {
+            const division = productDivisionMaps.byId.get(Number(item.product_id));
+            if (division !== undefined) {
+                return division;
+            }
+        }
+        const sku = String(item.code ?? item.product_code ?? item.sku ?? '')
+            .trim()
+            .toLowerCase();
+        if (sku && productDivisionMaps.bySku.has(sku)) {
+            return productDivisionMaps.bySku.get(sku);
+        }
+        const name = String(item.name ?? '')
+            .trim()
+            .toLowerCase();
+        if (name && productDivisionMaps.byName.has(name)) {
+            return productDivisionMaps.byName.get(name);
+        }
+        return null;
+    };
+
     const effortData = lineItems.reduce((acc, item) => {
+        const division = resolveBusinessDivisionForItem(item);
+        if (division === EXCLUDED_DIVISION) {
+            return acc;
+        }
         const key = item.name && item.name !== '' ? item.name : '未設定';
         const qty = normalizeNumber(item.qty, 0);
         if (qty === 0) return acc;

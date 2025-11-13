@@ -29,10 +29,15 @@ class EstimateController extends Controller
     private function loadProducts()
     {
         if (Schema::hasTable('products')) {
+            $columns = ['id', 'name', 'price', 'cost', 'unit', 'sku as code', 'description'];
+            if (Schema::hasColumn('products', 'business_division')) {
+                $columns[] = 'business_division';
+            }
+
             return DB::table('products')
                 ->where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'name', 'price', 'cost', 'unit', 'sku as code', 'description']);
+                ->get($columns);
         }
         return [];
     }
