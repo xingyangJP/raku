@@ -353,6 +353,18 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [notePrompt, setNotePrompt] = useState('');
     const [notePromptError, setNotePromptError] = useState(null);
     const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
+    const [structuredRequirements, setStructuredRequirements] = useState({
+        functional: [],
+        nonFunctional: [],
+    });
+    const [isStructuringRequirements, setIsStructuringRequirements] = useState(false);
+    const [structureError, setStructureError] = useState(null);
+    const [pmSupportRequired, setPmSupportRequired] = useState(false);
+    const [isGeneratingAiDraft, setIsGeneratingAiDraft] = useState(false);
+    const [aiDraftError, setAiDraftError] = useState(null);
+    const [aiDraftPreview, setAiDraftPreview] = useState([]);
+    const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
+    const [aiNotesSuggestion, setAiNotesSuggestion] = useState('');
     const [selectedStaff, setSelectedStaff] = useState(() => (estimate?.staff_id && estimate?.staff_name)
         ? { id: estimate.staff_id, name: estimate.staff_name }
         : null
@@ -436,6 +448,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         tax_amount: estimate?.tax_amount || 0,
         notes: estimate?.notes || '',
         internal_memo: estimate?.internal_memo || '',
+        requirement_summary: estimate?.requirement_summary || '',
         delivery_location: estimate?.delivery_location || '',
         items: transformIncomingItems(estimate?.items),
         estimate_number: estimate?.estimate_number || '',
@@ -446,7 +459,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         is_order_confirmed: estimate?.is_order_confirmed ?? false,
     });
 
-    
+    const hasRequirementSummary = (data.requirement_summary ?? '').trim() !== '';
 
     const [submitErrors, setSubmitErrors] = useState([]);
     const [hasRequiredError, setHasRequiredError] = useState(false);
@@ -469,6 +482,11 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return data.status === 'pending';
     }, [approvalLocal, data.status]);
 
+    useEffect(() => {
+        if (!data.requirement_summary || data.requirement_summary.trim() === '') {
+            setStructuredRequirements({ functional: [], nonFunctional: [] });
+        }
+    }, [data.requirement_summary]);
     
 
     const prevPartnerIdRef = useRef(estimate?.client_id || null);
@@ -758,6 +776,93 @@ useEffect(() => {
             setNotePromptError(message);
         } finally {
             setIsGeneratingNotes(false);
+        }
+    };
+
+    const handleStructureRequirements = async () => {
+        setStructureError(null);
+        if (!data.requirement_summary || data.requirement_summary.trim() === '') {
+            setStructureError('要件概要を入力してください。');
+            return;
+        }
+        try {
+            setIsStructuringRequirements(true);
+            const response = await axios.post(route('estimates.ai.structure'), {
+                requirement_summary: data.requirement_summary,
+                estimate_id: data.id ?? null,
+            });
+            setStructuredRequirements({
+                functional: response?.data?.functional_requirements ?? [],
+                nonFunctional: response?.data?.non_functional_requirements ?? [],
+            });
+        } catch (error) {
+            const message = error?.response?.data?.message ?? '要件整理に失敗しました。';
+            setStructureError(message);
+        } finally {
+            setIsStructuringRequirements(false);
+        }
+    };
+
+    const mapAiItemsToLineItems = (items = []) =>
+        items.map((item, index) => ({
+            id: Date.now() + index,
+            product_id: item.product_id ?? null,
+            code: item.code ?? null,
+            name: item.name ?? '',
+            description: item.description ?? '',
+            qty: normalizeNumber(item.qty, 0),
+            unit: item.unit ?? '人月',
+            price: normalizeNumber(item.price, 0),
+            cost: normalizeNumber(item.cost, 0),
+            tax_category: item.tax_category ?? 'standard',
+            display_mode: 'calculated',
+            display_qty: 1,
+            display_unit: '式',
+            business_division: item.business_division ?? null,
+        }));
+
+    const applyAiDraft = (mode = 'replace') => {
+        if (!Array.isArray(aiDraftPreview) || aiDraftPreview.length === 0) {
+            return;
+        }
+        const normalized = mapAiItemsToLineItems(aiDraftPreview);
+        setLineItems((prev) => (mode === 'replace' ? normalized : [...prev, ...normalized]));
+        setAiPreviewOpen(false);
+        setAiDraftPreview([]);
+    };
+
+    const handleAdoptAiNotes = () => {
+        if (aiNotesSuggestion) {
+            setData('notes', aiNotesSuggestion);
+        }
+    };
+
+    const handleGenerateAiDraft = async () => {
+        setAiDraftError(null);
+        if (!data.requirement_summary || data.requirement_summary.trim() === '') {
+            setAiDraftError('要件概要を入力してください。');
+            return;
+        }
+
+        try {
+            setIsGeneratingAiDraft(true);
+            const response = await axios.post(route('estimates.ai.generateDraft'), {
+                requirement_summary: data.requirement_summary,
+                functional_requirements: structuredRequirements.functional,
+                non_functional_requirements: structuredRequirements.nonFunctional,
+                pm_required: pmSupportRequired,
+                estimate_id: data.id ?? null,
+            });
+
+            const generatedItems = response?.data?.items ?? [];
+            setAiDraftPreview(generatedItems);
+            setAiNotesSuggestion(response?.data?.notes ?? '');
+            setAiPreviewOpen(true);
+        } catch (error) {
+            const message = error?.response?.data?.message ?? 'ドラフト生成に失敗しました。';
+            setAiDraftError(message);
+        } finally {
+            setIsGeneratingAiDraft(false);
         }
     };
 
@@ -1135,6 +1240,84 @@ useEffect(() => {
                                         <Label htmlFor="delivery-location">納入場所</Label>
                                         <Input id="delivery-location" value={data.delivery_location} onChange={(e) => setData('delivery_location', e.target.value)} placeholder="お客様指定の場所" />
                                     </div>
+                                </div>
+                                <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-start">
+                                        <div className="flex-1 space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <Label htmlFor="requirement-summary" className="text-sm font-medium">要件概要（AIプロンプト）</Label>
+                                                <span className="text-xs text-muted-foreground">システム開発のみ対象</span>
+                                            </div>
+                                            <Textarea
+                                                id="requirement-summary"
+                                                value={data.requirement_summary || ''}
+                                                maxLength={4000}
+                                                rows={4}
+                                                onChange={(e) => setData('requirement_summary', e.target.value)}
+                                                placeholder="例: Salesforce連携と新承認フローの実装。ユーザー50名、モバイル対応必須。非機能として可用性99.9%と監査ログが必要。"
+                                            />
+                                        </div>
+                                        <div className="flex w-full flex-col gap-2 md:w-48">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={handleStructureRequirements}
+                                                disabled={!hasRequirementSummary || isStructuringRequirements}
+                                            >
+                                                {isStructuringRequirements ? '整理中...' : '要件定義を整理'}
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                variant="secondary"
+                                                onClick={handleGenerateAiDraft}
+                                                disabled={!hasRequirementSummary || isGeneratingAiDraft}
+                                            >
+                                                {isGeneratingAiDraft ? '生成中...' : 'AIでドラフト生成'}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    {structureError && (
+                                        <p className="text-sm text-red-600">{structureError}</p>
+                                    )}
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                        <div>
+                                            <p className="text-xs font-semibold text-slate-500">機能要件</p>
+                                            {structuredRequirements.functional.length > 0 ? (
+                                                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                    {structuredRequirements.functional.map((line, idx) => (
+                                                        <li key={`fr-${idx}`}>{line}</li>
+                                                    ))}
+                                                </ul>
+                                            ) : (
+                                                <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-semibold text-slate-500">非機能要件</p>
+                                            {structuredRequirements.nonFunctional.length > 0 ? (
+                                                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                    {structuredRequirements.nonFunctional.map((line, idx) => (
+                                                        <li key={`nfr-${idx}`}>{line}</li>
+                                                    ))}
+                                                </ul>
+                                            ) : (
+                                                <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                                        <Checkbox
+                                            id="pm-support-required"
+                                            checked={pmSupportRequired}
+                                            onCheckedChange={(checked) => setPmSupportRequired(checked === true)}
+                                        />
+                                        <Label htmlFor="pm-support-required" className="text-sm">
+                                            PM支援が必要（プロジェクト管理品目を必須挿入）
+                                        </Label>
+                                    </div>
+                                    {aiDraftError && (
+                                        <p className="text-sm text-red-600">{aiDraftError}</p>
+                                    )}
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="external-remarks">備考（対外）</Label>
@@ -1641,6 +1824,77 @@ useEffect(() => {
                             </CardFooter>
                         </Card>
                     </div>
+                    <Dialog open={aiPreviewOpen} onOpenChange={setAiPreviewOpen}>
+                        <DialogContent className="max-w-3xl">
+                            <DialogHeader>
+                                <DialogTitle>AIドラフトを確認</DialogTitle>
+                                <DialogDescription>提案された明細を確認して追加・置換を選択してください。</DialogDescription>
+                            </DialogHeader>
+                            <div className="max-h-80 overflow-y-auto rounded border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>品目</TableHead>
+                                            <TableHead>説明</TableHead>
+                                            <TableHead className="text-right">数量(人月)</TableHead>
+                                            <TableHead className="text-right">単価</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {aiDraftPreview.length === 0 && (
+                                            <TableRow>
+                                                <TableCell colSpan={4} className="text-center text-sm text-muted-foreground">
+                                                    AIの明細候補がありません。
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                        {aiDraftPreview.map((item, idx) => (
+                                            <TableRow key={`ai-${idx}`}>
+                                                <TableCell className="font-medium">{item.name}</TableCell>
+                                                <TableCell className="text-sm">{item.description}</TableCell>
+                                                <TableCell className="text-right">
+                                                    {Number.isFinite(Number(item.qty)) ? Number(item.qty).toFixed(2) : '-'}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {Number.isFinite(Number(item.price))
+                                                        ? `¥${Number(item.price || 0).toLocaleString()}`
+                                                        : '-'}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                            {aiNotesSuggestion && (
+                                <div className="space-y-2 rounded border bg-slate-100 p-3 text-sm">
+                                    <div className="flex items-center justify-between">
+                                        <p className="font-semibold">AI備考案</p>
+                                        <Button type="button" variant="outline" size="sm" onClick={handleAdoptAiNotes}>
+                                            備考に反映
+                                        </Button>
+                                    </div>
+                                    <p className="whitespace-pre-wrap text-slate-700">{aiNotesSuggestion}</p>
+                                </div>
+                            )}
+                            <DialogFooter className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    onClick={() => applyAiDraft('append')}
+                                    disabled={aiDraftPreview.length === 0}
+                                >
+                                    末尾に追加
+                                </Button>
+                                <Button
+                                    type="button"
+                                    onClick={() => applyAiDraft('replace')}
+                                    disabled={aiDraftPreview.length === 0}
+                                >
+                                    すべて置き換え
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                     <Dialog open={openApproval} onOpenChange={setOpenApproval}>
                         <DialogContent>
                             <DialogHeader>

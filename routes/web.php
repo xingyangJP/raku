@@ -69,6 +69,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/quotes/mf/callback', [App\Http\Controllers\EstimateController::class, 'handleQuoteSyncCallback'])->name('quotes.auth.callback.legacy');
 
     Route::post('/estimates/preview-pdf', [App\Http\Controllers\EstimateController::class, 'previewPdf'])->name('estimates.previewPdf');
+    Route::post('/estimates/ai/structure', [App\Http\Controllers\EstimateController::class, 'structureRequirementSummary'])->name('estimates.ai.structure');
+    Route::post('/estimates/ai/generate-draft', [App\Http\Controllers\EstimateController::class, 'generateAiDraft'])->name('estimates.ai.generateDraft');
     Route::post('/estimates', [App\Http\Controllers\EstimateController::class, 'store'])->name('estimates.store');
     Route::post('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'update'])->whereNumber('estimate')->name('estimates.update');
     Route::patch('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'update'])->whereNumber('estimate');

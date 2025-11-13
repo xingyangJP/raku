@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Estimate;
+use App\Models\EstimateAiLog;
 use App\Models\Partner;
+use App\Models\Product;
 use App\Models\User;
 use App\Services\MoneyForwardApiService;
 use App\Services\MoneyForwardQuoteSynchronizer;
@@ -273,6 +275,7 @@ class EstimateController extends Controller
         return Inertia::render('Quotes/Index', [
             'estimates' => $estimates,
             'products' => $products,
+            'products' => $products,
             'syncStatus' => $syncStatus,
             'moneyForwardConfig' => $moneyForwardConfig,
             'error' => session('error'),
@@ -396,6 +399,7 @@ class EstimateController extends Controller
                 'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
                 'staff_id' => 'nullable|integer',
                 'staff_name' => 'required|string|max:255',
+                'requirement_summary' => 'nullable|string|max:4000',
             ];
 
             if (!Schema::hasColumn('estimates', 'client_contact_name')) {
@@ -430,6 +434,7 @@ class EstimateController extends Controller
                 'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
                 'staff_id' => 'nullable|integer',
                 'staff_name' => 'required|string|max:255',
+                'requirement_summary' => 'nullable|string|max:4000',
             ]);
 
             if (empty($validated['estimate_number'])) {
@@ -480,6 +485,7 @@ class EstimateController extends Controller
             'approval_flow' => 'nullable|array',
             'status' => 'nullable|string|in:draft,pending,sent,rejected',
             'is_order_confirmed' => 'sometimes|boolean',
+            'requirement_summary' => 'nullable|string|max:4000',
         ];
 
         if (!Schema::hasColumn('estimates', 'client_contact_name')) {
@@ -603,6 +609,7 @@ class EstimateController extends Controller
             'approval_flow' => 'nullable|array',
             'status' => 'nullable|string|in:draft,pending,sent,rejected',
             'is_order_confirmed' => 'sometimes|boolean',
+            'requirement_summary' => 'nullable|string|max:4000',
         ]);
 
         if (!empty($validated['issue_date'])) {
@@ -864,6 +871,90 @@ class EstimateController extends Controller
         ]);
     }
 
+    private function resolveOpenAiConfig(): array
+    {
+        $apiKey = (string) config('services.openai.key', '');
+        if ($apiKey === '') {
+            throw new \RuntimeException('OpenAI APIキーが未設定のためAI機能を利用できません。');
+        }
+
+        return [
+            'api_key' => $apiKey,
+            'base_url' => rtrim((string) config('services.openai.base_url', 'https://api.openai.com'), '/'),
+            'model' => (string) config('services.openai.model', 'gpt-4o-mini'),
+        ];
+    }
+
+    private function decodeAiJson(?string $content): ?array
+    {
+        if ($content === null) {
+            return null;
+        }
+        $trimmed = trim($content);
+        if ($trimmed === '') {
+            return null;
+        }
+        if (str_starts_with($trimmed, '```')) {
+            $trimmed = preg_replace('/^```(?:json)?/i', '', $trimmed, 1);
+            $trimmed = preg_replace('/```$/', '', $trimmed, 1);
+        }
+        $trimmed = trim($trimmed);
+
+        $decoded = json_decode($trimmed, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return $decoded;
+        }
+
+        if (preg_match('/\{.*\}/s', $trimmed, $matches)) {
+            $decoded = json_decode($matches[0], true);
+            if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                return $decoded;
+            }
+        }
+
+        return null;
+    }
+
+    private function convertPersonDaysToMonths(float $days): float
+    {
+        if ($days <= 0) {
+            return 0.0;
+        }
+        $months = $days / 20.0;
+        return round($months, 2);
+    }
+
+    private function toFloat($value): ?float
+    {
+        if (is_int($value) || is_float($value)) {
+            return (float) $value;
+        }
+        if (is_string($value)) {
+            $normalized = str_replace([',', '人', '日', 'h', 'H'], '', $value);
+            return is_numeric($normalized) ? (float) $normalized : null;
+        }
+        return null;
+    }
+
+    private function logAiEvent(?int $estimateId, string $action, array $structured, array $messages, ?string $aiResponse): void
+    {
+        if (!Schema::hasTable('estimate_ai_logs')) {
+            return;
+        }
+        try {
+            EstimateAiLog::create([
+                'estimate_id' => $estimateId,
+                'action' => $action,
+                'input_summary' => $structured['summary'] ?? null,
+                'structured_requirements' => $structured,
+                'prompt_payload' => json_encode($messages, JSON_UNESCAPED_UNICODE),
+                'ai_response' => $aiResponse,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('AIログの保存に失敗', ['error' => $e->getMessage()]);
+        }
+    }
+
     public function duplicate(Estimate $estimate)
     {
         $newEstimate = $estimate->replicate([
@@ -913,6 +1004,282 @@ class EstimateController extends Controller
             'company' => $company,
             'client' => $this->buildClientProfile($estimate),
             'purchaseOrderNumber' => $this->generatePurchaseOrderNumberForPreview($estimate),
+        ]);
+    }
+
+    public function structureRequirementSummary(Request $request)
+    {
+        $validated = $request->validate([
+            'requirement_summary' => 'required|string|max:4000',
+            'estimate_id' => 'nullable|integer|exists:estimates,id',
+        ]);
+
+        try {
+            $config = $this->resolveOpenAiConfig();
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => 'You are a bilingual business analyst. Rewrite Japanese requirement notes into concise bullet lists. '
+                    . 'Always output JSON with the keys "functional_requirements" and "non_functional_requirements". '
+                    . 'Each value must be an array of 1〜6 short Japanese sentences (max 120 characters each). '
+                    . 'Non-functional requirements must include performance, security, and operations if they are implied.',
+            ],
+            [
+                'role' => 'user',
+                'content' => $validated['requirement_summary'],
+            ],
+        ];
+
+        try {
+            $response = $this->http()
+                ->withHeaders([
+                    'Authorization' => 'Bearer ' . $config['api_key'],
+                    'Content-Type' => 'application/json',
+                ])
+                ->timeout(20)
+                ->post($config['base_url'] . '/v1/chat/completions', [
+                    'model' => $config['model'],
+                    'messages' => $messages,
+                    'temperature' => 0.2,
+                    'max_tokens' => 400,
+                ]);
+        } catch (\Throwable $e) {
+            Log::error('要件整理AI呼び出しに失敗', ['exception' => $e->getMessage()]);
+            return response()->json([
+                'message' => '要件整理に失敗しました。時間をおいて再度お試しください。',
+            ], 500);
+        }
+
+        if (!$response->successful()) {
+            Log::warning('要件整理AI応答エラー', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return response()->json([
+                'message' => '要件整理に失敗しました。',
+            ], 500);
+        }
+
+        $payload = $this->decodeAiJson(data_get($response->json(), 'choices.0.message.content', ''));
+        if (!is_array($payload)) {
+            return response()->json([
+                'message' => 'AI応答の解析に失敗しました。',
+            ], 500);
+        }
+
+        $functional = collect($payload['functional_requirements'] ?? [])
+            ->filter(static fn($line) => is_string($line) && $line !== '')
+            ->map('trim')
+            ->values()
+            ->all();
+        $nonFunctional = collect($payload['non_functional_requirements'] ?? [])
+            ->filter(static fn($line) => is_string($line) && $line !== '')
+            ->map('trim')
+            ->values()
+            ->all();
+
+        $this->logAiEvent(
+            $validated['estimate_id'] ?? null,
+            'structure_requirements',
+            [
+                'summary' => $validated['requirement_summary'],
+                'functional' => $functional,
+                'non_functional' => $nonFunctional,
+            ],
+            $messages,
+            data_get($response->json(), 'choices.0.message.content', '')
+        );
+
+        return response()->json([
+            'functional_requirements' => $functional,
+            'non_functional_requirements' => $nonFunctional,
+        ]);
+    }
+
+    public function generateAiDraft(Request $request)
+    {
+        $validated = $request->validate([
+            'requirement_summary' => 'required|string|max:4000',
+            'functional_requirements' => 'nullable|array',
+            'functional_requirements.*' => 'string|max:500',
+            'non_functional_requirements' => 'nullable|array',
+            'non_functional_requirements.*' => 'string|max:500',
+            'pm_required' => 'required|boolean',
+            'estimate_id' => 'nullable|integer|exists:estimates,id',
+        ]);
+
+        $productQuery = Product::query()
+            ->select(['id', 'name', 'sku', 'price', 'cost', 'unit', 'business_division', 'description'])
+            ->where('is_active', true);
+        if (Schema::hasColumn('products', 'business_division')) {
+            $productQuery->where(function ($query) {
+                $query->where('business_division', 'fifth_business')
+                    ->orWhere('business_division', '第5種事業')
+                    ->orWhere('business_division', 5)
+                    ->orWhere('business_division', '5');
+            });
+        }
+        $products = $productQuery->orderBy('name')->get();
+
+        if ($products->isEmpty()) {
+            return response()->json([
+                'message' => '事業区分5（システム開発）の商品マスタが見つかりません。',
+            ], 422);
+        }
+
+        $productsById = $products->keyBy('id');
+        $catalogLines = $products->map(function ($product) {
+            $price = number_format((float) $product->price);
+            $summary = trim($product->description ?? '');
+            return sprintf('[%d] %s (SKU:%s, 単価:%s円) %s', $product->id, $product->name, $product->sku ?? '-', $price, $summary);
+        })->take(40)->implode("\n");
+
+        $pmInstruction = $validated['pm_required']
+            ? '必ずPM/プロジェクト管理系の品目を1件含めること。'
+            : 'PM系の品目は含めない。';
+
+        $functionalText = collect($validated['functional_requirements'] ?? [])
+            ->map(fn($line) => '- ' . $line)
+            ->implode("\n");
+        $nonFunctionalText = collect($validated['non_functional_requirements'] ?? [])
+            ->map(fn($line) => '- ' . $line)
+            ->implode("\n");
+
+        $requirementsBlock = "要件概要:\n{$validated['requirement_summary']}\n\n"
+            . ($functionalText ? "機能要件:\n{$functionalText}\n\n" : '')
+            . ($nonFunctionalText ? "非機能要件:\n{$nonFunctionalText}\n\n" : '')
+            . "数量は常に人月単位（1人月=20営業日=160時間）。10日の工数=0.5人月として扱う。1人日は8時間相当。";
+
+        try {
+            $config = $this->resolveOpenAiConfig();
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => 'You are a Japanese sales engineer who proposes system development estimates. '
+                    . 'Only use the provided product catalog. '
+                    . 'Respond in JSON: { "items": [...], "notes": "..." }. '
+                    . 'Each item must have product_id(from catalog), summary(short JP sentence), person_days(number of person-days) '
+                    . 'and optional remarks. Items should cover設計/開発/テスト/PM at 3〜6 entries. '
+                    . 'Create separate items for each distinct feature or screen even if the same product is reused, and include the feature name inside the summary (e.g., 「開発｜ダッシュボード」). '
+                    . 'For UI/UX related tasks, split admin-side and end-user screens into different items when the requirements imply multiple audiences. '
+                    . 'Include only one testing line named 「総合テスト」 and do not output other test types. '
+                    . 'The notes field must be written in polite Japanese with multiple sections using full-width bracket headings '
+                    . 'such as 【検収基準】, 【納期】, 【前提条件】, 【変更管理】, 【保守保証】. '
+                    . 'Each section should contain 1〜2 sentences, separated by blank lines, and should omit bullet symbols.',
+            ],
+            [
+                'role' => 'user',
+                'content' => implode("\n\n", [
+                    "利用可能な商品一覧:\n{$catalogLines}",
+                    $pmInstruction,
+                    $requirementsBlock,
+                    'JSON形式の例: {"items":[{"product_id":12,"summary":"UI設計｜管理画面","person_days":10},{"product_id":12,"summary":"UI設計｜エンドユーザ画面","person_days":8},{"product_id":13,"summary":"開発｜ダッシュボード","person_days":25},{"product_id":14,"summary":"総合テスト","person_days":5}],"notes":"任意の注意書き"}。単価や原価は返さない。',
+                ]),
+            ],
+        ];
+
+        try {
+            $response = $this->http()
+                ->withHeaders([
+                    'Authorization' => 'Bearer ' . $config['api_key'],
+                    'Content-Type' => 'application/json',
+                ])
+                ->timeout(30)
+                ->post($config['base_url'] . '/v1/chat/completions', [
+                    'model' => $config['model'],
+                    'messages' => $messages,
+                    'temperature' => 0.4,
+                    'max_tokens' => 900,
+                ]);
+        } catch (\Throwable $e) {
+            Log::error('AIドラフト生成呼び出し失敗', ['exception' => $e->getMessage()]);
+            return response()->json([
+                'message' => 'ドラフト生成に失敗しました。時間を置いて再度お試しください。',
+            ], 500);
+        }
+
+        if (!$response->successful()) {
+            Log::warning('AIドラフト生成応答エラー', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return response()->json([
+                'message' => 'ドラフト生成に失敗しました。',
+            ], 500);
+        }
+
+        $rawContent = data_get($response->json(), 'choices.0.message.content', '');
+        $payload = $this->decodeAiJson($rawContent);
+        if (!is_array($payload) || empty($payload['items'])) {
+            return response()->json([
+                'message' => 'AI応答の解析に失敗しました。',
+            ], 500);
+        }
+
+        $aiItems = [];
+        foreach ($payload['items'] as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $productId = isset($item['product_id']) ? (int) $item['product_id'] : null;
+            $product = $productId ? ($productsById[$productId] ?? null) : null;
+            if (!$product) {
+                continue;
+            }
+
+            $personDays = $this->toFloat($item['person_days'] ?? null);
+            if ($personDays === null || $personDays <= 0) {
+                continue;
+            }
+            $personMonths = $this->convertPersonDaysToMonths($personDays);
+            if ($personMonths <= 0) {
+                continue;
+            }
+
+            $aiItems[] = [
+                'product_id' => $product->id,
+                'code' => $product->sku,
+                'name' => $product->name,
+                'description' => trim((string) ($item['summary'] ?? $product->description ?? '')),
+                'qty' => $personMonths,
+                'unit' => '人月',
+                'price' => (float) $product->price,
+                'cost' => (float) $product->cost,
+                'tax_category' => 'standard',
+                'business_division' => $product->business_division,
+            ];
+        }
+
+        if (empty($aiItems)) {
+            return response()->json([
+                'message' => '有効な品目を生成できませんでした。要件の補足を行ってください。',
+            ], 422);
+        }
+
+        $notes = trim((string) ($payload['notes'] ?? '')) ?: null;
+
+        $this->logAiEvent(
+            $validated['estimate_id'] ?? null,
+            'generate_draft',
+            [
+                'summary' => $validated['requirement_summary'],
+                'functional' => $validated['functional_requirements'] ?? [],
+                'non_functional' => $validated['non_functional_requirements'] ?? [],
+                'pm_required' => (bool) $validated['pm_required'],
+            ],
+            $messages,
+            $rawContent
+        );
+
+        return response()->json([
+            'items' => $aiItems,
+            'notes' => $notes,
         ]);
     }
 

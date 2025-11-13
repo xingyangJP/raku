@@ -30,6 +30,7 @@ class Estimate extends Model
         'approval_flow',
         'approval_started',
         'internal_memo',
+        'requirement_summary',
         'delivery_location',
         'mf_quote_id',
         'mf_quote_pdf_url',
