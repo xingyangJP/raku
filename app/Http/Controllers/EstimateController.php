@@ -247,6 +247,8 @@ class EstimateController extends Controller
             }
         });
 
+        $products = $this->loadProducts();
+
         $moneyForwardConfig = [
             'client_id' => config('services.money_forward.client_id'),
             'redirect_uri' => config('services.money_forward.quote_redirect_uri'),
@@ -270,6 +272,7 @@ class EstimateController extends Controller
 
         return Inertia::render('Quotes/Index', [
             'estimates' => $estimates,
+            'products' => $products,
             'syncStatus' => $syncStatus,
             'moneyForwardConfig' => $moneyForwardConfig,
             'error' => session('error'),

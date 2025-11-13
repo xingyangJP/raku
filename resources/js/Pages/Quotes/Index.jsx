@@ -114,7 +114,12 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
     const productLookups = useMemo(() => {
         const skuMap = new Map();
         const nameMap = new Map();
+        const idMap = new Map();
         products.forEach((product) => {
+            const id = product?.id;
+            if (id !== undefined && id !== null) {
+                idMap.set(Number(id), product);
+            }
             const sku = (product?.sku ?? '').trim().toLowerCase();
             if (sku) {
                 skuMap.set(sku, product);
@@ -124,7 +129,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                 nameMap.set(name, product);
             }
         });
-        return { skuMap, nameMap };
+        return { skuMap, nameMap, idMap };
     }, [products]);
     const FIRST_BUSINESS_KEY = 'first_business';
     const normalizedCustomerPortalBase = useMemo(() => {
@@ -339,7 +344,14 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         if (!item) {
             return null;
         }
-        const sku = String(item.code ?? item.product_code ?? '')
+        const productId = item?.product_id ?? item?.productId ?? item?.product?.id;
+        if (productId !== undefined && productId !== null) {
+            const product = productLookups.idMap.get(Number(productId));
+            if (product) {
+                return product;
+            }
+        }
+        const sku = String(item.code ?? item.product_code ?? item.sku ?? '')
             .trim()
             .toLowerCase();
         if (sku && productLookups.skuMap.has(sku)) {
@@ -366,6 +378,11 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
             const unitCost = toNumber(item?.cost ?? product?.cost, 0);
             return sum + getQuantity(item) * unitCost;
         }, 0);
+    };
+
+    const shouldExcludeEffortItem = (item) => {
+        const product = resolveProductForItem(item);
+        return product?.business_division === FIRST_BUSINESS_KEY;
     };
 
     // approval history is rendered from estimate.approval_flow in the detail view
@@ -423,7 +440,12 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
     };
     const sumEstimateEffort = (estimate) => {
         const items = Array.isArray(estimate?.items) ? estimate.items : [];
-        return items.reduce((sum, item) => sum + getQuantity(item), 0);
+        return items.reduce((sum, item) => {
+            if (shouldExcludeEffortItem(item)) {
+                return sum;
+            }
+            return sum + getQuantity(item);
+        }, 0);
     };
 
     const totalAmount = filteredEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);

@@ -335,6 +335,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         display_mode: item.display_mode ?? 'calculated',
         display_qty: normalizeNumber(item.display_qty, 1) || 1,
         display_unit: item.display_unit ?? '式',
+        business_division: item.business_division ?? null,
     }));
 
     const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
@@ -562,6 +563,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
 useEffect(() => {
     const payloadItems = lineItems.map(item => ({
         product_id: item.product_id,
+        code: item.code,
         name: item.name,
         description: item.description,
         qty: normalizeNumber(item.qty, 0),
@@ -569,6 +571,7 @@ useEffect(() => {
         price: normalizeNumber(item.price, 0),
         cost: normalizeNumber(item.cost, 0),
         tax_category: item.tax_category,
+        business_division: item.business_division ?? null,
         display_mode: item.display_mode,
         display_qty: item.display_mode === 'lump'
             ? (normalizeNumber(item.display_qty, 1) || 1)
@@ -683,8 +686,20 @@ useEffect(() => {
 
     const numericFields = new Set(['qty', 'price', 'cost', 'display_qty']);
 
+    const cleanseNumericInput = (raw) => {
+        if (typeof raw !== 'string') {
+            return raw;
+        }
+        return raw.replace(/,/g, '').trim();
+    };
+
     const handleItemChange = (id, field, value) => {
-        let normalizedValue = numericFields.has(field) ? normalizeNumber(value, 0) : value;
+        let incomingValue = value;
+        if (numericFields.has(field) && typeof value === 'string') {
+            incomingValue = cleanseNumericInput(value);
+        }
+
+        let normalizedValue = numericFields.has(field) ? normalizeNumber(incomingValue, 0) : incomingValue;
 
         if (field === 'display_qty' && (normalizedValue === null || normalizedValue <= 0)) {
             normalizedValue = 1;
@@ -709,7 +724,8 @@ useEffect(() => {
                     cost: selectedProduct.cost,
                     product_id: selectedProduct.id,
                     description: selectedProduct.description,
-                    unit: selectedProduct.unit
+                    unit: selectedProduct.unit,
+                    business_division: selectedProduct.business_division ?? null,
                 } : item
             ));
         }
@@ -1223,7 +1239,8 @@ useEffect(() => {
                                                         inputMode="decimal"
                                                         value={item.qty}
                                                         onChange={(e) => handleItemChange(item.id, 'qty', e.target.value)}
-                                                        className="w-20 text-right"
+                                                        className="w-20 text-right appearance-none"
+                                                        onWheel={(e) => e.currentTarget.blur()}
                                                         onKeyDown={preventArrowKeyChange}
                                                     />
                                                 </TableCell>
@@ -1280,9 +1297,14 @@ useEffect(() => {
                                                 <TableCell className="text-right">
                                                     <Input
                                                         type="number"
+                                                        step="1"
+                                                        min="0"
+                                                        inputMode="decimal"
                                                         value={item.price}
-                                                        onChange={(e) => handleItemChange(item.id, 'price', parseInt(e.target.value) || 0)}
-                                                        className="w-24 text-right"
+                                                        onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
+                                                        className="w-24 text-right appearance-none"
+                                                        onWheel={(e) => e.currentTarget.blur()}
+                                                        onKeyDown={preventArrowKeyChange}
                                                     />
                                                 </TableCell>
                                                 <TableCell className="text-right font-medium">
@@ -1305,13 +1327,18 @@ useEffect(() => {
                                                 </TableCell>
                                                 {isInternalView && (
                                                     <TableCell className="text-right text-gray-500">
-                                                        <Input
-                                                            type="number"
-                                                            value={item.cost}
-                                                            onChange={(e) => handleItemChange(item.id, 'cost', parseInt(e.target.value) || 0)}
-                                                            className="w-24 text-right"
-                                                        />
-                                                    </TableCell>
+                                                    <Input
+                                                        type="number"
+                                                        step="1"
+                                                        min="0"
+                                                        inputMode="decimal"
+                                                        value={item.cost}
+                                                        onChange={(e) => handleItemChange(item.id, 'cost', e.target.value)}
+                                                        className="w-24 text-right appearance-none"
+                                                        onWheel={(e) => e.currentTarget.blur()}
+                                                        onKeyDown={preventArrowKeyChange}
+                                                    />
+                                                </TableCell>
                                                 )}
                                                 {isInternalView && <TableCell className="text-right text-gray-500">{calculateCostAmount(item).toLocaleString()}</TableCell>}
                                                 {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossProfit(item).toLocaleString()}</TableCell>}
