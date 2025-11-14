@@ -23,10 +23,7 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
     const { auth } = usePage().props; // Get auth user from usePage
     const [isRejecting, setIsRejecting] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
-
-    if (!estimate) {
-        return null;
-    }
+    const estimateItems = Array.isArray(estimate?.items) ? estimate.items : [];
 
     useEffect(() => {
         if (!isOpen) {
@@ -99,17 +96,17 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
 
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
-    const subtotal = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateAmount(item), 0) : 0;
-    const totalCost = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateCostAmount(item), 0) : 0;
+    const subtotal = estimateItems.reduce((acc, item) => acc + calculateAmount(item), 0);
+    const totalCost = estimateItems.reduce((acc, item) => acc + calculateCostAmount(item), 0);
     const totalGrossProfit = subtotal - totalCost;
 
     const aggregates = useMemo(() => {
         const summary = {};
-        if (!Array.isArray(estimate.items)) {
-            return { gross: {}, cost: {}, list: [] };
+        if (!estimateItems.length) {
+            return { grossData: [], costData: [], list: [] };
         }
 
-        estimate.items.forEach((item) => {
+        estimateItems.forEach((item) => {
             const name = item.name || '項目';
             if (!summary[name]) {
                 summary[name] = { grossProfit: 0, cost: 0, amount: 0 };
@@ -130,7 +127,7 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
         const costData = list.map(({ name, cost }) => ({ name, value: cost }));
 
         return { grossData, costData, list };
-    }, [estimate.items]);
+    }, [estimateItems]);
 
     const grossProfitChartData = aggregates.grossData;
     const costChartData = aggregates.costData;
@@ -171,6 +168,10 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
             }
         });
     };
+
+    if (!estimate) {
+        return null;
+    }
 
     return (
         <Sheet open={isOpen} onOpenChange={onClose}>
