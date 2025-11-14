@@ -925,13 +925,16 @@ class EstimateController extends Controller
         return null;
     }
 
-    private function convertPersonDaysToMonths(float $days): float
+    private function normalizePersonDays(float $days): ?float
     {
         if ($days <= 0) {
-            return 0.0;
+            return null;
         }
-        $months = $days / 20.0;
-        return round($months, 2);
+        $rounded = round($days * 2.0) / 2.0;
+        if ($rounded < 0.5) {
+            $rounded = 0.5;
+        }
+        return $rounded;
     }
 
     private function toFloat($value): ?float
@@ -1235,7 +1238,7 @@ class EstimateController extends Controller
         $requirementsBlock = "要件概要:\n{$validated['requirement_summary']}\n\n"
             . ($functionalText ? "機能要件:\n{$functionalText}\n\n" : '')
             . ($nonFunctionalText ? "非機能要件:\n{$nonFunctionalText}\n\n" : '')
-            . "数量は常に人月単位（1人月=20営業日=160時間）。10日の工数=0.5人月として扱う。1人日は8時間相当。";
+            . "数量は常に人日単位（1人日=8時間）。0.5人日刻みで表現し、0.5人日未満は0.5人日に切り上げること。";
 
         try {
             $config = $this->resolveOpenAiConfig();
@@ -1321,8 +1324,8 @@ class EstimateController extends Controller
             if ($personDays === null || $personDays <= 0) {
                 continue;
             }
-            $personMonths = $this->convertPersonDaysToMonths($personDays);
-            if ($personMonths <= 0) {
+            $normalizedPersonDays = $this->normalizePersonDays($personDays);
+            if ($normalizedPersonDays === null) {
                 continue;
             }
 
@@ -1337,8 +1340,8 @@ class EstimateController extends Controller
                 'code' => $product->sku,
                 'name' => $product->name,
                 'description' => $description,
-                'qty' => $personMonths,
-                'unit' => '人月',
+                'qty' => $normalizedPersonDays,
+                'unit' => '人日',
                 'price' => (float) $product->price,
                 'cost' => (float) $product->cost,
                 'tax_category' => 'standard',

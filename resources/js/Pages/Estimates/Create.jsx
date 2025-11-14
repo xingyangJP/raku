@@ -829,22 +829,26 @@ useEffect(() => {
     };
 
     const mapAiItemsToLineItems = (items = []) =>
-        items.map((item, index) => ({
-            id: Date.now() + index,
-            product_id: item.product_id ?? null,
-            code: item.code ?? null,
-            name: item.name ?? '',
-            description: item.description ?? '',
-            qty: normalizeNumber(item.qty, 0),
-            unit: item.unit ?? '人月',
-            price: normalizeNumber(item.price, 0),
-            cost: normalizeNumber(item.cost, 0),
-            tax_category: item.tax_category ?? 'standard',
-            display_mode: 'calculated',
-            display_qty: 1,
-            display_unit: '式',
-            business_division: item.business_division ?? null,
-        }));
+        items.map((item, index) => {
+            const qty = normalizeNumber(item.qty, 0);
+            const normalizedQty = qty <= 0 ? 0.5 : Math.max(0.5, Math.round(qty * 2) / 2);
+            return {
+                id: Date.now() + index,
+                product_id: item.product_id ?? null,
+                code: item.code ?? null,
+                name: item.name ?? '',
+                description: item.description ?? '',
+                qty: normalizedQty,
+                unit: item.unit ?? '人日',
+                price: normalizeNumber(item.price, 0),
+                cost: normalizeNumber(item.cost, 0),
+                tax_category: item.tax_category ?? 'standard',
+                display_mode: 'calculated',
+                display_qty: 1,
+                display_unit: '式',
+                business_division: item.business_division ?? null,
+            };
+        });
 
     const applyAiDraft = (mode = 'replace') => {
         if (!Array.isArray(aiDraftPreview) || aiDraftPreview.length === 0) {
@@ -1861,7 +1865,7 @@ useEffect(() => {
                                         <TableRow>
                                             <TableHead>品目</TableHead>
                                             <TableHead>説明</TableHead>
-                                            <TableHead className="text-right">数量(人月)</TableHead>
+                                            <TableHead className="text-right">数量(人日)</TableHead>
                                             <TableHead className="text-right">単価</TableHead>
                                         </TableRow>
                                     </TableHeader>
