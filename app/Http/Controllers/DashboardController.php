@@ -79,7 +79,8 @@ class DashboardController extends Controller
 
             $currentStepIndex = -1;
             foreach ($approvalFlow as $idx => $approver) {
-                if (empty($approver['approved_at'])) {
+                $status = $approver['status'] ?? (empty($approver['approved_at']) ? 'pending' : 'approved');
+                if ($status !== 'approved' && $status !== 'rejected') {
                     $currentStepIndex = $idx;
                     break;
                 }
