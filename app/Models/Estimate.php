@@ -10,6 +10,14 @@ class Estimate extends Model
 {
     use HasFactory;
 
+    /**
+     * Normalize stored notes by stripping trailing whitespace on each line.
+     */
+    public function setNotesAttribute($value): void
+    {
+        $this->attributes['notes'] = $this->sanitizeMultilineText($value);
+    }
+
     protected $fillable = [
         'customer_name',
         'client_contact_name',
@@ -104,5 +112,19 @@ class Estimate extends Model
         $sanitized = ltrim($sanitized, '-_');
 
         return $sanitized === '' ? 'X' : $sanitized;
+    }
+
+    private function sanitizeMultilineText($value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $text = str_replace(["\r\n", "\r"], "\n", (string) $value);
+        $lines = explode("\n", $text);
+        $lines = array_map(static fn($line) => rtrim($line, " \t"), $lines);
+        $normalized = implode("\n", $lines);
+
+        return trim($normalized) === '' ? null : $normalized;
     }
 }
