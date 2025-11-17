@@ -21,6 +21,10 @@ class ItemSeeder extends Seeder
             $this->command?->warn('Skipping ItemSeeder: products table not found.');
             return;
         }
+        if (\DB::table('products')->count() > 0) {
+            $this->command?->info('ItemSeeder: 既存の商品データがあるため投入をスキップしました。');
+            return;
+        }
 
         // 明示仕様に基づく投入データ
     $plan = [

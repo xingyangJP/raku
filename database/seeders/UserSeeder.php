@@ -16,6 +16,12 @@ class UserSeeder extends Seeder
      */
     public function run(): void
     {
+        // 既存ユーザがいる場合は一切変更しない
+        if (User::count() > 0) {
+            $this->command?->info('UserSeeder: 既存ユーザがあるため何も変更しません。');
+            return;
+        }
+
         $created = 0; $updated = 0; $reset = 0; $bound = 0;
 
         // 可能であれば外部APIからユーザー一覧を取得し、emailで突合→なければ作成

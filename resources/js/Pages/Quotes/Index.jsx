@@ -672,7 +672,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                     <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-violet-50 to-violet-100 shadow">
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium text-violet-700">
-                                受注工数
+                                受注人日
                             </CardTitle>
                             <div className="rounded-full bg-violet-500 p-2">
                                 <BarChart2 className="h-4 w-4 text-white" />
@@ -680,7 +680,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-violet-900">
-                                {confirmedEffort.toFixed(1)} 工数
+                                {confirmedEffort.toFixed(1)} 人日
                             </div>
                             <p className="text-xs text-violet-600">
                                 注文確定品目の数量合計
