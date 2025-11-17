@@ -90,12 +90,17 @@ class DashboardController extends Controller
                 $currentApprover = $approvalFlow[$currentStepIndex];
 
                 $approverIdInFlow = $currentApprover['id'] ?? null;
-                $matchesLocalId = is_numeric($approverIdInFlow) && (int)$approverIdInFlow === (int)$user->id;
                 $approverIdInFlowStr = is_null($approverIdInFlow) ? '' : (string)$approverIdInFlow;
                 $userExt = (string)($user->external_user_id ?? '');
-                $matchesExternalId = ($approverIdInFlowStr !== '') && ($userExt !== '') && ($approverIdInFlowStr === $userExt);
-                if ($matchesLocalId || $matchesExternalId) {
-                    $isCurrentUserNextApprover = true;
+
+                if ($userExt !== '') {
+                    if ($approverIdInFlowStr !== '' && $approverIdInFlowStr === $userExt) {
+                        $isCurrentUserNextApprover = true;
+                    }
+                } else {
+                    if (is_numeric($approverIdInFlow) && (int)$approverIdInFlow === (int)$user->id) {
+                        $isCurrentUserNextApprover = true;
+                    }
                 }
 
                 if (!$isCurrentUserNextApprover) {

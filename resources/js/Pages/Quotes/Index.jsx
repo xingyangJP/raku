@@ -1265,8 +1265,11 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                     if (currentStepIndex === -1) return false;
                                                                     const cid = steps[currentStepIndex].id;
                                                                     const cidStr = cid == null ? '' : String(cid);
-                                                                    if (meId != null && cid === meId) return true;
-                                                                    if (meExt && cidStr && cidStr === String(meExt)) return true;
+                                                                    if (meExt) {
+                                                                        if (cidStr && cidStr === String(meExt)) return true;
+                                                                    } else if (meId != null && cidStr === String(meId)) {
+                                                                        return true;
+                                                                    }
                                                                     return false;
                                                                 })();
                                                                 const derived = steps.map((s, idx) => {

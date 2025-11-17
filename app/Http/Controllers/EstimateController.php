@@ -810,11 +810,21 @@ class EstimateController extends Controller
 
         $currentStep = $flow[$currentIndex];
         $currId = $currentStep['id'] ?? null;
-        $matchesLocalId = is_numeric($currId) && (int)$currId === (int)$user->id;
         $currIdStr = is_null($currId) ? '' : (string)$currId;
         $userExt = (string)($user->external_user_id ?? '');
-        $matchesExternalId = ($currIdStr !== '') && ($userExt !== '') && ($currIdStr === $userExt);
-        if (!($matchesLocalId || $matchesExternalId)) {
+
+        $isAssigned = false;
+        if ($userExt !== '') {
+            if ($currIdStr !== '' && $currIdStr === $userExt) {
+                $isAssigned = true;
+            }
+        } else {
+            if (is_numeric($currId) && (int)$currId === (int)$user->id) {
+                $isAssigned = true;
+            }
+        }
+
+        if (!$isAssigned) {
             return redirect()->back()->withErrors(['approval' => '現在の承認ステップの担当者ではありません。']);
         }
 

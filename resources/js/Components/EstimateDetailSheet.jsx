@@ -457,13 +457,18 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                             }
 
                             // 自分が現行承認者か（users.id または external_user_id で突合）
+                            // 外部IDがある場合は外部ID優先で突合、なければローカルIDで判定
                             let isCurrentUserNextApprover = false;
                             if (currentStepIndex !== -1) {
                                 const currId = steps[currentStepIndex].id;
+                                const currStr = currId == null ? '' : String(currId);
                                 const meId = auth?.user?.id;
                                 const meExternalId = auth?.user?.external_user_id;
-                                const currStr = currId == null ? '' : String(currId);
-                                if ((meId != null && currId === meId) || (meExternalId && currStr && currStr === String(meExternalId))) {
+                                if (meExternalId) {
+                                    if (currStr && currStr === String(meExternalId)) {
+                                        isCurrentUserNextApprover = true;
+                                    }
+                                } else if (meId != null && currStr === String(meId)) {
                                     isCurrentUserNextApprover = true;
                                 }
                             }
