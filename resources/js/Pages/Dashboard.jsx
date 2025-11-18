@@ -40,23 +40,33 @@ export default function Dashboard({
     const summaryCards = [
         {
             key: 'estimates',
-            title: '当月の見積サマリ',
+            title: '予算（見積合計）',
             icon: <FileText className="h-4 w-4 text-blue-900" />,
             iconWrap: 'bg-blue-500',
             accent: 'from-blue-50 to-blue-100',
             current: dashboardMetrics?.estimates?.current ?? 0,
             previous: dashboardMetrics?.estimates?.previous ?? 0,
-            subtitle: null,
+            spotCurrent: dashboardMetrics?.estimates?.spot_current ?? 0,
+            spotPrevious: dashboardMetrics?.estimates?.spot_previous ?? 0,
+            maintenance: dashboardMetrics?.estimates?.maintenance ?? 0,
+            maintenancePrevious: dashboardMetrics?.estimates?.maintenance_previous ?? 0,
+            subtitle: 'スポット受注＋保守（保守は固定金額）',
+            showBreakdown: true,
         },
         {
             key: 'grossProfit',
-            title: '当月の粗利サマリ',
-            subtitle: '請求書に変換済みの見積ベース',
+            title: '予算（粗利合計）',
+            subtitle: 'スポット粗利＋保守（保守=粗利と同額）',
             icon: <TrendingUp className="h-4 w-4 text-emerald-900" />,
             iconWrap: 'bg-emerald-500',
             accent: 'from-emerald-50 to-emerald-100',
             current: dashboardMetrics?.gross_profit?.current ?? 0,
             previous: dashboardMetrics?.gross_profit?.previous ?? 0,
+            spotCurrent: dashboardMetrics?.gross_profit?.spot_current ?? 0,
+            spotPrevious: dashboardMetrics?.gross_profit?.spot_previous ?? 0,
+            maintenance: dashboardMetrics?.gross_profit?.maintenance ?? 0,
+            maintenancePrevious: dashboardMetrics?.gross_profit?.maintenance_previous ?? 0,
+            showBreakdown: true,
         },
         {
             key: 'sales',
@@ -67,6 +77,11 @@ export default function Dashboard({
             accent: 'from-purple-50 to-purple-100',
             current: dashboardMetrics?.sales?.current ?? 0,
             previous: dashboardMetrics?.sales?.previous ?? 0,
+            spotCurrent: dashboardMetrics?.sales?.spot_current ?? 0,
+            spotPrevious: dashboardMetrics?.sales?.spot_previous ?? 0,
+            maintenance: dashboardMetrics?.sales?.maintenance ?? 0,
+            maintenancePrevious: dashboardMetrics?.sales?.maintenance_previous ?? 0,
+            showBreakdown: true,
         },
     ];
 
@@ -144,12 +159,22 @@ export default function Dashboard({
                                         <div className="text-2xl font-bold text-slate-900">
                                             {formatCurrency(card.current)}
                                         </div>
+                                        {card.showBreakdown && (
+                                            <p className="text-xs text-slate-600 mt-1">
+                                                スポット {formatCurrency(card.spotCurrent)} / 保守 {formatCurrency(card.maintenance)}
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="rounded-lg border border-white/50 bg-white/60 p-3">
                                         <p className="text-xs text-slate-500">{previousPeriodLabel}</p>
                                         <p className="text-sm font-semibold text-slate-800">
                                             {formatCurrency(card.previous)}
                                         </p>
+                                        {card.showBreakdown && (
+                                            <p className="text-[11px] text-slate-600 mt-1">
+                                                スポット {formatCurrency(card.spotPrevious)} / 保守 {formatCurrency(card.maintenancePrevious ?? card.maintenance)}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
                             </CardContent>

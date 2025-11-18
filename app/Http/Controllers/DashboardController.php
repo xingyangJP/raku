@@ -6,11 +6,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use App\Models\Estimate;
 use App\Models\Partner;
+use App\Models\MaintenanceFeeSnapshot;
 use App\Models\LocalInvoice;
 use App\Services\MoneyForwardApiService;
 use App\Services\MoneyForwardQuoteSynchronizer;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
@@ -297,6 +299,10 @@ class DashboardController extends Controller
         $currentSalesTotal = $currentInvoices->sum('total_amount');
         $previousSalesTotal = $previousInvoices->sum('total_amount');
 
+        // 保守（月額固定）を外部APIから取得
+        $maintenanceFeeCurrent = $this->fetchMaintenanceTotalForMonth($currentStart);
+        $maintenanceFeePrevious = $this->fetchMaintenanceTotalForMonth($previousStart);
+
         return [
             'periods' => [
                 'current' => [
@@ -311,18 +317,93 @@ class DashboardController extends Controller
                 ],
             ],
             'estimates' => [
-                'current' => (float) $currentEstimatesTotal,
-                'previous' => (float) $previousEstimatesTotal,
+                'spot_current' => (float) $currentEstimatesTotal,
+                'spot_previous' => (float) $previousEstimatesTotal,
+                'maintenance' => (float) $maintenanceFeeCurrent,
+                'maintenance_previous' => (float) $maintenanceFeePrevious,
+                'current' => (float) ($currentEstimatesTotal + $maintenanceFeeCurrent),
+                'previous' => (float) ($previousEstimatesTotal + $maintenanceFeePrevious),
             ],
             'gross_profit' => [
-                'current' => (float) $currentGrossProfit,
-                'previous' => (float) $previousGrossProfit,
+                'spot_current' => (float) $currentGrossProfit,
+                'spot_previous' => (float) $previousGrossProfit,
+                // 保守は粗利=売上（原価0想定）として同額を加算
+                'maintenance' => (float) $maintenanceFeeCurrent,
+                'maintenance_previous' => (float) $maintenanceFeePrevious,
+                'current' => (float) ($currentGrossProfit + $maintenanceFeeCurrent),
+                'previous' => (float) ($previousGrossProfit + $maintenanceFeePrevious),
             ],
             'sales' => [
-                'current' => (float) $currentSalesTotal,
-                'previous' => (float) $previousSalesTotal,
+                'spot_current' => (float) $currentSalesTotal,
+                'spot_previous' => (float) $previousSalesTotal,
+                'maintenance' => (float) $maintenanceFeeCurrent,
+                'maintenance_previous' => (float) $maintenanceFeePrevious,
+                'current' => (float) ($currentSalesTotal + $maintenanceFeeCurrent),
+                'previous' => (float) ($previousSalesTotal + $maintenanceFeePrevious),
             ],
         ];
+    }
+    private function fetchMaintenanceTotal(): float
+    {
+        return $this->fetchMaintenanceTotalForMonth(Carbon::now());
+    }
+
+    private function fetchMaintenanceTotalForMonth(Carbon $month): float
+    {
+        $monthKey = $month->copy()->startOfMonth()->toDateString();
+
+        // DBスナップショット優先
+        $snapshot = null;
+        if (Schema::hasTable('maintenance_fee_snapshots')) {
+            $snapshot = MaintenanceFeeSnapshot::where('month', $monthKey)->first();
+            if ($snapshot) {
+                return (float) ($snapshot->total_fee ?? 0);
+            }
+        }
+
+        // キャッシュ（短期）を確認
+        $cacheKey = "maintenance_fee_total_{$monthKey}";
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return (float) $cached;
+        }
+
+        $base = rtrim((string) env('EXTERNAL_API_BASE', 'https://api.xerographix.co.jp/api'), '/');
+        $token = (string) env('EXTERNAL_API_TOKEN', '');
+
+        $total = 0.0;
+        try {
+            $response = \Http::withHeaders([
+                'Accept' => 'application/json',
+                'Authorization' => $token ? 'Bearer ' . $token : null,
+            ])->get($base . '/customers');
+
+            if ($response->successful()) {
+                $customers = $response->json();
+                if (is_array($customers)) {
+                    foreach ($customers as $c) {
+                        $fee = (float) ($c['maintenance_fee'] ?? 0);
+                        if ($fee <= 0) continue;
+                        $status = (string) ($c['status'] ?? $c['customer_status'] ?? $c['status_name'] ?? '');
+                        if ($status !== '' && (mb_stripos($status, '休止') !== false || mb_strtolower($status) === 'inactive')) continue;
+                        $total += $fee;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // スナップショット保存
+        if (Schema::hasTable('maintenance_fee_snapshots')) {
+            MaintenanceFeeSnapshot::updateOrCreate(
+                ['month' => $monthKey],
+                ['total_fee' => $total, 'total_gross' => $total, 'source' => 'api']
+            );
+        }
+        Cache::put($cacheKey, $total, 300);
+
+        return $total;
     }
 
     private function sumInvoiceGrossProfit(Collection $invoices): float

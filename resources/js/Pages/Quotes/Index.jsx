@@ -448,17 +448,21 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         }, 0);
     };
 
+    const maintenanceFee = Number(usePage().props.maintenance_fee_total || 0);
     const totalAmount = filteredEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
+    const totalAmountWithMaintenance = totalAmount + maintenanceFee;
     const totalGross = filteredEstimates.reduce((sum, est) => sum + sumEstimateGross(est), 0);
+    const totalGrossWithMaintenance = totalGross + maintenanceFee; // 保守=粗利と同額
     const totalCount = filteredEstimates.length;
 
     const confirmedEstimates = filteredEstimates.filter((est) => est.is_order_confirmed);
     const confirmedAmount = confirmedEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
     const confirmedGross = confirmedEstimates.reduce((sum, est) => sum + sumEstimateGross(est), 0);
+    const confirmedGrossWithMaintenance = confirmedGross + maintenanceFee; // 保守は実績も同額
     const confirmedEffort = confirmedEstimates.reduce((sum, est) => sum + sumEstimateEffort(est), 0);
     const confirmedFirstDivisionCost = confirmedEstimates.reduce((sum, est) => sum + calculateFirstDivisionCost(est?.items), 0);
     const confirmedCount = confirmedEstimates.length;
-    const executionRate = totalAmount > 0 ? Math.round((confirmedAmount / totalAmount) * 100) : 0;
+    const executionRate = totalAmountWithMaintenance > 0 ? Math.round((confirmedAmount / totalAmountWithMaintenance) * 100) : 0;
 
     return (
         <AuthenticatedLayout 
@@ -559,12 +563,18 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-blue-900">
-                                ¥{totalAmount.toLocaleString()}
+                                ¥{totalAmountWithMaintenance.toLocaleString()}
                             </div>
-                            <p className="text-xs text-blue-600 flex items-center mt-1">
-                                <TrendingUp className="h-3 w-3 mr-1" />
-                                フィルタ適用後の合計
-                            </p>
+                            <div className="text-xs text-blue-700 mt-1 space-y-1">
+                                <div className="flex items-center">
+                                    <TrendingUp className="h-3 w-3 mr-1" />
+                                    <span>スポット {formatCurrency(totalAmount)}</span>
+                                </div>
+                                <div className="flex items-center ml-4">
+                                    <span className="mr-1">保守</span>
+                                    <span>{formatCurrency(maintenanceFee)}</span>
+                                </div>
+                            </div>
                         </CardContent>
                         <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-blue-200 opacity-20" />
                     </Card>
@@ -642,11 +652,12 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-blue-900">
-                                ¥{totalGross.toLocaleString()}
+                                ¥{totalGrossWithMaintenance.toLocaleString()}
                             </div>
-                            <p className="text-xs text-blue-600">
-                                全見積の粗利合計
-                            </p>
+                            <div className="text-xs text-blue-700 mt-1 space-y-1">
+                                <div>スポット {formatCurrency(totalGross)}</div>
+                                <div>保守 {formatCurrency(maintenanceFee)}</div>
+                            </div>
                         </CardContent>
                     </Card>
 
@@ -661,11 +672,12 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-green-900">
-                                ¥{confirmedGross.toLocaleString()}
+                                ¥{confirmedGrossWithMaintenance.toLocaleString()}
                             </div>
-                            <p className="text-xs text-green-600">
-                                注文確定した見積の粗利
-                            </p>
+                            <div className="text-xs text-green-700 mt-1 space-y-1">
+                                <div>スポット {formatCurrency(confirmedGross)}</div>
+                                <div>保守 {formatCurrency(maintenanceFee)}</div>
+                            </div>
                         </CardContent>
                     </Card>
 

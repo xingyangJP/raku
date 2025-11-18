@@ -4,6 +4,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\BusinessDivisionReportController;
+use App\Http\Controllers\MaintenanceFeeController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Models\Estimate; // Add this import
@@ -53,6 +54,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/billing', [BillingController::class, 'index'])->name('billing.index');
     Route::get('/mf/billings/auth/start', [BillingController::class, 'redirectToAuth'])->name('billing.auth.start');
     Route::get('/billing/{billing}/pdf', [BillingController::class, 'downloadPdf'])->name('billing.downloadPdf');
+    Route::get('/maintenance-fees', [MaintenanceFeeController::class, 'index'])->name('maintenance-fees.index');
     Route::get('/inventory', fn () => Inertia::render('Inventory/Index'))->name('inventory.index');
     Route::get('/help', fn () => Inertia::render('Help/Index'))->name('help.index');
 
