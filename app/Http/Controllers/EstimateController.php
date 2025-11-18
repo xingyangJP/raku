@@ -555,6 +555,22 @@ class EstimateController extends Controller
                 $validated['approval_started'] = $hasUnapproved;
             }
         }
+
+        $errors = [];
+        $grossRate = $this->calculateGrossMarginRate($validated['items'] ?? []);
+        if ($grossRate < 0.3) {
+            $memo = trim((string) ($validated['internal_memo'] ?? ''));
+            if ($memo === '') {
+                $errors['internal_memo'] = '粗利率30%未満の場合、社内メモは必須です。';
+            }
+            if (!$this->approvalFlowIncludesRequiredApprover($validated['approval_flow'] ?? [])) {
+                $errors['approval_flow'] = '粗利率30%未満の場合、承認者に「守部幸洋」または「吉井靖人」を含めてください。';
+            }
+        }
+        if (!empty($errors)) {
+            return back()->withErrors($errors)->withInput();
+        }
+
         $estimate = Estimate::create(array_merge($validated, [
             'status' => $status,
             'is_order_confirmed' => $validated['is_order_confirmed'],
@@ -706,6 +722,21 @@ class EstimateController extends Controller
         }
 
         $validated['is_order_confirmed'] = $status === 'sent' ? $requestedOrderConfirmed : false;
+
+        $errors = [];
+        $grossRate = $this->calculateGrossMarginRate($validated['items'] ?? []);
+        if ($grossRate < 0.3) {
+            $memo = trim((string) ($validated['internal_memo'] ?? ''));
+            if ($memo === '') {
+                $errors['internal_memo'] = '粗利率30%未満の場合、社内メモは必須です。';
+            }
+            if (!$this->approvalFlowIncludesRequiredApprover($validated['approval_flow'] ?? [])) {
+                $errors['approval_flow'] = '粗利率30%未満の場合、承認者に「守部幸洋」または「吉井靖人」を含めてください。';
+            }
+        }
+        if (!empty($errors)) {
+            return back()->withErrors($errors)->withInput();
+        }
 
         $estimate->update(array_merge($validated, ['status' => $status]));
         $this->updatePartnerContactCache(
@@ -882,6 +913,36 @@ class EstimateController extends Controller
         }
 
         return redirect()->back()->with('success', '承認しました。');
+    }
+
+    private function calculateGrossMarginRate($items): float
+    {
+        $items = is_array($items) ? $items : [];
+        $revenue = 0.0;
+        $cost = 0.0;
+        foreach ($items as $item) {
+            $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
+            if ($qty === 0.0) { $qty = 1.0; }
+            $price = (float) (data_get($item, 'price') ?? data_get($item, 'unit_price', 0));
+            $unitCost = (float) (data_get($item, 'cost') ?? data_get($item, 'unit_cost', 0));
+            $revenue += $price * $qty;
+            $cost += $unitCost * $qty;
+        }
+        if ($revenue <= 0) { return 0.0; }
+        return ($revenue - $cost) / $revenue;
+    }
+
+    private function approvalFlowIncludesRequiredApprover($flow): bool
+    {
+        if (!is_array($flow)) { return false; }
+        $required = ['守部幸洋', '吉井靖人'];
+        foreach ($flow as $step) {
+            $name = trim((string) ($step['name'] ?? ''));
+            if (in_array($name, $required, true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function http(): PendingRequest
