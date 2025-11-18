@@ -2152,7 +2152,7 @@ class EstimateController extends Controller
             return (float) Cache::get($cacheKey);
         }
 
-        $base = rtrim((string) env('EXTERNAL_API_BASE', 'https://api.xerographix.co.jp/api'), '/');
+        $base = rtrim((string) env('EXTERNAL_API_BASE', 'https://api.xerographix.co.jp/public/api'), '/');
         $token = (string) env('EXTERNAL_API_TOKEN', '');
 
         $total = 0.0;
@@ -2175,9 +2175,17 @@ class EstimateController extends Controller
                         $total += $fee;
                     }
                 }
+            } else {
+                \Log::warning('Failed to fetch maintenance customers for quotes', [
+                    'status' => $response->status(),
+                    'url' => $base . '/customers',
+                    'body' => $response->body(),
+                ]);
             }
         } catch (\Throwable $e) {
-            // ignore
+            \Log::error('Error fetching maintenance customers for quotes', [
+                'message' => $e->getMessage(),
+            ]);
         }
 
         if (Schema::hasTable('maintenance_fee_snapshots')) {
