@@ -20,6 +20,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Some PHP builds miss this curl constant; define it to avoid fatal errors in HTTP client.
+        if (!defined('CURL_SSLVERSION_TLSv1_2')) {
+            define('CURL_SSLVERSION_TLSv1_2', 6);
+        }
+
         Vite::prefetch(concurrency: 3);
     }
 }
