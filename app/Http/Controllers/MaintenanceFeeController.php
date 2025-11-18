@@ -90,7 +90,7 @@ class MaintenanceFeeController extends Controller
 
     private function fetchCustomers(): array
     {
-        $base = rtrim((string) env('EXTERNAL_API_BASE', 'https://api.xerographix.co.jp/api'), '/');
+        $base = rtrim((string) env('EXTERNAL_API_BASE', 'https://api.xerographix.co.jp/public/api'), '/');
         $token = (string) env('EXTERNAL_API_TOKEN', '');
 
         try {
@@ -100,12 +100,20 @@ class MaintenanceFeeController extends Controller
             ])->get($base . '/customers');
 
             if (!$response->successful()) {
+                \Log::warning('Failed to fetch maintenance customers', [
+                    'status' => $response->status(),
+                    'url' => $base . '/customers',
+                    'body' => $response->body(),
+                ]);
                 return [];
             }
 
             $json = $response->json();
             return is_array($json) ? $json : [];
         } catch (\Throwable $e) {
+            \Log::error('Error fetching maintenance customers', [
+                'message' => $e->getMessage(),
+            ]);
             return [];
         }
     }

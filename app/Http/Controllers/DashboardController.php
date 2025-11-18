@@ -368,7 +368,7 @@ class DashboardController extends Controller
             return (float) $cached;
         }
 
-        $base = rtrim((string) env('EXTERNAL_API_BASE', 'https://api.xerographix.co.jp/api'), '/');
+        $base = rtrim((string) env('EXTERNAL_API_BASE', 'https://api.xerographix.co.jp/public/api'), '/');
         $token = (string) env('EXTERNAL_API_TOKEN', '');
 
         $total = 0.0;
@@ -389,9 +389,17 @@ class DashboardController extends Controller
                         $total += $fee;
                     }
                 }
+            } else {
+                \Log::warning('Failed to fetch maintenance customers for dashboard', [
+                    'status' => $response->status(),
+                    'url' => $base . '/customers',
+                    'body' => $response->body(),
+                ]);
             }
         } catch (\Throwable $e) {
-            // ignore
+            \Log::error('Error fetching maintenance customers for dashboard', [
+                'message' => $e->getMessage(),
+            ]);
         }
 
         // スナップショット保存
