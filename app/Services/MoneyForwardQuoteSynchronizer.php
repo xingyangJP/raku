@@ -263,6 +263,9 @@ class MoneyForwardQuoteSynchronizer
             $estimate->status = $estimate->status ?? 'sent';
         }
 
+        $existingItems = $estimate->items;
+        $preserveExistingItems = is_array($existingItems) && !empty($existingItems);
+
         $payload = [
             'mf_quote_id' => $quoteId,
         ];
@@ -408,8 +411,14 @@ class MoneyForwardQuoteSynchronizer
             }
         }
 
-        if (!empty($items)) {
+        if (!empty($items) && !$preserveExistingItems) {
             $payload['items'] = $items;
+        } elseif (!empty($items) && $preserveExistingItems) {
+            Log::debug('MF quote sync skipped overriding local items to preserve display settings.', [
+                'estimate_id' => $estimate->id,
+                'quote_id' => $quoteId,
+                'existing_item_count' => count($existingItems),
+            ]);
         }
 
         Log::debug('MF quote sync applying payload', [
