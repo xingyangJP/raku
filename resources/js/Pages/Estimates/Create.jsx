@@ -422,7 +422,29 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [chatInput, setChatInput] = useState('');
     const [chatLoading, setChatLoading] = useState(false);
     const [requirementsMode, setRequirementsMode] = useState('chat'); // 'chat' | 'manual'
-    const chatStorageKey = estimate?.id ? `reqchat-estimate-${estimate.id}` : 'reqchat-new';
+    const [draftChatKey] = useState(() => {
+        if (typeof window === 'undefined' || estimate?.id) {
+            return null;
+        }
+        try {
+            const existing = window.sessionStorage.getItem('reqchat-active-draft-key');
+            if (existing) {
+                return existing;
+            }
+            const generated = `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            window.sessionStorage.setItem('reqchat-active-draft-key', generated);
+            return generated;
+        } catch (error) {
+            console.warn('Failed to init draft chat key', error);
+            return `draft-${Date.now().toString(36)}`;
+        }
+    });
+    const chatStorageKey = useMemo(() => {
+        if (estimate?.id) {
+            return `reqchat-estimate-${estimate.id}`;
+        }
+        return draftChatKey ? `reqchat-${draftChatKey}` : null;
+    }, [estimate?.id, draftChatKey]);
     const lastAssistantMessage = useMemo(() => {
         for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
             if (chatMessages[i]?.role === 'assistant') {
@@ -532,6 +554,12 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     useEffect(() => {
         loadChat();
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [estimate?.id, chatStorageKey]);
+
+    useEffect(() => () => {
+        if (!estimate?.id && typeof window !== 'undefined') {
+            window.sessionStorage.removeItem('reqchat-active-draft-key');
+        }
     }, [estimate?.id]);
 
     useEffect(() => {
@@ -1090,6 +1118,10 @@ useEffect(() => {
         try {
             setChatLoading(true);
             if (!estimate?.id) {
+                if (!chatStorageKey) {
+                    setChatMessages([]);
+                    return;
+                }
                 const local = localStorage.getItem(chatStorageKey);
                 if (local) {
                     setChatMessages(JSON.parse(local));
@@ -1128,7 +1160,9 @@ useEffect(() => {
                     ? [...chatMessages, userMessage, { id: `draft-assistant-${Date.now()}`, role: 'assistant', content: assistant }]
                     : [...chatMessages, userMessage];
                 setChatMessages(withAssistant);
-                localStorage.setItem(chatStorageKey, JSON.stringify(withAssistant));
+                if (chatStorageKey) {
+                    localStorage.setItem(chatStorageKey, JSON.stringify(withAssistant));
+                }
             } else {
                 const res = await axios.post(route('estimates.requirementChat.store', estimate.id), {
                     message: userMessage.content,
