@@ -1964,12 +1964,12 @@ useEffect(() => {
                                     <span className="mr-auto inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-red-600 text-white">承認申請を開始しました</span>
                                 )}
                                 {approvalStatus === 'error' && (
-                                    <div className="mr-auto flex max-w-xs flex-col gap-1 rounded bg-red-600 px-3 py-2 text-xs text-white">
-                                        <span className="font-semibold">
-                                            {hasRequiredError ? '必須項目が未入力です。' : 'エラーが発生しました。'}
+                                    <div className="mr-auto w-full rounded border border-red-600 bg-red-50 px-4 py-3 text-sm text-red-900">
+                                        <span className="font-semibold block mb-1">
+                                            {hasRequiredError ? '必須項目が未入力です。' : '粗利率が低いため承認条件を満たしてください。'}
                                         </span>
                                         {submitErrors.length > 0 && (
-                                            <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-red-100">
+                                            <ul className="list-disc space-y-1 pl-5 text-xs text-red-900">
                                                 {submitErrors.map((msg, idx) => (
                                                     <li key={`submit-error-${idx}`}>
                                                         {hasRequiredError ? `${msg}` : msg}
