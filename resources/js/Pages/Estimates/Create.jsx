@@ -2015,12 +2015,12 @@ useEffect(() => {
                                     ))}
                                 </div>
                             </div>
-                            <DialogFooter className="flex items-center gap-2">
+                            <DialogFooter className="flex flex-col items-start gap-3 sm:flex-col w-full">
                                 { (isInApproval || approvalStatus === 'success') && (
-                                    <span className="mr-auto inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-red-600 text-white">承認申請を開始しました</span>
+                                    <span className="inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-red-600 text-white">承認申請を開始しました</span>
                                 )}
                                 {approvalStatus === 'error' && (
-                                    <div className="mr-auto w-full rounded border border-red-600 bg-red-50 px-4 py-3 text-sm text-red-900">
+                                    <div className="w-full rounded border border-red-600 bg-red-50 px-4 py-3 text-sm text-red-900">
                                         <span className="font-semibold block mb-1">
                                             {hasRequiredError ? '必須項目が未入力です。' : '粗利率が低いため承認条件を満たしてください。'}
                                         </span>
@@ -2035,16 +2035,18 @@ useEffect(() => {
                                         )}
                                     </div>
                                 )}
-                                <Button variant="secondary" type="button" onClick={() => { setOpenApproval(false); setApprovalStatus(''); }}>キャンセル</Button>
-                                {!isInApproval ? (
-                                    <Button type="button" onClick={submitWithApprovers} disabled={approvalStatus === 'submitting'}>
-                                        {approvalStatus === 'submitting' ? '申請中..' : '申請する'}
-                                    </Button>
-                                ) : (
-                                    <Button type="button" variant="destructive" onClick={cancelApproval}>
-                                        申請取消
-                                    </Button>
-                                )}
+                                <div className="flex items-center gap-2 w-full">
+                                    <Button variant="secondary" type="button" onClick={() => { setOpenApproval(false); setApprovalStatus(''); }}>キャンセル</Button>
+                                    {!isInApproval ? (
+                                        <Button type="button" onClick={submitWithApprovers} disabled={approvalStatus === 'submitting'}>
+                                            {approvalStatus === 'submitting' ? '申請中..' : '申請する'}
+                                        </Button>
+                                    ) : (
+                                        <Button type="button" variant="destructive" onClick={cancelApproval}>
+                                            申請取消
+                                        </Button>
+                                    )}
+                                </div>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>

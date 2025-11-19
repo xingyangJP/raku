@@ -557,7 +557,7 @@ class EstimateController extends Controller
         }
 
         $errors = [];
-        $grossRate = $this->calculateGrossMarginRate($validated['items'] ?? []);
+        $grossRate = $this->calculateGrossMarginRate($validated['items'] ?? [], 'type5');
         if ($grossRate < 0.3) {
             $memo = trim((string) ($validated['internal_memo'] ?? ''));
             if ($memo === '') {
@@ -724,7 +724,7 @@ class EstimateController extends Controller
         $validated['is_order_confirmed'] = $status === 'sent' ? $requestedOrderConfirmed : false;
 
         $errors = [];
-        $grossRate = $this->calculateGrossMarginRate($validated['items'] ?? []);
+        $grossRate = $this->calculateGrossMarginRate($validated['items'] ?? [], 'type5');
         if ($grossRate < 0.3) {
             $memo = trim((string) ($validated['internal_memo'] ?? ''));
             if ($memo === '') {
@@ -915,12 +915,17 @@ class EstimateController extends Controller
         return redirect()->back()->with('success', '承認しました。');
     }
 
-    private function calculateGrossMarginRate($items): float
+    private function calculateGrossMarginRate($items, string $category = 'all'): float
     {
         $items = is_array($items) ? $items : [];
         $revenue = 0.0;
         $cost = 0.0;
+        $matched = false;
         foreach ($items as $item) {
+            if ($category === 'type5' && !$this->isTypeFiveItem($item)) {
+                continue;
+            }
+            $matched = true;
             $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
             if ($qty === 0.0) { $qty = 1.0; }
             $price = (float) (data_get($item, 'price') ?? data_get($item, 'unit_price', 0));
@@ -928,8 +933,30 @@ class EstimateController extends Controller
             $revenue += $price * $qty;
             $cost += $unitCost * $qty;
         }
+        if (!$matched) {
+            return 1.0; // 対象品目が無い場合は判定対象外とみなす
+        }
         if ($revenue <= 0) { return 0.0; }
         return ($revenue - $cost) / $revenue;
+    }
+
+    private function isTypeFiveItem($item): bool
+    {
+        $division = (string) (data_get($item, 'business_division') ?? '');
+        if ($division === 'fifth_business') {
+            return true;
+        }
+        $name = (string) (data_get($item, 'name') ?? '');
+        $code = (string) (data_get($item, 'code') ?? data_get($item, 'product_code') ?? '');
+        $desc = (string) (data_get($item, 'description') ?? '');
+        $text = mb_strtolower($name . ' ' . $code . ' ' . $desc);
+        if (preg_match('/第\s*[5５]\s*種/u', $text)) {
+            return true;
+        }
+        if (preg_match('/\b5\s*種/u', $text)) {
+            return true;
+        }
+        return false;
     }
 
     private function approvalFlowIncludesRequiredApprover($flow): bool
