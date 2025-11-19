@@ -422,9 +422,9 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [chatInput, setChatInput] = useState('');
     const [chatLoading, setChatLoading] = useState(false);
     const [requirementsMode, setRequirementsMode] = useState('chat'); // 'chat' | 'manual'
-    const [draftChatKey] = useState(() => {
-        if (typeof window === 'undefined' || estimate?.id) {
-            return null;
+    const createDraftChatKey = () => {
+        if (typeof window === 'undefined') {
+            return `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
         }
         try {
             const existing = window.sessionStorage.getItem('reqchat-active-draft-key');
@@ -438,7 +438,9 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
             console.warn('Failed to init draft chat key', error);
             return `draft-${Date.now().toString(36)}`;
         }
-    });
+    };
+
+    const [draftChatKey, setDraftChatKey] = useState(() => (!estimate?.id ? createDraftChatKey() : null));
     const chatStorageKey = useMemo(() => {
         if (estimate?.id) {
             return `reqchat-estimate-${estimate.id}`;
@@ -552,6 +554,24 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }, [estimate?.items]);
 
     useEffect(() => {
+        if (estimate?.id) {
+            if (typeof window !== 'undefined') {
+                window.sessionStorage.removeItem('reqchat-active-draft-key');
+            }
+            setDraftChatKey(null);
+        } else {
+            setDraftChatKey((prev) => {
+                if (prev) {
+                    return prev;
+                }
+                const next = createDraftChatKey();
+                return next;
+            });
+        }
+    }, [estimate?.id]);
+
+    useEffect(() => {
+        setChatMessages([]);
         loadChat();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [estimate?.id, chatStorageKey]);
@@ -560,7 +580,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         if (!estimate?.id && typeof window !== 'undefined') {
             window.sessionStorage.removeItem('reqchat-active-draft-key');
         }
-    }, [estimate?.id]);
+    }, []);
 
     useEffect(() => {
         if (data.status !== 'sent' && data.is_order_confirmed) {
