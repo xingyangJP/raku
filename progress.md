@@ -1,3 +1,31 @@
+## 2025-11-19
+### 要約
+- 要件整理チャットの下地を追加（データモデル/ルートのみ、AI応答は未実装）。内部チャット履歴を永続保存する方針で準備。
+- 未保存見積でもチャット入力をローカル保持できるようにし、保存後はサーバへ永続化する仕様に変更。
+- 見積の社内メモ/備考などで担当者氏名を空にした場合でも、MF部門担当者を空で上書きできるように変更。
+- 工数カードの単位表記を「人日」に変更。
+- 要件整理入力UIをタブ（チャット/手動）にし、新規見積は保存後にチャット利用可と案内。
+
+### 変更点
+- `database/migrations/2025_02_20_000001_create_requirement_chat_tables.php`
+  - `requirement_chat_threads` / `requirement_chat_messages` を追加（estimate紐付け、role/user/assistant/system、meta）。保存期間は無制限の前提。
+- `app/Models/RequirementChatThread.php`, `RequirementChatMessage.php`
+  - スレッド・メッセージモデルを追加し、スレッド→メッセージのリレーションを定義。
+- `app/Http/Controllers/RequirementChatController.php`
+  - `show`: 見積ごとのスレッド取得/作成＋メッセージ一覧返却。
+  - `store`: ユーザーメッセージを保存（AI応答は未実装でログのみ）。
+- `routes/web.php`
+  - 認証配下にチャットAPIルートを追加: `GET/POST /estimates/{estimate}/requirement-chat`。
+- `app/Http/Controllers/EstimateController.php`
+  - MF部門担当者同期時、氏名/役職を空で送信してクリアできるように変更。
+- `resources/js/Pages/Estimates/Create.jsx`
+  - 工数一覧/合計の単位を「人日」表記に変更。
+
+### 残課題・次の実装（未着手）
+- 要件整理チャットUI（フロント）実装とAI応答の生成・保存。
+- Markdown整形出力と重要ルールのプロンプト適用。
+- AI応答を要件概要/詳細へ書き戻す導線の設計。
+
 ## 見積書からMoney Forward見積書発行機能の実装
 
 ### バックエンド

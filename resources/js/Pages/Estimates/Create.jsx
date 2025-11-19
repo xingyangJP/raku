@@ -410,6 +410,11 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
 
     const [openIssueMFQuoteConfirm, setOpenIssueMFQuoteConfirm] = useState(false);
     const [openConvertToInvoiceConfirm, setOpenConvertToInvoiceConfirm] = useState(false);
+    const [chatMessages, setChatMessages] = useState([]);
+    const [chatInput, setChatInput] = useState('');
+    const [chatLoading, setChatLoading] = useState(false);
+    const [requirementsMode, setRequirementsMode] = useState('chat'); // 'chat' | 'manual'
+    const chatStorageKey = estimate?.id ? `reqchat-estimate-${estimate.id}` : 'reqchat-new';
 
     const handleIssueMFQuote = () => {
         router.visit(route('estimates.createQuote.start', { estimate: estimate.id }));
@@ -499,6 +504,13 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     useEffect(() => {
         setLineItems(transformIncomingItems(estimate?.items));
     }, [estimate?.items]);
+
+    useEffect(() => {
+        if (isEditMode) {
+            loadChat();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [estimate?.id]);
 
     useEffect(() => {
         if (data.status !== 'sent' && data.is_order_confirmed) {
@@ -1036,6 +1048,71 @@ useEffect(() => {
         setOpenApproval(true);
     };
 
+    const loadChat = async () => {
+        try {
+            setChatLoading(true);
+            if (!estimate?.id) {
+                const local = localStorage.getItem(chatStorageKey);
+                if (local) {
+                    setChatMessages(JSON.parse(local));
+                } else {
+                    setChatMessages([]);
+                }
+            } else {
+                const res = await axios.get(route('estimates.requirementChat.show', estimate.id));
+                setChatMessages(res.data?.messages || []);
+            }
+        } catch (e) {
+            console.error('requirement chat load failed', e);
+        } finally {
+            setChatLoading(false);
+        }
+    };
+
+    const sendChat = async () => {
+        if (chatInput.trim() === '') return;
+        const userMessage = {
+            id: `local-${Date.now()}`,
+            role: 'user',
+            content: chatInput,
+        };
+        setChatMessages((prev) => [...prev, userMessage]);
+        setChatInput('');
+
+        try {
+            setChatLoading(true);
+            if (!estimate?.id) {
+                const res = await axios.post(route('estimates.requirementChat.draft'), {
+                    messages: [...chatMessages, userMessage].map(m => ({ role: m.role, content: m.content })),
+                });
+                const assistant = res.data?.assistant;
+                const withAssistant = assistant
+                    ? [...chatMessages, userMessage, { id: `draft-assistant-${Date.now()}`, role: 'assistant', content: assistant }]
+                    : [...chatMessages, userMessage];
+                setChatMessages(withAssistant);
+                localStorage.setItem(chatStorageKey, JSON.stringify(withAssistant));
+            } else {
+                const res = await axios.post(route('estimates.requirementChat.store', estimate.id), {
+                    message: userMessage.content,
+                });
+                setChatMessages(res.data?.messages || []);
+            }
+        } catch (e) {
+            console.error('requirement chat send failed', e);
+            setChatMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
+        } finally {
+            setChatLoading(false);
+        }
+    };
+
+    const applyChatToSummary = () => {
+        const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
+        const fallback = [...chatMessages].reverse().find(m => m.role === 'user');
+        const content = lastAssistant?.content || fallback?.content;
+        if (!content) return;
+        setData('requirement_summary', content);
+    };
+
     const submitWithApprovers = () => {
         // 送信直前に明確な payload を構築して、状態更新の非同期に依存しない
         const payload = { ...data, status: 'pending' };
@@ -1296,6 +1373,14 @@ useEffect(() => {
                                     </div>
                                 </div>
                                 <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4">
+                                    <div className="flex flex-wrap items-center gap-2 justify-between">
+                                        <div className="flex gap-2">
+                                            <Button type="button" variant={requirementsMode === 'chat' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('chat')}>要件整理チャット</Button>
+                                            <Button type="button" variant={requirementsMode === 'manual' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('manual')}>手動入力</Button>
+                                        </div>
+                                        <span className="text-xs text-muted-foreground">要件を整理し、AIドラフトに渡す情報です。</span>
+                                    </div>
+                                    {requirementsMode === 'manual' && (
                                     <div className="flex flex-col gap-3 md:flex-row md:items-start">
                                         <div className="flex-1 space-y-2">
                                             <div className="flex items-center justify-between">
@@ -1330,6 +1415,54 @@ useEffect(() => {
                                             </Button>
                                         </div>
                                     </div>
+                                    )}
+                                    {requirementsMode === 'chat' && isInternalView && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                    <Label className="text-sm font-medium">要件整理チャット（内部用）</Label>
+                                                    <Button type="button" variant="outline" size="sm" onClick={loadChat} disabled={chatLoading || !isEditMode}>
+                                                        再読込
+                                                    </Button>
+                                                </div>
+                                                <div className="h-60 overflow-y-auto rounded border bg-white p-2 text-sm space-y-2">
+                                                    {chatLoading && <p className="text-xs text-muted-foreground">読み込み中...</p>}
+                                                    {!chatLoading && chatMessages.length === 0 && <p className="text-xs text-muted-foreground">メッセージはありません。</p>}
+                                                    {chatMessages.map((m, idx) => (
+                                                        <div key={m.id || idx} className={`rounded p-2 ${m.role === 'assistant' ? 'bg-slate-50 border' : ''}`}>
+                                                            <p className="text-[11px] text-muted-foreground mb-1">{m.role === 'assistant' ? 'AI' : 'あなた'}</p>
+                                                            <div className="whitespace-pre-wrap text-slate-800 text-sm">{m.content}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                        <div className="flex gap-2">
+                            <Input
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
+                                placeholder="不足情報や要望を入力"
+                                disabled={chatLoading}
+                            />
+                            <Button type="button" onClick={sendChat} disabled={chatLoading}>送信</Button>
+                        </div>
+                        {!estimate?.id && (
+                            <p className="text-xs text-muted-foreground">未保存の間はローカルで保持します（保存後はサーバに永続化されます）。</p>
+                        )}
+                                                <div className="flex gap-2 text-xs text-muted-foreground">
+                                                    <Button type="button" variant="ghost" size="sm" onClick={applyChatToSummary} disabled={chatMessages.filter(m=>m.role==='assistant').length===0}>要件概要に反映</Button>
+                                                    <span>最終AI応答を要件概要欄にコピーします。</span>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-sm font-medium">AI整理結果プレビュー</Label>
+                                                <div className="rounded border bg-white p-3 text-sm h-60 overflow-y-auto whitespace-pre-wrap">
+                                                    {(() => {
+                                                        const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
+                                                        return lastAssistant ? lastAssistant.content : 'AI整理結果はまだありません。';
+                                                    })()}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                     {structureError && (
                                         <p className="text-sm text-red-600">{structureError}</p>
                                     )}
