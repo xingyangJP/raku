@@ -595,6 +595,25 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const totalCost = lineItems.reduce((acc, item) => acc + calculateCostAmount(item), 0);
     const totalGrossProfit = subtotal - totalCost;
     const totalGrossMargin = subtotal !== 0 ? (totalGrossProfit / subtotal) * 100 : 0;
+
+    const categorizeItem = (name = '') => {
+        const n = String(name);
+        if (/第\s*[1１]\s*種/.test(n)) return 'type1';
+        if (/第\s*[5５]\s*種/.test(n)) return 'type5';
+        return 'other';
+    };
+
+    const categoryTotals = lineItems.reduce((acc, item) => {
+        const cat = categorizeItem(item.name);
+        const revenue = calculateAmount(item);
+        const cost = calculateCostAmount(item);
+        acc[cat] = acc[cat] || { revenue: 0, cost: 0 };
+        acc[cat].revenue += revenue;
+        acc[cat].cost += cost;
+        return acc;
+    }, { type1: { revenue: 0, cost: 0 }, type5: { revenue: 0, cost: 0 }, other: { revenue: 0, cost: 0 } });
+
+    const calcRate = (revenue, cost) => revenue > 0 ? ((revenue - cost) / revenue) * 100 : 0;
     // 税区分ごとの税率（必要なら拡張）
     const taxRates = { standard: 0.1, reduced: 0.08 };
     const tax = lineItems.reduce((acc, item) => {
@@ -1573,79 +1592,34 @@ useEffect(() => {
 
                         <div className="space-y-6">
                             <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
-                                {/* 承認フロー概要（左：社内ビューのみ表示） */}
                                 {isInternalView && (
                                     <div className="w-full lg:w-2/3">
                                         <Card>
                                             <CardHeader>
-                                                <CardTitle>承認フロー</CardTitle>
+                                                <CardTitle>品目別集計</CardTitle>
                                             </CardHeader>
-                                            <CardContent>
-                                                {(() => {
-                                                    const baseFlow = Array.isArray(estimate?.approval_flow) && estimate.approval_flow.length
-                                                        ? estimate.approval_flow
-                                                        : approvers;
-                                                    if (!Array.isArray(baseFlow) || baseFlow.length === 0) {
+                                            <CardContent className="space-y-3">
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                    {[
+                                                        { key: 'type1', label: '第1種品目', ...categoryTotals.type1 },
+                                                        { key: 'type5', label: '第5種品目', ...categoryTotals.type5 },
+                                                        { key: 'overall', label: '全体', revenue: subtotal, cost: totalCost },
+                                                    ].map((row) => {
+                                                        const gross = row.revenue - row.cost;
+                                                        const rate = calcRate(row.revenue, row.cost);
                                                         return (
-                                                            <p className="text-sm text-slate-500">承認者が設定されていません。「承認申請」で追加してください。</p>
+                                                            <div key={row.key} className="rounded border bg-slate-50 p-3">
+                                                                <p className="text-xs text-slate-500 mb-1">{row.label}</p>
+                                                                <div className="flex justify-between text-sm"><span>売上</span><span>{row.revenue.toLocaleString()}円</span></div>
+                                                                <div className="flex justify-between text-sm text-slate-600"><span>原価</span><span>{row.cost.toLocaleString()}円</span></div>
+                                                                <div className="flex justify-between text-sm font-semibold"><span>粗利益</span><span>{gross.toLocaleString()}円</span></div>
+                                                                <div className={`flex justify-between text-sm font-bold ${rate < 20 ? 'text-red-500' : 'text-green-600'}`}>
+                                                                    <span>粗利率</span><span>{rate.toFixed(1)}%</span>
+                                                                </div>
+                                                            </div>
                                                         );
-                                                    }
-                                                    let currentIdx = -1;
-                                                    for (let i = 0; i < baseFlow.length; i++) {
-                                                        const status = baseFlow[i].status ?? (baseFlow[i].approved_at ? 'approved' : 'pending');
-                                                        if (status !== 'approved' && status !== 'rejected') { currentIdx = i; break; }
-                                                    }
-                                                    const derived = baseFlow.map((s, idx) => {
-                                                        const statusValue = s.status ?? (s.approved_at ? 'approved' : 'pending');
-                                                        const isApproved = statusValue === 'approved';
-                                                        const isRejected = statusValue === 'rejected';
-                                                        const isCurrent = !isApproved && !isRejected && idx === currentIdx;
-                                                        return {
-                                                            id: s.id,
-                                                            name: s.name,
-                                                            approved_at: s.approved_at || '',
-                                                            status: isRejected ? '却下' : (isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中')),
-                                                            rejection_reason: isRejected ? (s.rejection_reason ?? '') : '',
-                                                            date: isRejected
-                                                                ? (s.rejected_at ? new Date(s.rejected_at).toLocaleDateString('ja-JP') : '')
-                                                                : (isApproved && s.approved_at ? new Date(s.approved_at).toLocaleDateString('ja-JP') : ''),
-                                                            order: idx + 1,
-                                                        };
-                                                    });
-                                                    return (
-                                                        <ol className="space-y-2 list-decimal list-inside">
-                                                            {derived.map(step => (
-                                                                <li key={`${step.id}-${step.order}`} className="flex flex-col gap-1">
-                                                                    <div className="flex items-center justify-between gap-2">
-                                                                        <div className="flex items-center gap-2">
-                                                                            <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">{step.order}</span>
-                                                                            <div>
-                                                                                <span className="font-medium">{step.name}</span>
-                                                                                {step.rejection_reason && (
-                                                                                    <p className="text-xs text-red-600">理由: {step.rejection_reason}</p>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-3">
-                                                                            <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
-                                                                                step.status==='承認済'
-                                                                                    ? 'bg-green-100 text-green-800'
-                                                                                    : step.status==='却下'
-                                                                                        ? 'bg-red-100 text-red-800'
-                                                                                        : 'bg-amber-100 text-amber-800'
-                                                                            }`}>
-                                                                                {step.status}
-                                                                            </span>
-                                                                            {step.date && (
-                                                                                <span className="text-xs text-slate-500">{step.date}</span>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </li>
-                                                            ))}
-                                                        </ol>
-                                                    );
-                                                })()}
+                                                    })}
+                                                </div>
                                             </CardContent>
                                         </Card>
                                     </div>
@@ -1653,7 +1627,7 @@ useEffect(() => {
                                 {/* 合計（右） */}
                                 <div className="w-full lg:w-1/3 lg:ml-auto">
                                     <Card>
-        
+
                                         <CardHeader>
                                             <CardTitle>合計</CardTitle>
                                         </CardHeader>
@@ -1676,6 +1650,83 @@ useEffect(() => {
                                     </Card>
                                 </div>
                             </div>
+                            {/* 承認フロー概要（1段下に） */}
+                            {isInternalView && (
+                                <div className="w-full">
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle>承認フロー</CardTitle>
+                                        </CardHeader>
+                                        <CardContent>
+                                            {(() => {
+                                                const baseFlow = Array.isArray(estimate?.approval_flow) && estimate.approval_flow.length
+                                                    ? estimate.approval_flow
+                                                    : approvers;
+                                                if (!Array.isArray(baseFlow) || baseFlow.length === 0) {
+                                                    return (
+                                                        <p className="text-sm text-slate-500">承認者が設定されていません。「承認申請」で追加してください。</p>
+                                                    );
+                                                }
+                                                let currentIdx = -1;
+                                                for (let i = 0; i < baseFlow.length; i++) {
+                                                    const status = baseFlow[i].status ?? (baseFlow[i].approved_at ? 'approved' : 'pending');
+                                                    if (status !== 'approved' && status !== 'rejected') { currentIdx = i; break; }
+                                                }
+                                                const derived = baseFlow.map((s, idx) => {
+                                                    const statusValue = s.status ?? (s.approved_at ? 'approved' : 'pending');
+                                                    const isApproved = statusValue === 'approved';
+                                                    const isRejected = statusValue === 'rejected';
+                                                    const isCurrent = !isApproved && !isRejected && idx === currentIdx;
+                                                    return {
+                                                        id: s.id,
+                                                        name: s.name,
+                                                        approved_at: s.approved_at || '',
+                                                        status: isRejected ? '却下' : (isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中')),
+                                                        rejection_reason: isRejected ? (s.rejection_reason ?? '') : '',
+                                                        date: isRejected
+                                                            ? (s.rejected_at ? new Date(s.rejected_at).toLocaleDateString('ja-JP') : '')
+                                                            : (isApproved && s.approved_at ? new Date(s.approved_at).toLocaleDateString('ja-JP') : ''),
+                                                        order: idx + 1,
+                                                    };
+                                                });
+                                                return (
+                                                    <ol className="space-y-2 list-decimal list-inside">
+                                                        {derived.map(step => (
+                                                            <li key={`${step.id}-${step.order}`} className="flex flex-col gap-1">
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">{step.order}</span>
+                                                                        <div>
+                                                                            <span className="font-medium">{step.name}</span>
+                                                                            {step.rejection_reason && (
+                                                                                <p className="text-xs text-red-600">理由: {step.rejection_reason}</p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-3">
+                                                                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
+                                                                            step.status==='承認済'
+                                                                                ? 'bg-green-100 text-green-800'
+                                                                                : step.status==='却下'
+                                                                                    ? 'bg-red-100 text-red-800'
+                                                                                    : 'bg-amber-100 text-amber-800'
+                                                                        }`}>
+                                                                            {step.status}
+                                                                        </span>
+                                                                        {step.date && (
+                                                                            <span className="text-xs text-slate-500">{step.date}</span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </li>
+                                                        ))}
+                                                    </ol>
+                                                );
+                                            })()}
+                                        </CardContent>
+                                    </Card>
+                                </div>
+                            )}
                             <div>
                                 {isInternalView && (
                                     <Card>
