@@ -596,15 +596,21 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const totalGrossProfit = subtotal - totalCost;
     const totalGrossMargin = subtotal !== 0 ? (totalGrossProfit / subtotal) * 100 : 0;
 
-    const categorizeItem = (name = '') => {
-        const n = String(name);
-        if (/第\s*[1１]\s*種/.test(n)) return 'type1';
-        if (/第\s*[5５]\s*種/.test(n)) return 'type5';
+    const categorizeItem = (item) => {
+        const division = resolveBusinessDivisionForItem(item);
+        if (division === 'first_business') return 'type1';
+        if (division === 'fifth_business') return 'type5';
+        const n = String(item?.name ?? '');
+        const code = String(item?.code ?? '');
+        const desc = String(item?.description ?? '');
+        const text = `${n} ${code} ${desc}`;
+        if (/第?\s*[1１]\s*種/.test(text) || /\b1\s*種/.test(text)) return 'type1';
+        if (/第?\s*[5５]\s*種/.test(text) || /\b5\s*種/.test(text)) return 'type5';
         return 'other';
     };
 
     const categoryTotals = lineItems.reduce((acc, item) => {
-        const cat = categorizeItem(item.name);
+        const cat = categorizeItem(item);
         const revenue = calculateAmount(item);
         const cost = calculateCostAmount(item);
         acc[cat] = acc[cat] || { revenue: 0, cost: 0 };
@@ -1599,11 +1605,10 @@ useEffect(() => {
                                                 <CardTitle>品目別集計</CardTitle>
                                             </CardHeader>
                                             <CardContent className="space-y-3">
-                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                     {[
                                                         { key: 'type1', label: '第1種品目', ...categoryTotals.type1 },
                                                         { key: 'type5', label: '第5種品目', ...categoryTotals.type5 },
-                                                        { key: 'overall', label: '全体', revenue: subtotal, cost: totalCost },
                                                     ].map((row) => {
                                                         const gross = row.revenue - row.cost;
                                                         const rate = calcRate(row.revenue, row.cost);
