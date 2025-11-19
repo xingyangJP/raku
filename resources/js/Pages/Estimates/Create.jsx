@@ -920,29 +920,6 @@ useEffect(() => {
         }
     };
 
-    const groupedAnalysisData = lineItems.reduce((acc, item) => {
-        const itemName = item.name && item.name !== '' ? item.name : '未設定';
-        if (!acc[itemName]) {
-            acc[itemName] = {
-                grossProfit: 0,
-                cost: 0,
-            };
-        }
-        acc[itemName].grossProfit += calculateGrossProfit(item);
-        acc[itemName].cost += calculateCostAmount(item);
-        return acc;
-    }, {});
-
-    const grossProfitChartData = Object.entries(groupedAnalysisData).map(([itemName, data]) => ({
-        name: itemName,
-        value: data.grossProfit,
-    }));
-
-    const costChartData = Object.entries(groupedAnalysisData).map(([itemName, data]) => ({
-        name: itemName,
-        value: data.cost,
-    }));
-
     const productDivisionMaps = useMemo(() => {
         const byId = new Map();
         const bySku = new Map();
@@ -990,6 +967,29 @@ useEffect(() => {
         }
         return null;
     };
+
+    const groupedAnalysisData = lineItems.reduce((acc, item) => {
+        const itemName = item.name && item.name !== '' ? item.name : '未設定';
+        if (!acc[itemName]) {
+            acc[itemName] = {
+                grossProfit: 0,
+                cost: 0,
+            };
+        }
+        acc[itemName].grossProfit += calculateGrossProfit(item);
+        acc[itemName].cost += calculateCostAmount(item);
+        return acc;
+    }, {});
+
+    const grossProfitChartData = Object.entries(groupedAnalysisData).map(([itemName, data]) => ({
+        name: itemName,
+        value: data.grossProfit,
+    }));
+
+    const costChartData = Object.entries(groupedAnalysisData).map(([itemName, data]) => ({
+        name: itemName,
+        value: data.cost,
+    }));
 
     const effortData = lineItems.reduce((acc, item) => {
         const division = resolveBusinessDivisionForItem(item);
