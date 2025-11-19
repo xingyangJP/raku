@@ -1153,10 +1153,27 @@ useEffect(() => {
 
     const saveDraft = () => {
         post(route('estimates.saveDraft'), {
-            onSuccess: () => {
+            onSuccess: (page) => {
                 if (!isEditMode) {
-                    // 新規作成時のみ、ページをリロードしてサーバーから最新の状態を読み込む
-                    window.location.reload();
+                    const newEstimateId = page?.props?.estimate?.id
+                        || page?.props?.flash?.estimate_id
+                        || page?.props?.estimate_id
+                        || null;
+
+                    const redirectUrl = route('estimates.edit', newEstimateId);
+
+                    const syncAndRedirect = async () => {
+                        if (redirectUrl) {
+                            // サーバー側で同期する感覚が得られるよう軽微な遅延
+                            await new Promise((resolve) => setTimeout(resolve, 150));
+                            clearDraftChatStorage();
+                            window.location.href = redirectUrl;
+                        } else {
+                            window.location.reload();
+                        }
+                    };
+
+                    syncAndRedirect();
                 } else {
                     alert('下書きが保存されました。');
                 }
