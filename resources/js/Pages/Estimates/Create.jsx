@@ -530,9 +530,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }, [estimate?.items]);
 
     useEffect(() => {
-        if (isEditMode) {
-            loadChat();
-        }
+        loadChat();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [estimate?.id]);
 
