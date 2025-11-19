@@ -1821,7 +1821,7 @@ useEffect(() => {
                                                     </BarChart>
                                                 </ResponsiveContainer>
                                                 <div className="flex justify-center mt-2 text-sm text-muted-foreground">
-                                                    項目別工数
+                                                    項目別人日
                                                 </div>
                                             </div>
                                             <div className="space-y-2">
@@ -1836,12 +1836,12 @@ useEffect(() => {
                                                             />
                                                             {entry.name}
                                                         </span>
-                                                        <span>{entry.value.toFixed(1)} 工数</span>
+                                                        <span>{entry.value.toFixed(1)} 人日</span>
                                                     </p>
                                                 ))}
                                                 <div className="border-t pt-2 mt-2 flex justify-between font-semibold">
                                                     <span>合計</span>
-                                                    <span>{totalEffort.toFixed(1)} 工数</span>
+                                                    <span>{totalEffort.toFixed(1)} 人日</span>
                                                 </div>
                                             </div>
                                         </CardContent>

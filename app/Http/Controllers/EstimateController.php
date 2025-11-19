@@ -143,14 +143,14 @@ class EstimateController extends Controller
             return;
         }
 
-        $payload = array_filter([
-            'person_name' => $estimate->client_contact_name ? mb_substr($estimate->client_contact_name, 0, 35) : null,
-            'person_title' => $estimate->client_contact_title ? mb_substr($estimate->client_contact_title, 0, 35) : null,
-        ], static fn($value) => $value !== null && $value !== '');
-
-        if (empty($payload)) {
-            return;
-        }
+        $payload = [
+            'person_name' => $estimate->client_contact_name !== null
+                ? mb_substr((string) $estimate->client_contact_name, 0, 35)
+                : null,
+            'person_title' => $estimate->client_contact_title !== null
+                ? mb_substr((string) $estimate->client_contact_title, 0, 35)
+                : null,
+        ];
 
         $partner = Partner::where('mf_partner_id', $partnerId)->first();
         $current = $partner ? $this->extractDepartmentContact($partner->payload, $departmentId) : ['person_name' => null, 'person_title' => null];
