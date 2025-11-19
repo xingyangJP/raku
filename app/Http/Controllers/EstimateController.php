@@ -45,7 +45,7 @@ class EstimateController extends Controller
         return [];
     }
 
-    private function updatePartnerContactCache(?string $partnerId, ?string $departmentId, ?string $name, ?string $title): void
+    private function updatePartnerContactCache(?string $partnerId, ?string $departmentId, ?string $name, ?string $title, ?string $officeMemberName = null): void
     {
         if (empty($partnerId) || empty($departmentId)) {
             return;
@@ -59,8 +59,9 @@ class EstimateController extends Controller
 
             $payload = $partner->payload;
             if ($this->mutateDepartmentContact($payload, $departmentId, [
-                'person_name' => $name,
-                'person_title' => $title,
+                'person_name' => $this->restoreBlank($name),
+                'person_title' => $this->restoreBlank($title),
+                'office_member_name' => $this->restoreBlank($officeMemberName),
             ])) {
                 $partner->payload = $payload;
                 $partner->save();
@@ -82,9 +83,12 @@ class EstimateController extends Controller
 
         $changed = false;
         if (isset($node['id']) && (string) $node['id'] === (string) $departmentId) {
-            foreach (['person_name', 'person_title'] as $field) {
+            foreach (['person_name', 'person_title', 'office_member_name'] as $field) {
                 if (array_key_exists($field, $updates)) {
                     $value = $updates[$field];
+                    if (is_string($value) && trim($value) === '') {
+                        $value = '';
+                    }
                     $current = $node[$field] ?? null;
                     if ($current !== $value) {
                         if ($value === null || $value === '') {
@@ -110,7 +114,7 @@ class EstimateController extends Controller
     private function extractDepartmentContact(?array $payload, string $departmentId): array
     {
         if (!is_array($payload)) {
-            return ['person_name' => null, 'person_title' => null];
+            return ['person_name' => null, 'person_title' => null, 'office_member_name' => null];
         }
 
         $stack = [$payload];
@@ -132,7 +136,35 @@ class EstimateController extends Controller
             }
         }
 
-        return ['person_name' => null, 'person_title' => null];
+        return ['person_name' => null, 'person_title' => null, 'office_member_name' => null];
+    }
+
+    private function normalizePartnerField($value, int $limit, string $placeholder = ' '): string
+    {
+        if (!is_string($placeholder) || $placeholder === '') {
+            $placeholder = ' ';
+        }
+
+        $text = (string) $value;
+        $text = mb_substr($text, 0, $limit);
+        if (trim($text) === '') {
+            return $placeholder;
+        }
+        return $text;
+    }
+
+    private function restoreBlank($value)
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if ($trimmed === '' || $value === '-' || $value === 'ご担当者様') {
+                return '';
+            }
+        }
+        return $value;
     }
 
     private function syncPartnerContactWithMoneyForward(Estimate $estimate, string $token, MoneyForwardApiService $apiService): void
@@ -144,28 +176,10 @@ class EstimateController extends Controller
         }
 
         $payload = [
-            'person_name' => $estimate->client_contact_name !== null
-                ? mb_substr((string) $estimate->client_contact_name, 0, 35)
-                : null,
-            'person_title' => $estimate->client_contact_title !== null
-                ? mb_substr((string) $estimate->client_contact_title, 0, 35)
-                : null,
+            'person_name' => $this->normalizePartnerField($estimate->client_contact_name, 35, 'ご担当者様'),
+            'person_title' => $this->normalizePartnerField($estimate->client_contact_title, 35, '-'),
+            'office_member_name' => $this->normalizePartnerField($estimate->staff_name, 40),
         ];
-
-        $partner = Partner::where('mf_partner_id', $partnerId)->first();
-        $current = $partner ? $this->extractDepartmentContact($partner->payload, $departmentId) : ['person_name' => null, 'person_title' => null];
-
-        $needsUpdate = false;
-        foreach ($payload as $key => $value) {
-            if (($current[$key] ?? null) !== $value) {
-                $needsUpdate = true;
-                break;
-            }
-        }
-
-        if (!$needsUpdate) {
-            return;
-        }
 
         $result = $apiService->updateDepartmentContact($partnerId, $departmentId, $payload, $token);
         if (is_array($result)) {
@@ -173,13 +187,22 @@ class EstimateController extends Controller
                 $partnerId,
                 $departmentId,
                 $result['person_name'] ?? $payload['person_name'] ?? null,
-                $result['person_title'] ?? $payload['person_title'] ?? null
+                $result['person_title'] ?? $payload['person_title'] ?? null,
+                $result['office_member_name'] ?? $payload['office_member_name'] ?? null
             );
         } elseif ($result === false) {
             Log::warning('Money Forward department contact update returned no data.', [
                 'partner_id' => $partnerId,
                 'department_id' => $departmentId,
             ]);
+        } else {
+            $this->updatePartnerContactCache(
+                $partnerId,
+                $departmentId,
+                $payload['person_name'],
+                $payload['person_title'],
+                $payload['office_member_name']
+            );
         }
     }
     public function index(Request $request, MoneyForwardQuoteSynchronizer $quoteSynchronizer)
@@ -419,7 +442,8 @@ class EstimateController extends Controller
                 $validated['client_id'] ?? $estimate->client_id,
                 $validated['mf_department_id'] ?? $estimate->mf_department_id,
                 $validated['client_contact_name'] ?? null,
-                $validated['client_contact_title'] ?? null
+                $validated['client_contact_title'] ?? null,
+                $validated['staff_name'] ?? $estimate->staff_name ?? null
             );
             return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Draft updated successfully.');
         } else {
@@ -460,7 +484,8 @@ class EstimateController extends Controller
                 $validated['client_id'] ?? null,
                 $validated['mf_department_id'] ?? null,
                 $validated['client_contact_name'] ?? null,
-                $validated['client_contact_title'] ?? null
+                $validated['client_contact_title'] ?? null,
+                $validated['staff_name'] ?? null
             );
             return redirect()->route('estimates.edit', $estimate->id)->with('success', 'Draft saved successfully.');
         }
@@ -580,7 +605,8 @@ class EstimateController extends Controller
             $validated['client_id'] ?? null,
             $validated['mf_department_id'] ?? null,
             $validated['client_contact_name'] ?? null,
-            $validated['client_contact_title'] ?? null
+            $validated['client_contact_title'] ?? null,
+            $validated['staff_name'] ?? null
         );
 
         if ($status === 'pending') {
@@ -743,7 +769,8 @@ class EstimateController extends Controller
             $estimate->client_id,
             $estimate->mf_department_id,
             $validated['client_contact_name'] ?? $estimate->client_contact_name,
-            $validated['client_contact_title'] ?? $estimate->client_contact_title
+            $validated['client_contact_title'] ?? $estimate->client_contact_title,
+            $validated['staff_name'] ?? $estimate->staff_name
         );
         $wasMfQuotePresent = !empty($estimate->mf_quote_id);
         $estimate->refresh();
@@ -1067,17 +1094,24 @@ class EstimateController extends Controller
             ?? $value['non_functional_requirements']
             ?? $value['nonFunctionalRequirements']
             ?? [];
+        $unresolvedSource = $value['unresolved']
+            ?? $value['unresolved_requirements']
+            ?? $value['pending']
+            ?? $value['pending_requirements']
+            ?? [];
 
         $functional = $this->normalizeRequirementLines($functionalSource);
         $nonFunctional = $this->normalizeRequirementLines($nonFunctionalSource);
+        $unresolved = $this->normalizeRequirementLines($unresolvedSource);
 
-        if (empty($functional) && empty($nonFunctional)) {
+        if (empty($functional) && empty($nonFunctional) && empty($unresolved)) {
             return null;
         }
 
         return [
             'functional' => $functional,
             'non_functional' => $nonFunctional,
+            'unresolved' => $unresolved,
         ];
     }
 
@@ -1101,7 +1135,7 @@ class EstimateController extends Controller
         return $normalized;
     }
 
-    private function resolveFeatureDescription(?string $summary, ?string $productName, ?string $fallbackDescription): string
+    private function resolveFeatureDescription(?string $summary, ?string $productName, ?string $fallbackDescription, ?string $extraDetail = null): string
     {
         $text = trim((string) $summary);
         if ($text !== '' && $productName) {
@@ -1112,11 +1146,30 @@ class EstimateController extends Controller
             }
         }
 
+        $extra = trim((string) $extraDetail);
+        if ($extra !== '') {
+            $text = $text !== '' ? "{$text}｜{$extra}" : $extra;
+        }
+
         if ($text === '') {
             $text = trim((string) $fallbackDescription);
         }
 
-        return $text;
+        return $this->truncateDescription($text);
+    }
+
+    private function truncateDescription(string $text, int $limit = 40): string
+    {
+        if ($text === '') {
+            return $text;
+        }
+
+        if (mb_strlen($text) <= $limit) {
+            return $text;
+        }
+
+        $trimmed = mb_substr($text, 0, $limit - 1);
+        return rtrim($trimmed) . '…';
     }
 
     private function logAiEvent(?int $estimateId, string $action, array $structured, array $messages, ?string $aiResponse): void
@@ -1206,9 +1259,10 @@ class EstimateController extends Controller
             [
                 'role' => 'system',
                 'content' => 'You are a bilingual business analyst. Rewrite Japanese requirement notes into concise bullet lists. '
-                    . 'Always output JSON with the keys "functional_requirements" and "non_functional_requirements". '
+                    . 'Always output JSON with the keys "functional_requirements", "non_functional_requirements", and "unresolved_requirements". '
                     . 'Each value must be an array of 1〜6 short Japanese sentences (max 120 characters each). '
-                    . 'Non-functional requirements must include performance, security, and operations if they are implied.',
+                    . 'Non-functional requirements must include performance, security, and operations if they are implied. '
+                    . 'Use unresolved_requirements for 項目 that remain open, need確認, or depend on未定の前提条件.',
             ],
             [
                 'role' => 'user',
@@ -1263,11 +1317,17 @@ class EstimateController extends Controller
             ->map('trim')
             ->values()
             ->all();
+        $unresolved = collect($payload['unresolved_requirements'] ?? [])
+            ->filter(static fn($line) => is_string($line) && $line !== '')
+            ->map('trim')
+            ->values()
+            ->all();
 
         $structured = $this->normalizeStructuredRequirements([
             'functional' => $functional,
             'non_functional' => $nonFunctional,
-        ]) ?? ['functional' => [], 'non_functional' => []];
+            'unresolved' => $unresolved,
+        ]) ?? ['functional' => [], 'non_functional' => [], 'unresolved' => []];
 
         if (!empty($validated['estimate_id'])) {
             Estimate::whereKey($validated['estimate_id'])->update([
@@ -1286,6 +1346,7 @@ class EstimateController extends Controller
         return response()->json([
             'functional_requirements' => $structured['functional'] ?? [],
             'non_functional_requirements' => $structured['non_functional'] ?? [],
+            'unresolved_requirements' => $structured['unresolved'] ?? [],
         ]);
     }
 
@@ -1297,6 +1358,8 @@ class EstimateController extends Controller
             'functional_requirements.*' => 'string|max:500',
             'non_functional_requirements' => 'nullable|array',
             'non_functional_requirements.*' => 'string|max:500',
+            'unresolved_requirements' => 'nullable|array',
+            'unresolved_requirements.*' => 'string|max:500',
             'pm_required' => 'required|boolean',
             'estimate_id' => 'nullable|integer|exists:estimates,id',
         ]);
@@ -1337,10 +1400,14 @@ class EstimateController extends Controller
         $nonFunctionalText = collect($validated['non_functional_requirements'] ?? [])
             ->map(fn($line) => '- ' . $line)
             ->implode("\n");
+        $unresolvedText = collect($validated['unresolved_requirements'] ?? [])
+            ->map(fn($line) => '- ' . $line)
+            ->implode("\n");
 
         $requirementsBlock = "要件概要:\n{$validated['requirement_summary']}\n\n"
             . ($functionalText ? "機能要件:\n{$functionalText}\n\n" : '')
             . ($nonFunctionalText ? "非機能要件:\n{$nonFunctionalText}\n\n" : '')
+            . ($unresolvedText ? "未確定要件:\n{$unresolvedText}\n\n" : '')
             . "数量は常に人日単位（1人日=8時間）。0.5人日刻みで表現し、0.5人日未満は0.5人日に切り上げること。";
 
         try {
@@ -1354,8 +1421,9 @@ class EstimateController extends Controller
                 'content' => 'You are a Japanese sales engineer who proposes system development estimates. '
                     . 'Only use the provided product catalog. '
                     . 'Respond in JSON: { "items": [...], "notes": "..." }. '
-                    . 'Each item must have product_id(from catalog), summary(short JP sentence), person_days(number of person-days) '
-                    . 'and optional remarks. Items should cover設計/開発/テスト/PM at 3〜6 entries. '
+                    . 'Each item must have product_id(from catalog), summary(short JP sentence <=40 Japanese characters), person_days(number of person-days) '
+                    . 'and optional remarks. Make every summary concrete (feature + scope) and, when requirements mention specific technologies/frameworks/APIs/infrastructure, incorporate those keywords using compact notation (例: React+Nest, SAP連携). '
+                    . 'If additional nuance is needed, populate the optional remarks (<=40 Japanese characters) focusing on critical stack・連携条件. Items should cover設計/開発/テスト/PM at 3〜6 entries. '
                     . 'Create separate items for each distinct feature or screen even if the same product is reused, and include the feature name inside the summary (e.g., 「開発｜ダッシュボード」). '
                     . 'For UI/UX related tasks, split admin-side and end-user screens into different items when the requirements imply multiple audiences. '
                     . 'Include only one testing line named 「総合テスト」 and do not output other test types. '
@@ -1435,7 +1503,8 @@ class EstimateController extends Controller
             $description = $this->resolveFeatureDescription(
                 $item['summary'] ?? null,
                 $product->name,
-                $product->description
+                $product->description,
+                $item['detail'] ?? ($item['remarks'] ?? null)
             );
 
             $aiItems[] = [
@@ -1467,6 +1536,7 @@ class EstimateController extends Controller
                 'summary' => $validated['requirement_summary'],
                 'functional' => $validated['functional_requirements'] ?? [],
                 'non_functional' => $validated['non_functional_requirements'] ?? [],
+                'unresolved' => $validated['unresolved_requirements'] ?? [],
                 'pm_required' => (bool) $validated['pm_required'],
             ],
             $messages,

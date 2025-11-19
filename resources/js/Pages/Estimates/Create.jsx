@@ -308,7 +308,7 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
 
 const mapStructuredRequirements = (payload) => {
     if (!payload || typeof payload !== 'object') {
-        return { functional: [], nonFunctional: [] };
+        return { functional: [], nonFunctional: [], unresolved: [] };
     }
 
     const functional = Array.isArray(payload.functional)
@@ -323,10 +323,18 @@ const mapStructuredRequirements = (payload) => {
             : Array.isArray(payload.non_functional_requirements)
                 ? payload.non_functional_requirements
                 : [];
+    const unresolved = Array.isArray(payload.unresolved)
+        ? payload.unresolved
+        : Array.isArray(payload.unresolved_requirements)
+            ? payload.unresolved_requirements
+            : Array.isArray(payload.pending_requirements)
+                ? payload.pending_requirements
+                : [];
 
     return {
         functional,
         nonFunctional,
+        unresolved,
     };
 };
 
@@ -415,6 +423,15 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [chatLoading, setChatLoading] = useState(false);
     const [requirementsMode, setRequirementsMode] = useState('chat'); // 'chat' | 'manual'
     const chatStorageKey = estimate?.id ? `reqchat-estimate-${estimate.id}` : 'reqchat-new';
+    const lastAssistantMessage = useMemo(() => {
+        for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
+            if (chatMessages[i]?.role === 'assistant') {
+                return chatMessages[i];
+            }
+        }
+        return null;
+    }, [chatMessages]);
+    const lastAssistantContent = useMemo(() => lastAssistantMessage?.content?.trim() ?? '', [lastAssistantMessage]);
 
     const handleIssueMFQuote = () => {
         router.visit(route('estimates.createQuote.start', { estimate: estimate.id }));
@@ -487,12 +504,19 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     });
 
     const hasRequirementSummary = (data.requirement_summary ?? '').trim() !== '';
+    const canGenerateOverview = requirementsMode === 'chat'
+        ? Boolean(lastAssistantContent)
+        : hasRequirementSummary;
+    const canGenerateDraft = hasRequirementSummary || (requirementsMode === 'chat' && Boolean(lastAssistantContent));
 
     useEffect(() => {
-        const hasContent = structuredRequirements.functional.length > 0 || structuredRequirements.nonFunctional.length > 0;
+        const hasContent = structuredRequirements.functional.length > 0
+            || structuredRequirements.nonFunctional.length > 0
+            || structuredRequirements.unresolved.length > 0;
         setData('structured_requirements', hasContent ? {
             functional: structuredRequirements.functional,
             non_functional: structuredRequirements.nonFunctional,
+            unresolved: structuredRequirements.unresolved,
         } : null);
     }, [structuredRequirements]);
 
@@ -889,21 +913,31 @@ useEffect(() => {
         }
     };
 
-    const handleStructureRequirements = async () => {
+    const handleGenerateRequirementOverview = async () => {
         setStructureError(null);
-        if (!data.requirement_summary || data.requirement_summary.trim() === '') {
+        let summarySource = (data.requirement_summary || '').trim();
+        if (requirementsMode === 'chat') {
+            if (!lastAssistantContent) {
+                setStructureError('AI整理結果がありません。');
+                return;
+            }
+            summarySource = lastAssistantContent;
+            setData('requirement_summary', lastAssistantContent);
+        } else if (summarySource === '') {
             setStructureError('要件概要を入力してください。');
             return;
         }
+
         try {
             setIsStructuringRequirements(true);
             const response = await axios.post(route('estimates.ai.structure'), {
-                requirement_summary: data.requirement_summary,
+                requirement_summary: summarySource,
                 estimate_id: data.id ?? null,
             });
             setStructuredRequirements(mapStructuredRequirements({
                 functional: response?.data?.functional_requirements ?? [],
                 non_functional: response?.data?.non_functional_requirements ?? [],
+                unresolved: response?.data?.unresolved_requirements ?? [],
             }));
         } catch (error) {
             const message = error?.response?.data?.message ?? '要件整理に失敗しました。';
@@ -953,7 +987,12 @@ useEffect(() => {
 
     const handleGenerateAiDraft = async () => {
         setAiDraftError(null);
-        if (!data.requirement_summary || data.requirement_summary.trim() === '') {
+        let summarySource = (data.requirement_summary || '').trim();
+        if (!summarySource && requirementsMode === 'chat' && lastAssistantContent) {
+            summarySource = lastAssistantContent;
+            setData('requirement_summary', lastAssistantContent);
+        }
+        if (!summarySource) {
             setAiDraftError('要件概要を入力してください。');
             return;
         }
@@ -961,9 +1000,10 @@ useEffect(() => {
         try {
             setIsGeneratingAiDraft(true);
             const response = await axios.post(route('estimates.ai.generateDraft'), {
-                requirement_summary: data.requirement_summary,
+                requirement_summary: summarySource,
                 functional_requirements: structuredRequirements.functional,
                 non_functional_requirements: structuredRequirements.nonFunctional,
+                unresolved_requirements: structuredRequirements.unresolved,
                 pm_required: pmSupportRequired,
                 estimate_id: data.id ?? null,
             });
@@ -1103,14 +1143,6 @@ useEffect(() => {
         } finally {
             setChatLoading(false);
         }
-    };
-
-    const applyChatToSummary = () => {
-        const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
-        const fallback = [...chatMessages].reverse().find(m => m.role === 'user');
-        const content = lastAssistant?.content || fallback?.content;
-        if (!content) return;
-        setData('requirement_summary', content);
     };
 
     const submitWithApprovers = () => {
@@ -1396,24 +1428,6 @@ useEffect(() => {
                                                 placeholder="例: Salesforce連携と新承認フローの実装。ユーザー50名、モバイル対応必須。非機能として可用性99.9%と監査ログが必要。"
                                             />
                                         </div>
-                                        <div className="flex w-full flex-col gap-2 md:w-48">
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                onClick={handleStructureRequirements}
-                                                disabled={!hasRequirementSummary || isStructuringRequirements}
-                                            >
-                                                {isStructuringRequirements ? '整理中...' : '要件定義を整理'}
-                                            </Button>
-                                            <Button
-                                                type="button"
-                                                variant="secondary"
-                                                onClick={handleGenerateAiDraft}
-                                                disabled={!hasRequirementSummary || isGeneratingAiDraft}
-                                            >
-                                                {isGeneratingAiDraft ? '生成中...' : 'AIでドラフト生成'}
-                                            </Button>
-                                        </div>
                                     </div>
                                     )}
                                     {requirementsMode === 'chat' && isInternalView && (
@@ -1447,10 +1461,6 @@ useEffect(() => {
                         {!estimate?.id && (
                             <p className="text-xs text-muted-foreground">未保存の間はローカルで保持します（保存後はサーバに永続化されます）。</p>
                         )}
-                                                <div className="flex gap-2 text-xs text-muted-foreground">
-                                                    <Button type="button" variant="ghost" size="sm" onClick={applyChatToSummary} disabled={chatMessages.filter(m=>m.role==='assistant').length===0}>要件概要に反映</Button>
-                                                    <span>最終AI応答を要件概要欄にコピーします。</span>
-                                                </div>
                                             </div>
                                             <div className="space-y-2">
                                                 <Label className="text-sm font-medium">AI整理結果プレビュー</Label>
@@ -1463,10 +1473,35 @@ useEffect(() => {
                                             </div>
                                         </div>
                                     )}
+                                    <div className="space-y-2">
+                                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                onClick={handleGenerateRequirementOverview}
+                                                disabled={!canGenerateOverview || isStructuringRequirements}
+                                            >
+                                                {isStructuringRequirements ? '生成中...' : '要件概要を生成'}
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                variant="secondary"
+                                                onClick={handleGenerateAiDraft}
+                                                disabled={!canGenerateDraft || isGeneratingAiDraft}
+                                            >
+                                                {isGeneratingAiDraft ? '生成中...' : 'AIでドラフト見積生成'}
+                                            </Button>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            {requirementsMode === 'chat'
+                                                ? '最新のAI整理結果をもとに要件概要と見積ドラフトを生成します。'
+                                                : '要件概要の入力内容をもとに生成します。'}
+                                        </p>
+                                    </div>
                                     {structureError && (
                                         <p className="text-sm text-red-600">{structureError}</p>
                                     )}
-                                    <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="grid gap-4 md:grid-cols-3">
                                         <div>
                                             <p className="text-xs font-semibold text-slate-500">機能要件</p>
                                             {structuredRequirements.functional.length > 0 ? (
@@ -1485,6 +1520,18 @@ useEffect(() => {
                                                 <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
                                                     {structuredRequirements.nonFunctional.map((line, idx) => (
                                                         <li key={`nfr-${idx}`}>{line}</li>
+                                                    ))}
+                                                </ul>
+                                            ) : (
+                                                <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <p className="text-xs font-semibold text-slate-500">未確定要件</p>
+                                            {structuredRequirements.unresolved.length > 0 ? (
+                                                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                    {structuredRequirements.unresolved.map((line, idx) => (
+                                                        <li key={`unresolved-${idx}`}>{line}</li>
                                                     ))}
                                                 </ul>
                                             ) : (

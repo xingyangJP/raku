@@ -233,10 +233,11 @@ class MoneyForwardApiService
     {
         $items = [];
         foreach ($estimate->items as $item) {
+            [$price, $quantity] = $this->normalizeLinePriceAndQuantity($item);
             $items[] = [
                 'name' => $item['name'],
-                'price' => $item['price'],
-                'quantity' => $item['qty'],
+                'price' => $price,
+                'quantity' => $quantity,
                 'unit' => $item['unit'],
                 'detail' => $item['description'] ?? '',
             ];
@@ -292,10 +293,11 @@ class MoneyForwardApiService
                     default: $excise = 'ten_percent';
                 }
             }
+            [$price, $quantity] = $this->normalizeLinePriceAndQuantity($item);
             $mapped = [
                 'name' => ($item['name'] ?? $item['product_name'] ?? $item['code'] ?? $item['sku'] ?? ''),
-                'price' => $item['price'] ?? 0,
-                'quantity' => $item['qty'] ?? 1,
+                'price' => $price,
+                'quantity' => $quantity > 0 ? $quantity : 1,
                 'unit' => $item['unit'] ?? '式',
                 'detail' => $item['description'] ?? $item['detail'] ?? '',
             ];
@@ -404,10 +406,12 @@ class MoneyForwardApiService
 
             $displayMode = $item['display_mode'] ?? 'calculated';
 
+            [$unitPrice, $quantity] = $this->normalizeLinePriceAndQuantity($item);
+
             $items[] = [
                 'name' => $name,
-                'price' => (float) ($item['price'] ?? 0),
-                'quantity' => (float) ($item['qty'] ?? $item['quantity'] ?? 0),
+                'price' => $unitPrice,
+                'quantity' => $quantity,
                 'unit' => $item['unit'] ?? '',
                 'detail' => $item['description'] ?? '',
                 'excise' => $excise,
@@ -585,14 +589,24 @@ class MoneyForwardApiService
 
     public function updateDepartmentContact(string $partnerId, string $departmentId, array $contact, string $accessToken)
     {
-        $payload = array_intersect_key($contact, array_flip(['person_name', 'person_title']));
-        $payload = array_filter($payload, static fn($value) => $value !== null && $value !== '');
+        $payload = [];
+        foreach (['person_name', 'person_title', 'office_member_name'] as $field) {
+            if (array_key_exists($field, $contact) && $contact[$field] !== null) {
+                $payload[$field] = (string) $contact[$field];
+            }
+        }
 
         if (empty($payload)) {
             return false;
         }
 
         try {
+            Log::info('Money Forward department update request', [
+                'partner_id' => $partnerId,
+                'department_id' => $departmentId,
+                'payload' => $payload,
+            ]);
+
             $response = $this->client->put($this->apiUrl . "/partners/{$partnerId}/departments/{$departmentId}", [
                 'headers' => [
                     'Authorization' => 'Bearer ' . $accessToken,
@@ -611,7 +625,13 @@ class MoneyForwardApiService
                 return false;
             }
 
-            return json_decode($response->getBody()->getContents(), true);
+            $decoded = json_decode($response->getBody()->getContents(), true);
+            Log::info('Money Forward department update success', [
+                'partner_id' => $partnerId,
+                'department_id' => $departmentId,
+                'response' => $decoded,
+            ]);
+            return $decoded;
         } catch (RequestException $e) {
             $status = $e->getResponse() ? $e->getResponse()->getStatusCode() : null;
             $body = $e->getResponse() ? (string) $e->getResponse()->getBody() : null;
@@ -742,6 +762,24 @@ class MoneyForwardApiService
             report($e);
             return false;
         }
+    }
+
+    private function normalizeLinePriceAndQuantity(array $item): array
+    {
+        $price = (float) ($item['price'] ?? 0);
+        $quantity = (float) ($item['qty'] ?? $item['quantity'] ?? 0);
+        $displayMode = $item['display_mode'] ?? 'calculated';
+
+        if ($displayMode === 'lump') {
+            $baseQuantity = $quantity > 0 ? $quantity : (float) ($item['display_qty'] ?? 1);
+            if ($baseQuantity <= 0) {
+                $baseQuantity = 1;
+            }
+            $price = $price * $baseQuantity;
+            $quantity = 1.0;
+        }
+
+        return [$price, $quantity];
     }
 
     private function logRequestException(RequestException $e, string $action): void
