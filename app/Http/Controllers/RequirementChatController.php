@@ -85,6 +85,35 @@ class RequirementChatController extends Controller
         }
     }
 
+    public function importDraft(Request $request, Estimate $estimate)
+    {
+        $validated = $request->validate([
+            'messages' => ['required', 'array', 'min:1'],
+            'messages.*.role' => ['required', 'string', 'in:user,assistant'],
+            'messages.*.content' => ['required', 'string'],
+        ]);
+
+        $thread = $this->getOrCreateThread($estimate);
+
+        foreach ($validated['messages'] as $message) {
+            $meta = $message['role'] === 'user'
+                ? ['user_id' => Auth::id()]
+                : ['source' => 'ai'];
+
+            $thread->messages()->create([
+                'role' => $message['role'],
+                'content' => $message['content'],
+                'meta' => $meta,
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'ok',
+            'thread_id' => $thread->id,
+            'messages' => $thread->messages()->orderBy('created_at')->get(),
+        ], 201);
+    }
+
     private function getOrCreateThread(Estimate $estimate): RequirementChatThread
     {
         return RequirementChatThread::firstOrCreate(

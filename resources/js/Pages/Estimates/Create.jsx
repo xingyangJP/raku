@@ -1,6 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, useForm, router } from '@inertiajs/react';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Textarea } from '@/Components/ui/textarea';
@@ -441,6 +441,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     };
 
     const [draftChatKey, setDraftChatKey] = useState(() => (!estimate?.id ? createDraftChatKey() : null));
+    const draftLocalStorageKey = draftChatKey ? `reqchat-${draftChatKey}` : null;
     const chatStorageKey = useMemo(() => {
         if (estimate?.id) {
             return `reqchat-estimate-${estimate.id}`;
@@ -553,22 +554,62 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         setLineItems(transformIncomingItems(estimate?.items));
     }, [estimate?.items]);
 
-    useEffect(() => {
-        if (estimate?.id) {
-            if (typeof window !== 'undefined') {
-                window.sessionStorage.removeItem('reqchat-active-draft-key');
+    const clearDraftChatStorage = useCallback(() => {
+        if (typeof window !== 'undefined') {
+            if (draftLocalStorageKey) {
+                window.localStorage.removeItem(draftLocalStorageKey);
             }
-            setDraftChatKey(null);
-        } else {
+            window.sessionStorage.removeItem('reqchat-active-draft-key');
+        }
+        setDraftChatKey(null);
+    }, [draftLocalStorageKey]);
+
+    useEffect(() => {
+        if (!estimate?.id) {
             setDraftChatKey((prev) => {
                 if (prev) {
                     return prev;
                 }
-                const next = createDraftChatKey();
-                return next;
+                return createDraftChatKey();
             });
         }
     }, [estimate?.id]);
+
+    useEffect(() => {
+        const syncDraftChat = async () => {
+            if (!estimate?.id || !draftLocalStorageKey || typeof window === 'undefined') {
+                return;
+            }
+            const cached = window.localStorage.getItem(draftLocalStorageKey);
+            if (!cached) {
+                clearDraftChatStorage();
+                return;
+            }
+            let parsed;
+            try {
+                parsed = JSON.parse(cached);
+            } catch (error) {
+                console.warn('Failed to parse draft chat cache', error);
+                clearDraftChatStorage();
+                return;
+            }
+            if (!Array.isArray(parsed) || parsed.length === 0) {
+                clearDraftChatStorage();
+                return;
+            }
+            try {
+                await axios.post(route('estimates.requirementChat.import', estimate.id), {
+                    messages: parsed.map(({ role, content }) => ({ role, content })),
+                });
+                clearDraftChatStorage();
+                loadChat();
+            } catch (error) {
+                console.error('Failed to import draft chat history', error);
+            }
+        };
+        syncDraftChat();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [estimate?.id, draftLocalStorageKey]);
 
     useEffect(() => {
         setChatMessages([]);
@@ -580,7 +621,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         if (!estimate?.id && typeof window !== 'undefined') {
             window.sessionStorage.removeItem('reqchat-active-draft-key');
         }
-    }, []);
+    }, [estimate?.id]);
 
     useEffect(() => {
         if (data.status !== 'sent' && data.is_order_confirmed) {

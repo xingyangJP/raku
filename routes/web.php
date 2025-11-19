@@ -75,6 +75,7 @@ Route::middleware('auth')->group(function () {
     // 要件整理チャット（ドラフト・内部用）
     Route::get('/estimates/{estimate}/requirement-chat', [RequirementChatController::class, 'show'])->name('estimates.requirementChat.show');
     Route::post('/estimates/{estimate}/requirement-chat', [RequirementChatController::class, 'store'])->name('estimates.requirementChat.store');
+    Route::post('/estimates/{estimate}/requirement-chat/import', [RequirementChatController::class, 'importDraft'])->name('estimates.requirementChat.import');
     // 新規見積用の一時チャット（永続化なし）
     Route::post('/requirement-chat/draft', [RequirementChatController::class, 'draft'])->name('estimates.requirementChat.draft');
     Route::post('/estimates/ai/structure', [App\Http\Controllers\EstimateController::class, 'structureRequirementSummary'])->name('estimates.ai.structure');
