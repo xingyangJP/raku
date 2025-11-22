@@ -21,4 +21,9 @@ class MaintenanceFeeSnapshot extends Model
         'total_fee' => 'float',
         'total_gross' => 'float',
     ];
+
+    public function items()
+    {
+        return $this->hasMany(MaintenanceFeeSnapshotItem::class, 'maintenance_fee_snapshot_id');
+    }
 }

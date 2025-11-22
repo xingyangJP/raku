@@ -6,22 +6,33 @@ import { Input } from '@/Components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
 import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Edit2, Save, X, Trash2, Plus } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select';
 import { ResponsiveContainer, LineChart, Line, XAxis, Tooltip } from 'recharts';
 
 const formatCurrency = (value) => `¥${Number(value || 0).toLocaleString()}`;
+const formatNumber = (value) => Number(value || 0).toLocaleString();
 
 export default function MaintenanceFeesIndex() {
     const { items, summary, filters, chart } = usePage().props;
     const [search, setSearch] = useState(filters?.search ?? '');
     const availableYears = filters?.available_years || [];
     const initialMonth = filters?.selected_month || '';
+    const now = new Date();
+    const fallbackYear = now.getFullYear().toString();
+    const fallbackMonth = String(now.getMonth() + 1).padStart(2, '0');
     const initialYear = initialMonth
         ? initialMonth.split('-')[0]
-        : (availableYears[availableYears.length - 1] || '');
+        : (availableYears[availableYears.length - 1] || fallbackYear);
     const [year, setYear] = useState(initialYear);
-    const [month, setMonth] = useState(initialMonth ? initialMonth.split('-')[1] : '');
+    const [month, setMonth] = useState(initialMonth ? initialMonth.split('-')[1] : fallbackMonth);
+    const [editingMode, setEditingMode] = useState(false);
+    const [localItems, setLocalItems] = useState(items || []);
+    const [newRow, setNewRow] = useState({ customer_name: '', maintenance_fee: '', status: '', support_type: '' });
+
+    useEffect(() => {
+        setLocalItems(items || []);
+    }, [items]);
 
     const monthOptions = useMemo(() => {
         const byYear = filters?.months_by_year || {};
@@ -44,25 +55,65 @@ export default function MaintenanceFeesIndex() {
     };
 
     const filteredItems = useMemo(() => {
-        return items.filter((item) => {
+        return localItems.filter((item) => {
             if (search && !item.customer_name.toLowerCase().includes(search.toLowerCase())) {
                 return false;
             }
             return true;
         });
-    }, [items, search]);
+    }, [localItems, search]);
+
+    const handleRowChange = (id, field, value) => {
+        setLocalItems((prev) =>
+            prev.map((item) => item.id === id ? { ...item, [field]: value } : item)
+        );
+    };
+
+    const handleRowSave = (row) => {
+        if (!row.id) return;
+        router.patch(route('maintenance-fees.items.update', row.id), {
+            customer_name: row.customer_name,
+            maintenance_fee: row.maintenance_fee,
+            status: row.status,
+            support_type: row.support_type,
+        }, { preserveScroll: true });
+    };
+
+    const handleRowDelete = (row) => {
+        if (!row.id) return;
+        if (!confirm('この明細を削除しますか？')) return;
+        router.delete(route('maintenance-fees.items.delete', row.id), { preserveScroll: true });
+    };
+
+    const handleAddRow = () => {
+        if (!year || !month) return;
+        if (!newRow.customer_name || newRow.maintenance_fee === '') return;
+        router.post(route('maintenance-fees.items.store'), {
+            month: `${year}-${month}`,
+            ...newRow,
+        }, {
+            preserveScroll: true,
+            onSuccess: () => setNewRow({ customer_name: '', maintenance_fee: '', status: '', support_type: '' }),
+        });
+    };
 
     return (
         <AuthenticatedLayout header="保守売上管理">
             <Head title="保守売上管理" />
             <div className="container mx-auto py-6 space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                     <h1 className="text-2xl font-semibold">保守売上管理</h1>
-                    <Button variant="outline" onClick={() => window.location.reload()} className="flex items-center gap-2">
-                        <RefreshCw className="h-4 w-4" />
-                        リロード
-                </Button>
-            </div>
+                    <div className="flex items-center gap-2">
+                        <Button variant={editingMode ? 'default' : 'outline'} onClick={() => setEditingMode((v) => !v)} className="flex items-center gap-2">
+                            <Edit2 className="h-4 w-4" />
+                            {editingMode ? '編集モード: ON' : '編集モード'}
+                        </Button>
+                        <Button variant="outline" onClick={() => window.location.reload()} className="flex items-center gap-2">
+                            <RefreshCw className="h-4 w-4" />
+                            リロード
+                        </Button>
+                    </div>
+                </div>
 
             <div className="grid gap-4 sm:grid-cols-3">
                 <SummaryCard title="月額保守合計" value={formatCurrency(summary?.total_fee ?? 0)} />
@@ -116,10 +167,6 @@ export default function MaintenanceFeesIndex() {
                             </SelectContent>
                         </Select>
                         <Button variant="secondary" onClick={applyMonthFilter} disabled={!year || !month}>月を適用</Button>
-                        <Button variant="outline" onClick={() => window.location.reload()} className="flex items-center gap-2">
-                            <RefreshCw className="h-4 w-4" />
-                            リロード
-                        </Button>
                     </div>
                     <Input
                         placeholder="顧客名で検索"
@@ -135,6 +182,39 @@ export default function MaintenanceFeesIndex() {
                     <CardTitle>月額保守一覧</CardTitle>
                 </CardHeader>
                 <CardContent>
+                    {editingMode && (
+                        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <Input
+                                placeholder="顧客名"
+                                value={newRow.customer_name}
+                                onChange={(e) => setNewRow((r) => ({ ...r, customer_name: e.target.value }))}
+                                className="w-full sm:w-64"
+                            />
+                            <Input
+                                placeholder="金額"
+                                type="number"
+                                value={newRow.maintenance_fee}
+                                onChange={(e) => setNewRow((r) => ({ ...r, maintenance_fee: e.target.value }))}
+                                className="w-full sm:w-32"
+                            />
+                            <Input
+                                placeholder="サポート種別"
+                                value={newRow.support_type}
+                                onChange={(e) => setNewRow((r) => ({ ...r, support_type: e.target.value }))}
+                                className="w-full sm:w-40"
+                            />
+                            <Input
+                                placeholder="ステータス"
+                                value={newRow.status}
+                                onChange={(e) => setNewRow((r) => ({ ...r, status: e.target.value }))}
+                                className="w-full sm:w-32"
+                            />
+                            <Button onClick={handleAddRow} variant="secondary" className="flex items-center gap-2">
+                                <Plus className="h-4 w-4" />
+                                行を追加
+                            </Button>
+                        </div>
+                    )}
                     {filteredItems.length === 0 ? (
                         <p className="text-slate-500 text-sm">月額保守料金が設定された顧客がありません。</p>
                     ) : (
@@ -145,33 +225,72 @@ export default function MaintenanceFeesIndex() {
                                     <TableHead>サポート種別</TableHead>
                                     <TableHead>ステータス</TableHead>
                                     <TableHead className="text-right">月額保守料金</TableHead>
+                                    {editingMode && <TableHead className="text-center w-32">操作</TableHead>}
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {filteredItems.map((item, idx) => (
                                     <TableRow key={`${item.customer_name}-${idx}`}>
-                                        <TableCell className="font-medium">{item.customer_name}</TableCell>
+                                        <TableCell className="font-medium">
+                                            {editingMode ? (
+                                                <Input
+                                                    value={item.customer_name}
+                                                    onChange={(e) => handleRowChange(item.id, 'customer_name', e.target.value)}
+                                                />
+                                            ) : item.customer_name}
+                                        </TableCell>
                                         <TableCell className="space-x-1">
-                                            {Array.isArray(item.support_types) && item.support_types.length > 0 ? (
-                                                item.support_types.map((t, i) => (
-                                                    <Badge key={`${t}-${i}`} variant="secondary">{t}</Badge>
-                                                ))
+                                            {editingMode ? (
+                                                <Input
+                                                    value={item.support_type || ''}
+                                                    onChange={(e) => handleRowChange(item.id, 'support_type', e.target.value)}
+                                                />
                                             ) : (
-                                                item.support_type
-                                                    ? <Badge variant="secondary">{item.support_type}</Badge>
-                                                    : <span className="text-slate-400 text-sm">未設定</span>
+                                                Array.isArray(item.support_types) && item.support_types.length > 0 ? (
+                                                    item.support_types.map((t, i) => (
+                                                        <Badge key={`${t}-${i}`} variant="secondary">{t}</Badge>
+                                                    ))
+                                                ) : (
+                                                    item.support_type
+                                                        ? <Badge variant="secondary">{item.support_type}</Badge>
+                                                        : <span className="text-slate-400 text-sm">未設定</span>
+                                                )
                                             )}
                                         </TableCell>
                                         <TableCell>
-                                            {item.status ? (
-                                                <Badge variant="outline" className="text-slate-700">
-                                                    {item.status}
-                                                </Badge>
+                                            {editingMode ? (
+                                                <Input
+                                                    value={item.status || ''}
+                                                    onChange={(e) => handleRowChange(item.id, 'status', e.target.value)}
+                                                />
                                             ) : (
-                                                <span className="text-slate-400 text-sm">未設定</span>
+                                                item.status
+                                                    ? <Badge variant="outline" className="text-slate-700">{item.status}</Badge>
+                                                    : <span className="text-slate-400 text-sm">未設定</span>
                                             )}
                                         </TableCell>
-                                        <TableCell className="text-right font-semibold">{formatCurrency(item.maintenance_fee)}</TableCell>
+                                        <TableCell className="text-right font-semibold">
+                                            {editingMode ? (
+                                                <Input
+                                                    type="number"
+                                                    value={item.maintenance_fee}
+                                                    onChange={(e) => handleRowChange(item.id, 'maintenance_fee', e.target.value)}
+                                                    className="text-right"
+                                                />
+                                            ) : formatCurrency(item.maintenance_fee)}
+                                        </TableCell>
+                                        {editingMode && (
+                                            <TableCell className="text-center">
+                                                <div className="flex justify-center gap-2">
+                                                    <Button size="icon" variant="secondary" onClick={() => handleRowSave(item)}>
+                                                        <Save className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button size="icon" variant="outline" onClick={() => handleRowDelete(item)}>
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            </TableCell>
+                                        )}
                                     </TableRow>
                                 ))}
                             </TableBody>

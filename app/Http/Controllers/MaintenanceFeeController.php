@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
 use App\Models\MaintenanceFeeSnapshot;
 use Carbon\Carbon;
+use App\Models\MaintenanceFeeSnapshotItem;
 
 class MaintenanceFeeController extends Controller
 {
@@ -18,32 +19,25 @@ class MaintenanceFeeController extends Controller
 
         $snapshots = MaintenanceFeeSnapshot::query()
             ->orderBy('month')
-            ->get(['month', 'total_fee', 'total_gross']);
+            ->get();
 
-        $snapshotMonths = $snapshots->pluck('month')->filter()->unique()->values();
+        $snapshotMonths = $snapshots->pluck('month')
+            ->filter()
+            ->map(function ($m) {
+                return $m instanceof Carbon ? $m->toDateString() : (string) $m;
+            })
+            ->unique()
+            ->values();
         if ($selectedMonth === '' && $snapshotMonths->isNotEmpty()) {
             $selectedMonth = $snapshotMonths->last();
         }
 
-        $snapshotSummary = null;
-        if ($selectedMonth !== '') {
-            $snapshotSummary = $snapshots->firstWhere('month', $selectedMonth);
-        }
+        $snapshot = $this->getOrCreateSnapshotWithItems($selectedMonth);
+        $itemsCollection = $snapshot ? $snapshot->items : collect();
 
-        $customers = $this->fetchCustomers();
-
-        // 0円を除外
-        $filtered = collect($customers)
+        $filtered = $itemsCollection
             ->filter(function ($c) {
-                $fee = $c['maintenance_fee'] ?? 0;
-                $status = (string) ($c['status'] ?? $c['customer_status'] ?? $c['status_name'] ?? '');
-                if ($status !== '' && (
-                    mb_stripos($status, '休止') !== false ||
-                    mb_strtolower($status) === 'inactive'
-                )) {
-                    return false;
-                }
-                return $fee > 0;
+                return (float) ($c['maintenance_fee'] ?? 0) > 0;
             })
             ->filter(function ($c) use ($search, $supportType) {
                 if ($search !== '') {
@@ -53,9 +47,8 @@ class MaintenanceFeeController extends Controller
                     }
                 }
                 if ($supportType !== '') {
-                    $rawSupport = $c['support_type'] ?? '';
-                    $supportStr = is_array($rawSupport) ? implode(' ', $rawSupport) : (string) $rawSupport;
-                    return $supportStr === $supportType || (is_array($rawSupport) && in_array($supportType, $rawSupport, true));
+                    $supportStr = (string) ($c['support_type'] ?? '');
+                    return $supportStr === $supportType;
                 }
                 return true;
             })
@@ -92,26 +85,26 @@ class MaintenanceFeeController extends Controller
 
         return Inertia::render('MaintenanceFees/Index', [
             'items' => $filtered->map(function ($c) {
-                $status = (string) ($c['status'] ?? $c['customer_status'] ?? $c['status_name'] ?? '');
-                $rawSupport = $c['support_type'] ?? '';
-                $supportTypes = collect(is_array($rawSupport) ? $rawSupport : preg_split('/[\\s,、\\/]+/u', (string) $rawSupport))
+                $supportStr = (string) ($c['support_type'] ?? '');
+                $supportTypes = collect(preg_split('/[\\s,、\\/]+/u', $supportStr))
                     ->filter(fn ($s) => $s !== '')
                     ->values()
                     ->all();
 
                 return [
+                    'id' => $c['id'] ?? null,
                     'customer_name' => $c['customer_name'] ?? '',
-                    'support_type' => is_array($rawSupport) ? implode(' ', $rawSupport) : $rawSupport,
+                    'support_type' => $supportStr,
                     'support_types' => $supportTypes,
                     'maintenance_fee' => (float) ($c['maintenance_fee'] ?? 0),
-                    'status' => $status,
+                    'status' => (string) ($c['status'] ?? ''),
                 ];
             }),
             'summary' => [
-                'total_fee' => $snapshotSummary?->total_fee ?? $totalFee,
+                'total_fee' => $snapshot?->total_fee ?? $totalFee,
                 'active_count' => $activeCount,
                 'average_fee' => $activeCount > 0 ? ($totalFee / $activeCount) : 0,
-                'snapshot_month' => $snapshotSummary?->month,
+                'snapshot_month' => $snapshot?->month?->toDateString(),
             ],
             'filters' => [
                 'search' => $search,
@@ -122,11 +115,124 @@ class MaintenanceFeeController extends Controller
                 'months_by_year' => $monthsByYear,
             ],
             'snapshots' => $snapshots->map(fn ($s) => [
-                'month' => $s->month,
+                'month' => optional($s->month)->toDateString(),
                 'total_fee' => (float) $s->total_fee,
             ]),
             'chart' => $chart,
         ]);
+    }
+
+    public function storeItem(Request $request)
+    {
+        $data = $request->validate([
+            'month' => 'required|date_format:Y-m',
+            'customer_name' => 'required|string|max:255',
+            'maintenance_fee' => 'required|numeric|min:0',
+            'status' => 'nullable|string|max:100',
+            'support_type' => 'nullable|string|max:255',
+        ]);
+
+        $snapshot = $this->getOrCreateSnapshotWithItems($data['month']);
+        if (!$snapshot) {
+            return back()->withErrors(['month' => 'スナップショットが作成できませんでした。']);
+        }
+
+        MaintenanceFeeSnapshotItem::create([
+            'maintenance_fee_snapshot_id' => $snapshot->id,
+            'customer_name' => $data['customer_name'],
+            'maintenance_fee' => $data['maintenance_fee'],
+            'status' => $data['status'] ?? null,
+            'support_type' => $data['support_type'] ?? null,
+        ]);
+
+        $this->recalculateSnapshotTotal($snapshot);
+
+        return redirect()->route('maintenance-fees.index', ['month' => $snapshot->month->format('Y-m')]);
+    }
+
+    public function updateItem(Request $request, MaintenanceFeeSnapshotItem $item)
+    {
+        $data = $request->validate([
+            'customer_name' => 'required|string|max:255',
+            'maintenance_fee' => 'required|numeric|min:0',
+            'status' => 'nullable|string|max:100',
+            'support_type' => 'nullable|string|max:255',
+        ]);
+
+        $item->update($data);
+        $this->recalculateSnapshotTotal($item->snapshot);
+
+        return redirect()->route('maintenance-fees.index', ['month' => $item->snapshot->month->format('Y-m')]);
+    }
+
+    public function deleteItem(MaintenanceFeeSnapshotItem $item)
+    {
+        $snapshot = $item->snapshot;
+        $item->delete();
+        if ($snapshot) {
+            $this->recalculateSnapshotTotal($snapshot);
+        }
+        return redirect()->route('maintenance-fees.index', ['month' => optional($snapshot?->month)->format('Y-m')]);
+    }
+
+    private function recalculateSnapshotTotal(MaintenanceFeeSnapshot $snapshot): void
+    {
+        $sum = $snapshot->items()->sum('maintenance_fee');
+        $snapshot->total_fee = $sum;
+        $snapshot->total_gross = $sum;
+        $snapshot->save();
+    }
+
+    private function getOrCreateSnapshotWithItems(?string $monthInput): ?MaintenanceFeeSnapshot
+    {
+        if ($monthInput === null || $monthInput === '') {
+            return null;
+        }
+        $month = Carbon::createFromFormat('Y-m', $monthInput)->startOfMonth();
+        $snapshot = MaintenanceFeeSnapshot::with('items')->whereDate('month', $month)->first();
+        if ($snapshot) {
+            return $snapshot;
+        }
+
+        $customers = $this->fetchCustomers();
+        $snapshot = MaintenanceFeeSnapshot::create([
+            'month' => $month,
+            'total_fee' => 0,
+            'total_gross' => 0,
+            'source' => 'api',
+        ]);
+
+        $rows = [];
+        foreach ($customers as $c) {
+            $fee = (float) ($c['maintenance_fee'] ?? 0);
+            $status = (string) ($c['status'] ?? $c['customer_status'] ?? $c['status_name'] ?? '');
+            if ($status !== '' && (
+                mb_stripos($status, '休止') !== false ||
+                mb_strtolower($status) === 'inactive'
+            )) {
+                continue;
+            }
+            if ($fee <= 0) {
+                continue;
+            }
+            $rawSupport = $c['support_type'] ?? '';
+            $supportStr = is_array($rawSupport) ? implode(' ', $rawSupport) : (string) $rawSupport;
+            $rows[] = [
+                'maintenance_fee_snapshot_id' => $snapshot->id,
+                'customer_name' => $c['customer_name'] ?? '',
+                'maintenance_fee' => $fee,
+                'status' => $status,
+                'support_type' => $supportStr,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+
+        if (!empty($rows)) {
+            MaintenanceFeeSnapshotItem::insert($rows);
+        }
+        $this->recalculateSnapshotTotal($snapshot->fresh('items'));
+        return $snapshot->fresh('items');
     }
 
     private function fetchCustomers(): array
