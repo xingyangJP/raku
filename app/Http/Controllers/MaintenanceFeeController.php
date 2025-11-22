@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Inertia\Inertia;
+use App\Models\MaintenanceFeeSnapshot;
+use Carbon\Carbon;
 
 class MaintenanceFeeController extends Controller
 {
@@ -12,6 +14,21 @@ class MaintenanceFeeController extends Controller
     {
         $search = trim((string) $request->query('search', ''));
         $supportType = trim((string) $request->query('support_type', ''));
+        $selectedMonth = trim((string) $request->query('month', ''));
+
+        $snapshots = MaintenanceFeeSnapshot::query()
+            ->orderBy('month')
+            ->get(['month', 'total_fee', 'total_gross']);
+
+        $snapshotMonths = $snapshots->pluck('month')->filter()->unique()->values();
+        if ($selectedMonth === '' && $snapshotMonths->isNotEmpty()) {
+            $selectedMonth = $snapshotMonths->last();
+        }
+
+        $snapshotSummary = null;
+        if ($selectedMonth !== '') {
+            $snapshotSummary = $snapshots->firstWhere('month', $selectedMonth);
+        }
 
         $customers = $this->fetchCustomers();
 
@@ -58,6 +75,21 @@ class MaintenanceFeeController extends Controller
             ->values()
             ->all();
 
+        $chart = $snapshots->sortByDesc('month')->take(6)->sortBy('month')->values()->map(function ($s) {
+            return [
+                'month' => $s->month,
+                'label' => Carbon::parse($s->month)->format('Y/m'),
+                'total' => (float) $s->total_fee,
+            ];
+        });
+
+        $availableYears = $snapshotMonths->map(fn ($m) => substr($m, 0, 4))->unique()->values();
+        $monthsByYear = $snapshotMonths
+            ->groupBy(fn ($m) => substr($m, 0, 4))
+            ->map(function ($list) {
+                return $list->map(fn ($m) => substr($m, 5, 2))->unique()->values();
+            });
+
         return Inertia::render('MaintenanceFees/Index', [
             'items' => $filtered->map(function ($c) {
                 $status = (string) ($c['status'] ?? $c['customer_status'] ?? $c['status_name'] ?? '');
@@ -76,15 +108,24 @@ class MaintenanceFeeController extends Controller
                 ];
             }),
             'summary' => [
-                'total_fee' => $totalFee,
+                'total_fee' => $snapshotSummary?->total_fee ?? $totalFee,
                 'active_count' => $activeCount,
-                'average_fee' => $averageFee,
+                'average_fee' => $activeCount > 0 ? ($totalFee / $activeCount) : 0,
+                'snapshot_month' => $snapshotSummary?->month,
             ],
             'filters' => [
                 'search' => $search,
                 'support_type' => $supportType,
                 'support_type_options' => $supportTypes,
+                'selected_month' => $selectedMonth,
+                'available_years' => $availableYears,
+                'months_by_year' => $monthsByYear,
             ],
+            'snapshots' => $snapshots->map(fn ($s) => [
+                'month' => $s->month,
+                'total_fee' => (float) $s->total_fee,
+            ]),
+            'chart' => $chart,
         ]);
     }
 
