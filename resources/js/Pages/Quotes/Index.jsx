@@ -457,12 +457,15 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
 
     const confirmedEstimates = filteredEstimates.filter((est) => est.is_order_confirmed);
     const confirmedAmount = confirmedEstimates.reduce((sum, est) => sum + (est.total_amount || 0), 0);
+    const confirmedAmountWithMaintenance = confirmedAmount + maintenanceFee; // 保守は常に実績に含める
     const confirmedGross = confirmedEstimates.reduce((sum, est) => sum + sumEstimateGross(est), 0);
     const confirmedGrossWithMaintenance = confirmedGross + maintenanceFee; // 保守は実績も同額
     const confirmedEffort = confirmedEstimates.reduce((sum, est) => sum + sumEstimateEffort(est), 0);
     const confirmedFirstDivisionCost = confirmedEstimates.reduce((sum, est) => sum + calculateFirstDivisionCost(est?.items), 0);
     const confirmedCount = confirmedEstimates.length;
-    const executionRate = totalAmountWithMaintenance > 0 ? Math.round((confirmedAmount / totalAmountWithMaintenance) * 100) : 0;
+    const executionRate = totalAmountWithMaintenance > 0
+        ? Math.round((confirmedAmountWithMaintenance / totalAmountWithMaintenance) * 100)
+        : 0;
 
     return (
         <AuthenticatedLayout 
@@ -590,12 +593,22 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                         </CardHeader>
                         <CardContent>
                             <div className="text-2xl font-bold text-green-900">
-                                ¥{confirmedAmount.toLocaleString()}
+                                ¥{confirmedAmountWithMaintenance.toLocaleString()}
                             </div>
-                            <p className="text-xs text-green-600 flex items-center mt-1">
-                                <ClipboardCheck className="h-3 w-3 mr-1" />
-                                注文確定済みの合計
-                            </p>
+                            <div className="text-xs text-green-700 mt-1 space-y-1">
+                                <div className="flex items-center">
+                                    <ClipboardCheck className="h-3 w-3 mr-1" />
+                                    <span>注文確定済みの合計</span>
+                                </div>
+                                <div className="flex items-center ml-4">
+                                    <span className="mr-1">スポット</span>
+                                    <span>{formatCurrency(confirmedAmount)}</span>
+                                </div>
+                                <div className="flex items-center ml-4">
+                                    <span className="mr-1">保守</span>
+                                    <span>{formatCurrency(maintenanceFee)}</span>
+                                </div>
+                            </div>
                         </CardContent>
                         <div className="absolute -right-6 -top-6 h-20 w-20 rounded-full bg-green-200 opacity-20" />
                     </Card>

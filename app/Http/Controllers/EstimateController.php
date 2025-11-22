@@ -296,7 +296,10 @@ class EstimateController extends Controller
             'to' => $toMonth,
         ];
 
-        $maintenanceFee = $this->fetchMaintenanceTotal($currentMonth);
+        // フィルタに指定された月があればそれを優先して保守合計を計算（無ければ今月）
+        $maintenanceTargetMonth = $fromMonth ?? $toMonth ?? $currentMonth->format('Y-m');
+        $maintenanceMonthCarbon = Carbon::createFromFormat('Y-m', $maintenanceTargetMonth, $timezone) ?: $currentMonth;
+        $maintenanceFee = $this->fetchMaintenanceTotal($maintenanceMonthCarbon);
 
         return Inertia::render('Quotes/Index', [
             'estimates' => $estimates,
@@ -310,7 +313,7 @@ class EstimateController extends Controller
             'focusEstimateId' => $focusEstimateId,
             'customerPortalBase' => rtrim(config('services.customer_portal.base_url', 'https://pm.xerographix.co.jp/customers'), '/'),
             'maintenance_fee_total' => $maintenanceFee,
-            'maintenance_month' => $currentMonth->format('Y-m'),
+            'maintenance_month' => $maintenanceMonthCarbon->format('Y-m'),
         ]);
     }
 
