@@ -62,6 +62,7 @@
 - Money Forward へ送信する際、`department_id` と `partner_id` は必須。欠けている場合はエラーメッセージを表示し、ダッシュボードから再同期する。
 - `quote_number` は Money Forward 側の制約に合わせ 30 文字以内にトリム（`MoneyForwardApiService::createQuoteFromEstimate`）。
 - PDF 取得時にトークンが失効している場合は自動で OAuth を再実行。
+- 粗利率チェック: 第5種の粗利率が 30% 未満、または第1種の粗利率が 5% 未満のときは承認申請不可。社内メモ必須かつ承認者に「守部幸洋」または「吉井靖人」を含める必要がある。
 
 ## Recommended Test Scenarios
 1. 新規作成 → 承認申請 → 申請取消 → 再申請 → 承認完了。

@@ -582,14 +582,21 @@ class EstimateController extends Controller
         }
 
         $errors = [];
-        $grossRate = $this->calculateGrossMarginRate($validated['items'] ?? [], 'type5');
-        if ($grossRate < 0.3) {
+        $grossRateType5 = $this->calculateGrossMarginRate($validated['items'] ?? [], 'type5');
+        $grossRateType1 = $this->calculateGrossMarginRate($validated['items'] ?? [], 'type1');
+        $isLowMarginType5 = $grossRateType5 < 0.3;
+        $isLowMarginType1 = $grossRateType1 < 0.05;
+        if ($isLowMarginType5 || $isLowMarginType1) {
             $memo = trim((string) ($validated['internal_memo'] ?? ''));
+            $lowMarginContext = [];
+            if ($isLowMarginType5) { $lowMarginContext[] = '第5種粗利率30%未満'; }
+            if ($isLowMarginType1) { $lowMarginContext[] = '第1種粗利率5%未満'; }
+            $contextText = $lowMarginContext ? implode(' / ', $lowMarginContext) . 'の場合、' : '粗利率が低い場合、';
             if ($memo === '') {
-                $errors['internal_memo'] = '粗利率30%未満の場合、社内メモは必須です。';
+                $errors['internal_memo'] = $contextText . '社内メモは必須です。';
             }
             if (!$this->approvalFlowIncludesRequiredApprover($validated['approval_flow'] ?? [])) {
-                $errors['approval_flow'] = '粗利率30%未満の場合、承認者に「守部幸洋」または「吉井靖人」を含めてください。';
+                $errors['approval_flow'] = $contextText . '承認者に「守部幸洋」または「吉井靖人」を含めてください。';
             }
         }
         if (!empty($errors)) {
@@ -750,14 +757,21 @@ class EstimateController extends Controller
         $validated['is_order_confirmed'] = $status === 'sent' ? $requestedOrderConfirmed : false;
 
         $errors = [];
-        $grossRate = $this->calculateGrossMarginRate($validated['items'] ?? [], 'type5');
-        if ($grossRate < 0.3) {
+        $grossRateType5 = $this->calculateGrossMarginRate($validated['items'] ?? [], 'type5');
+        $grossRateType1 = $this->calculateGrossMarginRate($validated['items'] ?? [], 'type1');
+        $isLowMarginType5 = $grossRateType5 < 0.3;
+        $isLowMarginType1 = $grossRateType1 < 0.05;
+        if ($isLowMarginType5 || $isLowMarginType1) {
             $memo = trim((string) ($validated['internal_memo'] ?? ''));
+            $lowMarginContext = [];
+            if ($isLowMarginType5) { $lowMarginContext[] = '第5種粗利率30%未満'; }
+            if ($isLowMarginType1) { $lowMarginContext[] = '第1種粗利率5%未満'; }
+            $contextText = $lowMarginContext ? implode(' / ', $lowMarginContext) . 'の場合、' : '粗利率が低い場合、';
             if ($memo === '') {
-                $errors['internal_memo'] = '粗利率30%未満の場合、社内メモは必須です。';
+                $errors['internal_memo'] = $contextText . '社内メモは必須です。';
             }
             if (!$this->approvalFlowIncludesRequiredApprover($validated['approval_flow'] ?? [])) {
-                $errors['approval_flow'] = '粗利率30%未満の場合、承認者に「守部幸洋」または「吉井靖人」を含めてください。';
+                $errors['approval_flow'] = $contextText . '承認者に「守部幸洋」または「吉井靖人」を含めてください。';
             }
         }
         if (!empty($errors)) {
@@ -949,9 +963,8 @@ class EstimateController extends Controller
         $cost = 0.0;
         $matched = false;
         foreach ($items as $item) {
-            if ($category === 'type5' && !$this->isTypeFiveItem($item)) {
-                continue;
-            }
+            if ($category === 'type5' && !$this->isTypeFiveItem($item)) { continue; }
+            if ($category === 'type1' && !$this->isTypeOneItem($item)) { continue; }
             $matched = true;
             $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
             if ($qty === 0.0) { $qty = 1.0; }
@@ -981,6 +994,25 @@ class EstimateController extends Controller
             return true;
         }
         if (preg_match('/\b5\s*種/u', $text)) {
+            return true;
+        }
+        return false;
+    }
+
+    private function isTypeOneItem($item): bool
+    {
+        $division = (string) (data_get($item, 'business_division') ?? '');
+        if ($division === 'first_business') {
+            return true;
+        }
+        $name = (string) (data_get($item, 'name') ?? '');
+        $code = (string) (data_get($item, 'code') ?? data_get($item, 'product_code') ?? '');
+        $desc = (string) (data_get($item, 'description') ?? '');
+        $text = mb_strtolower($name . ' ' . $code . ' ' . $desc);
+        if (preg_match('/第\s*[1１]\s*種/u', $text)) {
+            return true;
+        }
+        if (preg_match('/\b1\s*種/u', $text)) {
             return true;
         }
         return false;
