@@ -196,6 +196,10 @@ class MaintenanceFeeController extends Controller
         }
         $snapshot = MaintenanceFeeSnapshot::with('items')->whereDate('month', $month)->first();
         if ($snapshot) {
+            if ($snapshot->items->isEmpty()) {
+                $this->populateSnapshotItemsFromApi($snapshot);
+                $snapshot->load('items');
+            }
             return $snapshot;
         }
 
@@ -207,32 +211,7 @@ class MaintenanceFeeController extends Controller
             'source' => 'api',
         ]);
 
-        $rows = [];
-        foreach ($customers as $c) {
-            $fee = (float) ($c['maintenance_fee'] ?? 0);
-            $status = (string) ($c['status'] ?? $c['customer_status'] ?? $c['status_name'] ?? '');
-            if ($status !== '' && (
-                mb_stripos($status, '休止') !== false ||
-                mb_strtolower($status) === 'inactive'
-            )) {
-                continue;
-            }
-            if ($fee <= 0) {
-                continue;
-            }
-            $rawSupport = $c['support_type'] ?? '';
-            $supportStr = is_array($rawSupport) ? implode(' ', $rawSupport) : (string) $rawSupport;
-            $rows[] = [
-                'maintenance_fee_snapshot_id' => $snapshot->id,
-                'customer_name' => $c['customer_name'] ?? '',
-                'maintenance_fee' => $fee,
-                'status' => $status,
-                'support_type' => $supportStr,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ];
-        }
-
+        $rows = $this->buildRowsFromCustomers($snapshot->id, $customers);
         if (!empty($rows)) {
             MaintenanceFeeSnapshotItem::insert($rows);
         }
@@ -268,5 +247,50 @@ class MaintenanceFeeController extends Controller
             ]);
             return [];
         }
+    }
+
+    private function populateSnapshotItemsFromApi(MaintenanceFeeSnapshot $snapshot): void
+    {
+        $customers = $this->fetchCustomers();
+        if (empty($customers)) {
+            return;
+        }
+        $rows = $this->buildRowsFromCustomers($snapshot->id, $customers);
+        if (!empty($rows)) {
+            MaintenanceFeeSnapshotItem::where('maintenance_fee_snapshot_id', $snapshot->id)->delete();
+            MaintenanceFeeSnapshotItem::insert($rows);
+            $this->recalculateSnapshotTotal($snapshot->fresh('items'));
+        }
+    }
+
+    private function buildRowsFromCustomers(int $snapshotId, array $customers): array
+    {
+        $rows = [];
+        $now = now();
+        foreach ($customers as $c) {
+            $fee = (float) ($c['maintenance_fee'] ?? 0);
+            $status = (string) ($c['status'] ?? $c['customer_status'] ?? $c['status_name'] ?? '');
+            if ($status !== '' && (
+                mb_stripos($status, '休止') !== false ||
+                mb_strtolower($status) === 'inactive'
+            )) {
+                continue;
+            }
+            if ($fee <= 0) {
+                continue;
+            }
+            $rawSupport = $c['support_type'] ?? '';
+            $supportStr = is_array($rawSupport) ? implode(' ', $rawSupport) : (string) $rawSupport;
+            $rows[] = [
+                'maintenance_fee_snapshot_id' => $snapshotId,
+                'customer_name' => $c['customer_name'] ?? '',
+                'maintenance_fee' => $fee,
+                'status' => $status,
+                'support_type' => $supportStr,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+        return $rows;
     }
 }
