@@ -188,7 +188,12 @@ class MaintenanceFeeController extends Controller
         if ($monthInput === null || $monthInput === '') {
             return null;
         }
-        $month = Carbon::createFromFormat('Y-m', $monthInput)->startOfMonth();
+        try {
+            // 許容フォーマット: Y-m または Y-m-d
+            $month = Carbon::parse($monthInput)->startOfMonth();
+        } catch (\Throwable $e) {
+            return null;
+        }
         $snapshot = MaintenanceFeeSnapshot::with('items')->whereDate('month', $month)->first();
         if ($snapshot) {
             return $snapshot;
