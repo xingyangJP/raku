@@ -195,3 +195,20 @@
 
 ### 未解決
 - 再申請時の注意文の表示有無（任意）。
+
+## 2025-12-05
+### 要約
+- 訪問前AIコーチ フェーズ1を実装。ゴール入力からAI生成（OpenAIキー利用、失敗時テンプレ）で質問リストを表示し、生成結果をDBに保存。印刷用アジェンダを追加。
+
+### 変更点
+- `routes/web.php`: `/sales-ai-coach/generate` を追加。
+- `app/Http/Controllers/SalesAiCoachController.php`: AI質問生成（OpenAI/テンプレフォールバック）、結果保存。
+- `app/Models/SalesAiCoachSession.php`: 生成結果保存モデル。
+- `database/migrations/2025_03_20_000000_create_sales_ai_coach_sessions_table.php`: セッション保存テーブルを追加。
+- `resources/js/Pages/SalesAiCoach/Index.jsx`: ゴール入力→生成→質問表示、印刷用アジェンダ、プレースホルダを販売管理/在庫/工程向けに調整。
+
+### 検証
+- `php artisan migrate` 済み。UIでゴール入力→「優先質問を生成」で質問表示を確認。
+
+### 次アクション
+- RAGはフェーズ2で検討。必要に応じて生成結果の履歴表示や編集を拡充。
