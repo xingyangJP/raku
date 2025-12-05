@@ -78,10 +78,9 @@ export default function SalesAiCoachIndex() {
             if (b.score === a.score) return a.order - b.order;
             return b.score - a.score;
         });
-        // 最低5件は返す。最大7件。
         const filtered = sorted.filter((q) => q.score > 0);
         const base = filtered.length >= 5 ? filtered : sorted;
-        return base.slice(0, 7).map(({ score, order, ...rest }) => rest);
+        return base.map(({ score, order, ...rest }) => rest);
     };
 
     const handleGenerate = async () => {
@@ -165,7 +164,7 @@ export default function SalesAiCoachIndex() {
                             <div>
                                 <CardTitle className="flex items-center gap-2 text-slate-800">
                                     <ListChecks className="h-5 w-5 text-emerald-600" />
-                                    優先質問 5〜7 件
+                                    優先質問（AI提案）
                                 </CardTitle>
                                 <CardDescription>致命的な抜けを防ぐためのテンプレです。不要なものは外し、追記してください。</CardDescription>
                             </div>
@@ -297,9 +296,9 @@ export default function SalesAiCoachIndex() {
                                     <p className="whitespace-pre-wrap">{context || '（未入力）'}</p>
                                 </div>
                                 <div>
-                                    <p className="text-xs text-slate-500 mb-1">優先質問（5〜7件）</p>
+                                    <p className="text-xs text-slate-500 mb-1">優先質問</p>
                                     <ol className="list-decimal pl-5 space-y-1">
-                                        {(questions.length > 0 ? questions : defaultQuestions.slice(0, 5)).map((q, idx) => (
+                                        {(questions.length > 0 ? questions : defaultQuestions).map((q, idx) => (
                                             <li key={idx}>
                                                 <span className="font-semibold">{q.title}：</span>
                                                 <span className="ml-1">{q.body}</span>

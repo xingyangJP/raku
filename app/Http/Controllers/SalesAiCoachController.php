@@ -76,7 +76,8 @@ class SalesAiCoachController extends Controller
                 'role' => 'system',
                 'content' => implode(' ', [
                     'You are a Japanese presales assistant for enterprise sales.',
-                    'Return only JSON: {"questions":[{"title":"...","body":"..."}]} with 5 to 7 questions.',
+                    'Return only JSON: {"questions":[{"title":"...","body":"..."}]}.',
+                    'Number of questions can be as many as needed; include clarifying questions if the goal/context is vague.',
                     'Derive questions strictly from the goal/context the user wrote. Do not assume specific products or domains.',
                     'If the goal is vague, ask clarifying, open-ended questions to make it concrete.',
                     'No markdown, no code fences.',
@@ -141,7 +142,7 @@ class SalesAiCoachController extends Controller
             ], 200);
         }
 
-        $questions = array_slice($aiQuestions, 0, 7);
+        $questions = $aiQuestions;
         $isFallback = false;
         $message = $baseMessage; // contextFetchMessage があればそのまま返す（警告表示用）
 
@@ -248,7 +249,7 @@ class SalesAiCoachController extends Controller
 
         $filtered = $scored->filter(fn($q) => $q['score'] > 0);
         $base = $filtered->count() >= 5 ? $filtered : $scored;
-        return $base->take(7)->map(function ($q) {
+        return $base->map(function ($q) {
             return ['title' => $q['title'], 'body' => $q['body']];
         })->values()->all();
     }
