@@ -106,6 +106,14 @@ export default function SalesAiCoachIndex() {
             } else {
                 setQuestions(computeQuestions(`${goal} ${context}`));
             }
+            const incomingDo = Array.isArray(data.do) ? data.do : [];
+            const incomingDont = Array.isArray(data.dont) ? data.dont : [];
+            if (incomingDo.length > 0) {
+                setDoItems(incomingDo.join('\n'));
+            }
+            if (incomingDont.length > 0) {
+                setDontItems(incomingDont.join('\n'));
+            }
             if (data.message) {
                 setServerMessage(data.message);
             }

@@ -76,7 +76,8 @@ class SalesAiCoachController extends Controller
                 'role' => 'system',
                 'content' => implode(' ', [
                     'You are a Japanese presales assistant for enterprise sales.',
-                    'Return only JSON: {"questions":[{"title":"...","body":"..."}]}.',
+                    'Return only JSON: {"questions":[{"title":"...","body":"..."}],"actions":{"do":["..."],"dont":["..."]}}.',
+                    '"actions" should list concrete things to do / not do today based on goal/context; keep them short bullet strings.',
                     'Number of questions can be as many as needed; include clarifying questions if the goal/context is vague.',
                     'Derive questions strictly from the goal/context the user wrote. Do not assume specific products or domains.',
                     'If the goal is vague, ask clarifying, open-ended questions to make it concrete.',
@@ -131,6 +132,8 @@ class SalesAiCoachController extends Controller
                 'body' => $q['body'] ?? '',
             ];
         })->filter(fn($q) => trim($q['body']) !== '')->values()->all();
+        $aiDo = collect(data_get($parsed, 'actions.do', []))->map(fn($v) => trim((string) $v))->filter()->values()->all();
+        $aiDont = collect(data_get($parsed, 'actions.dont', []))->map(fn($v) => trim((string) $v))->filter()->values()->all();
 
         if (empty($aiQuestions)) {
             $message = trim(($baseMessage ? $baseMessage . ' ' : '') . 'AI応答の解析に失敗したためテンプレを表示しました。');
@@ -150,6 +153,8 @@ class SalesAiCoachController extends Controller
 
         return response()->json([
             'questions' => $questions,
+            'do' => $aiDo,
+            'dont' => $aiDont,
             'fallback' => $isFallback,
             'message' => $message,
         ]);
