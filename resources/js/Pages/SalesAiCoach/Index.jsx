@@ -56,6 +56,8 @@ export default function SalesAiCoachIndex() {
     const [questionDraft, setQuestionDraft] = useState('');
     const [rewrite, setRewrite] = useState('');
     const [questions, setQuestions] = useState([]);
+    const [doItems, setDoItems] = useState('');
+    const [dontItems, setDontItems] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [goalError, setGoalError] = useState('');
     const [serverMessage, setServerMessage] = useState('');
@@ -261,8 +263,20 @@ export default function SalesAiCoachIndex() {
                                 <p className="font-semibold text-slate-800">ビジネス要求</p>
                                 <p>- {goal || '（ゴール未入力）'}</p>
                                 <p className="font-semibold text-slate-800 pt-2">やる / やらない</p>
-                                <p>- やる: （訪問後に更新してください）</p>
-                                <p>- やらない: （訪問後に更新してください）</p>
+                                <Label className="text-xs text-slate-600">やる</Label>
+                                <Textarea
+                                    placeholder="例: 在庫アラート条件を決める / 品目同期を毎朝自動実行にする"
+                                    value={doItems}
+                                    onChange={(e) => setDoItems(e.target.value)}
+                                    className="bg-white"
+                                />
+                                <Label className="text-xs text-slate-600">やらない</Label>
+                                <Textarea
+                                    placeholder="例: 旧システムからの帳票カスタムは行わない"
+                                    value={dontItems}
+                                    onChange={(e) => setDontItems(e.target.value)}
+                                    className="bg-white"
+                                />
                                 <p className="font-semibold text-slate-800 pt-2">未決事項</p>
                                 <p>- （未決事項を記入してください）</p>
                                 <p className="font-semibold text-slate-800 pt-2">次アクション</p>
@@ -305,6 +319,22 @@ export default function SalesAiCoachIndex() {
                                             </li>
                                         ))}
                                     </ol>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-xs text-slate-500">やる</p>
+                                    <ul className="list-disc pl-5 space-y-1 whitespace-pre-wrap">
+                                        {(doItems ? doItems.split('\n') : ['（訪問後に更新してください）']).map((item, idx) => (
+                                            <li key={idx}>{item || '（空行）'}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                                <div className="space-y-1">
+                                    <p className="text-xs text-slate-500">やらない</p>
+                                    <ul className="list-disc pl-5 space-y-1 whitespace-pre-wrap">
+                                        {(dontItems ? dontItems.split('\n') : ['（訪問後に更新してください）']).map((item, idx) => (
+                                            <li key={idx}>{item || '（空行）'}</li>
+                                        ))}
+                                    </ul>
                                 </div>
                                 <div>
                                     <p className="text-xs text-slate-500 mb-1">今日決め切ること</p>
