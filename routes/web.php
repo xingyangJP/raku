@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Auth; // Add this import
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\RequirementChatController;
+use App\Http\Controllers\SalesAiCoachController;
 
 Route::get('/', function () {
     return redirect()->route('login');
@@ -61,6 +62,8 @@ Route::middleware('auth')->group(function () {
     Route::delete('/maintenance-fees/items/{item}', [MaintenanceFeeController::class, 'deleteItem'])->name('maintenance-fees.items.delete');
     Route::get('/inventory', fn () => Inertia::render('Inventory/Index'))->name('inventory.index');
     Route::get('/help', fn () => Inertia::render('Help/Index'))->name('help.index');
+    Route::get('/sales-ai-coach', fn () => Inertia::render('SalesAiCoach/Index'))->name('sales-ai-coach.index');
+    Route::post('/sales-ai-coach/generate', [SalesAiCoachController::class, 'generate'])->name('sales-ai-coach.generate');
 
     Route::get('/billing/create', fn () => Inertia::render('Billing/Create'))->name('billing.create');
 

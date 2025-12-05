@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { router } from '@inertiajs/core';
 import { Link, usePage } from '@inertiajs/react';
-import { Bell, Home, Package2, Users, LineChart, Settings, Package, FileText, Landmark, Boxes, ChevronsLeft, ChevronsRight, LifeBuoy } from 'lucide-react';
+import { Bell, Home, Package2, Users, LineChart, Settings, Package, FileText, Landmark, Boxes, ChevronsLeft, ChevronsRight, LifeBuoy, Brain } from 'lucide-react';
 
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
@@ -34,6 +34,7 @@ export default function AuthenticatedLayout({ header, children }) {
         // { name: '在庫管理', href: route('inventory.index'), icon: Boxes, current: route().current('inventory.index') },
         { name: '商品管理', href: route('products.index'), icon: Package, current: route().current('products.index') },
         { name: '事業区分集計', href: route('businessDivisions.summary'), icon: LineChart, current: route().current('businessDivisions.summary') },
+        { name: '訪問前AIコーチ', href: route('sales-ai-coach.index'), icon: Brain, current: route().current('sales-ai-coach.index') },
         { name: 'ヘルプ', href: route('help.index'), icon: LifeBuoy, current: route().current('help.index') },
     ];
 

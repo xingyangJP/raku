@@ -1,0 +1,241 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use App\Models\SalesAiCoachSession;
+
+class SalesAiCoachController extends Controller
+{
+    private array $defaultQuestions = [
+        [
+            'title' => 'ゴールの具体化',
+            'body' => '今回の訪問で何を決めたいか？成功とみなせる状態や期限は？',
+            'keywords' => ['ゴール', '目的', '成功', '期限'],
+        ],
+        [
+            'title' => '不明点の洗い出し',
+            'body' => 'ゴール達成のために、まだ分からないこと・確認したいことは何か？',
+            'keywords' => ['不明', '確認', '質問'],
+        ],
+        [
+            'title' => '関係者・影響範囲',
+            'body' => '誰が関わり、誰に影響があるか？意思決定者・利用者・周辺部署は？',
+            'keywords' => ['関係者', '影響', '意思決定'],
+        ],
+        [
+            'title' => '現状と課題',
+            'body' => '今のやり方や課題は何か？どこを変えたいか？',
+            'keywords' => ['現状', '課題', '困りごと'],
+        ],
+        [
+            'title' => '制約・前提',
+            'body' => '予算・期限・利用できるリソースや既存ルールなどの制約は？',
+            'keywords' => ['制約', '前提', '予算', '期限'],
+        ],
+        [
+            'title' => '次アクションと担当',
+            'body' => '今日決めることと、持ち帰り事項の担当者・期限は？',
+            'keywords' => ['次回', 'アクション', '期限', '担当'],
+        ],
+    ];
+
+    public function generate(Request $request)
+    {
+        $validated = $request->validate([
+            'goal' => ['required', 'string', 'max:1000'],
+            'context' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $fallback = $this->computeQuestions(($validated['goal'] ?? '') . ' ' . ($validated['context'] ?? ''));
+        $isFallback = true;
+        $message = null;
+        $questions = $fallback;
+
+        try {
+            $config = $this->resolveOpenAiConfig();
+        } catch (\RuntimeException $e) {
+            $message = $e->getMessage();
+            $this->storeSession($request, $validated, $questions, $isFallback, $message);
+            return response()->json([
+                'questions' => $questions,
+                'message' => $message,
+                'fallback' => $isFallback,
+            ], 200);
+        }
+
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => implode(' ', [
+                    'You are a Japanese presales assistant for enterprise sales.',
+                    'Return only JSON: {"questions":[{"title":"...","body":"..."}]} with 5 to 7 questions.',
+                    'Derive questions strictly from the goal/context the user wrote. Do not assume specific products or domains.',
+                    'If the goal is vague, ask clarifying, open-ended questions to make it concrete.',
+                    'No markdown, no code fences.',
+                ]),
+            ],
+            [
+                'role' => 'user',
+                'content' => "今日のゴール:\n{$validated['goal']}\n\n議事録/補足:\n" . ($validated['context'] ?? ''),
+            ],
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $config['api_key'],
+                'Content-Type' => 'application/json',
+            ])
+                ->timeout(20)
+                ->post($config['base_url'] . '/v1/chat/completions', [
+                    'model' => $config['model'],
+                    'messages' => $messages,
+                    'temperature' => 0.5,
+                    'max_tokens' => 600,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('SalesAiCoach generate failed', ['exception' => $e->getMessage()]);
+            $message = 'AI生成に失敗したためテンプレを表示しました。';
+            $this->storeSession($request, $validated, $questions, $isFallback, $message, $messages);
+            return response()->json([
+                'questions' => $questions,
+                'message' => $message,
+                'fallback' => $isFallback,
+            ], 200);
+        }
+
+        if (!$response->successful()) {
+            Log::warning('SalesAiCoach AI error', ['status' => $response->status(), 'body' => $response->body()]);
+            $message = 'AI生成に失敗したためテンプレを表示しました。';
+            $this->storeSession($request, $validated, $questions, $isFallback, $message, $messages, $response->body());
+            return response()->json([
+                'questions' => $questions,
+                'message' => $message,
+                'fallback' => $isFallback,
+            ], 200);
+        }
+
+        $raw = data_get($response->json(), 'choices.0.message.content', '');
+        $parsed = $this->decodeAiJson($raw);
+        $aiQuestions = collect($parsed['questions'] ?? [])->map(function ($q) {
+            return [
+                'title' => $q['title'] ?? '質問',
+                'body' => $q['body'] ?? '',
+            ];
+        })->filter(fn($q) => trim($q['body']) !== '')->values()->all();
+
+        if (empty($aiQuestions)) {
+            $message = 'AI応答の解析に失敗したためテンプレを表示しました。';
+            $this->storeSession($request, $validated, $questions, $isFallback, $message, $messages, $raw);
+            return response()->json([
+                'questions' => $questions,
+                'message' => $message,
+                'fallback' => $isFallback,
+            ], 200);
+        }
+
+        $questions = array_slice($aiQuestions, 0, 7);
+        $isFallback = false;
+        $message = null;
+
+        $this->storeSession($request, $validated, $questions, $isFallback, $message, $messages, $raw);
+
+        return response()->json([
+            'questions' => $questions,
+            'fallback' => $isFallback,
+            'message' => $message,
+        ]);
+    }
+
+    private function resolveOpenAiConfig(): array
+    {
+        $apiKey = (string) config('services.openai.key', '');
+        if ($apiKey === '') {
+            throw new \RuntimeException('OpenAI APIキーが未設定のためAI生成できません。');
+        }
+
+        return [
+            'api_key' => $apiKey,
+            'base_url' => rtrim((string) config('services.openai.base_url', 'https://api.openai.com'), '/'),
+            'model' => (string) config('services.openai.model', 'gpt-4o-mini'),
+        ];
+    }
+
+    private function decodeAiJson(?string $content): ?array
+    {
+        if ($content === null) {
+            return null;
+        }
+        $trimmed = trim($content);
+        if ($trimmed === '') {
+            return null;
+        }
+        if (str_starts_with($trimmed, '```')) {
+            $trimmed = preg_replace('/^```(?:json)?/i', '', $trimmed, 1);
+            $trimmed = preg_replace('/```$/', '', $trimmed, 1);
+        }
+        $decoded = json_decode($trimmed, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return $decoded;
+        }
+
+        $jsonStart = strpos($trimmed, '{');
+        $jsonEnd = strrpos($trimmed, '}');
+        if ($jsonStart !== false && $jsonEnd !== false && $jsonEnd > $jsonStart) {
+            $maybe = substr($trimmed, $jsonStart, $jsonEnd - $jsonStart + 1);
+            $decoded = json_decode($maybe, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return $decoded;
+            }
+        }
+
+        return null;
+    }
+
+    private function computeQuestions(string $text): array
+    {
+        $haystack = mb_strtolower($text);
+        $scored = collect($this->defaultQuestions)->map(function ($q, $idx) use ($haystack) {
+            $keywords = $q['keywords'] ?? [];
+            $hits = 0;
+            foreach ($keywords as $kw) {
+                if (str_contains($haystack, mb_strtolower($kw))) {
+                    $hits++;
+                }
+            }
+            return $q + ['score' => $hits, 'order' => $idx];
+        })->sort(function ($a, $b) {
+            if ($b['score'] === $a['score']) {
+                return $a['order'] <=> $b['order'];
+            }
+            return $b['score'] <=> $a['score'];
+        })->values();
+
+        $filtered = $scored->filter(fn($q) => $q['score'] > 0);
+        $base = $filtered->count() >= 5 ? $filtered : $scored;
+        return $base->take(7)->map(function ($q) {
+            return ['title' => $q['title'], 'body' => $q['body']];
+        })->values()->all();
+    }
+
+    private function storeSession(Request $request, array $validated, array $questions, bool $fallback, ?string $message = null, ?array $promptMessages = null, $rawResponse = null): void
+    {
+        try {
+            SalesAiCoachSession::create([
+                'user_id' => optional($request->user())->id,
+                'goal' => $validated['goal'],
+                'context' => $validated['context'] ?? null,
+                'questions' => $questions,
+                'fallback' => $fallback,
+                'message' => $message,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('SalesAiCoach session store failed', [
+                'exception' => $e->getMessage(),
+                'goal' => $validated['goal'],
+            ]);
+        }
+    }
+}
