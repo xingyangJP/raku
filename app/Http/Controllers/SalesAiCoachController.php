@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use App\Models\SalesAiCoachSession;
 
 class SalesAiCoachController extends Controller
@@ -49,16 +50,20 @@ class SalesAiCoachController extends Controller
             'context' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $fallback = $this->computeQuestions(($validated['goal'] ?? '') . ' ' . ($validated['context'] ?? ''));
+        [$resolvedContext, $contextFetchMessage] = $this->resolveContext($validated['context'] ?? null);
+        $sessionPayload = $validated + ['context' => $resolvedContext];
+
+        $fallback = $this->computeQuestions(($validated['goal'] ?? '') . ' ' . ($resolvedContext ?? ''));
         $isFallback = true;
-        $message = null;
+        $baseMessage = $contextFetchMessage;
+        $message = $baseMessage;
         $questions = $fallback;
 
         try {
             $config = $this->resolveOpenAiConfig();
         } catch (\RuntimeException $e) {
-            $message = $e->getMessage();
-            $this->storeSession($request, $validated, $questions, $isFallback, $message);
+            $message = trim(($baseMessage ? $baseMessage . ' ' : '') . $e->getMessage());
+            $this->storeSession($request, $sessionPayload, $questions, $isFallback, $message);
             return response()->json([
                 'questions' => $questions,
                 'message' => $message,
@@ -79,7 +84,7 @@ class SalesAiCoachController extends Controller
             ],
             [
                 'role' => 'user',
-                'content' => "今日のゴール:\n{$validated['goal']}\n\n議事録/補足:\n" . ($validated['context'] ?? ''),
+                'content' => "今日のゴール:\n{$validated['goal']}\n\n議事録/補足:\n" . ($resolvedContext ?? ''),
             ],
         ];
 
@@ -97,8 +102,8 @@ class SalesAiCoachController extends Controller
                 ]);
         } catch (\Throwable $e) {
             Log::warning('SalesAiCoach generate failed', ['exception' => $e->getMessage()]);
-            $message = 'AI生成に失敗したためテンプレを表示しました。';
-            $this->storeSession($request, $validated, $questions, $isFallback, $message, $messages);
+            $message = trim(($baseMessage ? $baseMessage . ' ' : '') . 'AI生成に失敗したためテンプレを表示しました。');
+            $this->storeSession($request, $sessionPayload, $questions, $isFallback, $message, $messages);
             return response()->json([
                 'questions' => $questions,
                 'message' => $message,
@@ -108,8 +113,8 @@ class SalesAiCoachController extends Controller
 
         if (!$response->successful()) {
             Log::warning('SalesAiCoach AI error', ['status' => $response->status(), 'body' => $response->body()]);
-            $message = 'AI生成に失敗したためテンプレを表示しました。';
-            $this->storeSession($request, $validated, $questions, $isFallback, $message, $messages, $response->body());
+            $message = trim(($baseMessage ? $baseMessage . ' ' : '') . 'AI生成に失敗したためテンプレを表示しました。');
+            $this->storeSession($request, $sessionPayload, $questions, $isFallback, $message, $messages, $response->body());
             return response()->json([
                 'questions' => $questions,
                 'message' => $message,
@@ -127,8 +132,8 @@ class SalesAiCoachController extends Controller
         })->filter(fn($q) => trim($q['body']) !== '')->values()->all();
 
         if (empty($aiQuestions)) {
-            $message = 'AI応答の解析に失敗したためテンプレを表示しました。';
-            $this->storeSession($request, $validated, $questions, $isFallback, $message, $messages, $raw);
+            $message = trim(($baseMessage ? $baseMessage . ' ' : '') . 'AI応答の解析に失敗したためテンプレを表示しました。');
+            $this->storeSession($request, $sessionPayload, $questions, $isFallback, $message, $messages, $raw);
             return response()->json([
                 'questions' => $questions,
                 'message' => $message,
@@ -138,15 +143,43 @@ class SalesAiCoachController extends Controller
 
         $questions = array_slice($aiQuestions, 0, 7);
         $isFallback = false;
-        $message = null;
+        $message = $baseMessage; // contextFetchMessage があればそのまま返す（警告表示用）
 
-        $this->storeSession($request, $validated, $questions, $isFallback, $message, $messages, $raw);
+        $this->storeSession($request, $sessionPayload, $questions, $isFallback, $message, $messages, $raw);
 
         return response()->json([
             'questions' => $questions,
             'fallback' => $isFallback,
             'message' => $message,
         ]);
+    }
+
+    private function resolveContext(?string $context): array
+    {
+        if ($context === null || trim($context) === '') {
+            return [null, null];
+        }
+
+        $url = trim($context);
+        if (!Str::startsWith($url, ['http://', 'https://']) || !filter_var($url, FILTER_VALIDATE_URL)) {
+            return [$context, null];
+        }
+
+        try {
+            $response = Http::timeout(5)->get($url);
+            if (!$response->successful()) {
+                return [$context, '権限がないかなんらかの原因でURLから情報を読めません。'];
+            }
+            $body = $response->body();
+            $text = trim(mb_substr(strip_tags($body), 0, 20000));
+            if ($text === '') {
+                return [$context, '権限がないかなんらかの原因でURLから情報を読めません。'];
+            }
+            return [$text, null];
+        } catch (\Throwable $e) {
+            Log::info('SalesAiCoach context fetch failed', ['url' => $url, 'error' => $e->getMessage()]);
+            return [$context, '権限がないかなんらかの原因でURLから情報を読めません。'];
+        }
     }
 
     private function resolveOpenAiConfig(): array
