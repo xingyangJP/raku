@@ -40,31 +40,26 @@ export default function Guide() {
                     <CardContent className="space-y-4 text-sm text-slate-700">
                         <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 space-y-1">
                             <p className="text-sm font-semibold text-emerald-800">一言でいうと</p>
-                            <p>お客様の「ざっくり希望・不満・やり方」を、エンジニアがそのまま設計・開発に使える言葉まで落とし込むこと。</p>
-                            <p className="text-xs text-emerald-700">例: 「売上・在庫・請求をまとめたい」「請求漏れをなくしたい」を、誰が・いつ・どの画面で・どの項目を入力し、いつ伝票/請求書が出て、誰がどこから確認するかまで具体化。</p>
+                            <p>「ざっくり希望・不満・仕事のやり方」を、エンジニアが設計・開発にそのまま使えるレベルまで言葉にして整理すること。</p>
+                            <p className="text-xs text-emerald-700">例: 「売上・在庫・請求をまとめたい」を、誰が・いつ・どの画面で・どの項目を入力し、どのタイミングで伝票/請求書が出て、誰がどこから確認するか、まで具体化。</p>
                         </div>
-                        <div className="grid gap-3 lg:grid-cols-2">
-                            <div className="space-y-2">
-                                <p className="text-sm font-semibold text-slate-800">機能だけで終わらない</p>
-                                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 space-y-1">
-                                    <p className="text-sm font-semibold text-blue-800">機能要件</p>
-                                    <p className="text-xs text-blue-700">何ができるか（売上登録、在庫照会、請求発行…）。</p>
-                                    <p className="text-sm font-semibold text-indigo-800 pt-2">非機能要件</p>
-                                    <p className="text-xs text-indigo-700">どのレベルで使えるか（速度・同時接続・停止許容・セキュリティ・使いやすさ・バックアップ）。</p>
-                                    <p className="text-xs text-indigo-700">例: ピーク時も検索3秒以内/月1回夜間2時間まで停止/過去7年を即検索/得意先ごとに参照制限/毎晩自動バックアップ。</p>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <p className="text-sm font-semibold text-slate-800">レストランの例</p>
-                                <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 space-y-1">
-                                    <p className="text-sm font-semibold text-amber-800">注文を整理する</p>
-                                    <p className="text-xs text-amber-700">「おいしいコースで」だけだと、和/洋、アレルギー、5,000円にドリンク含む？が不明。</p>
-                                    <p className="text-xs text-amber-700">必要な注文票: 「接待で失敗NG」「5,000円(料理のみ)」「量より質の和食」「18時に6名」「酒に合う構成」→ キッチンがすぐ動ける。</p>
-                                    <p className="text-sm font-semibold text-amber-800 pt-1">見えにくいけど大事</p>
-                                    <p className="text-xs text-amber-700">提供ペース・待ち時間・静かさ・衛生管理＝システムでいう速度/停止許容/セキュリティ/バックアップ。</p>
-                                </div>
-                            </div>
+
+                        <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 space-y-2">
+                            <p className="text-sm font-semibold text-blue-800">機能要件だけで終わらない</p>
+                            <p className="text-xs text-blue-700">機能要件 = 何ができるか（売上登録/在庫照会/請求発行…）。</p>
+                            <p className="text-sm font-semibold text-indigo-800 pt-1">非機能要件も同じくらい大事</p>
+                            <p className="text-xs text-indigo-700">どのレベルでちゃんと使えるか（速さ・同時利用・止まっていい時間・セキュリティ・使いやすさ・バックアップ）。</p>
+                            <p className="text-xs text-indigo-700">例: ピーク時も検索3秒以内 / 停止は月1回夜間2時間まで / 過去7年を即検索 / 得意先ごとに参照制限 / 毎晩自動バックアップ。</p>
+                            <p className="text-xs text-indigo-700">非機能を聞かずに進めると「遅い/落ちる/怖い/使いにくい」システムになり、導入後に手戻りコストが膨らみます。</p>
                         </div>
+
+                        <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 space-y-2">
+                            <p className="text-sm font-semibold text-amber-800">レストランの例</p>
+                            <p className="text-xs text-amber-700">お客:「接待で使う。あまり重くなくて、お酒に合う料理を一人5,000円くらいで」<br />ホール（営業）:「いい感じでお願いします」だけだと、和/洋、肉/魚、アレルギー、ドリンク込み？が不明で「違う料理」リスク。</p>
+                            <p className="text-xs text-amber-700">必要な注文票: 「接待で失敗NG」「5,000円は料理のみ」「量より質の和食中心」「18時に6名スタート」「酒に合う構成」→ キッチン（エンジニア）がすぐ動ける。</p>
+                            <p className="text-xs text-amber-700">見えにくいけど大事: 提供ペース・待ち時間・静かさ・衛生管理 = システムでいう速度/停止許容/セキュリティ/バックアップ/運用。</p>
+                        </div>
+
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
                             <p className="text-sm font-semibold text-slate-800">まとめ</p>
                             <p className="text-sm text-slate-700">「いい感じ」は図面にならない。機能と非機能を数字や条件で固めて、設計と見積もりに直結する“注文票”にするのが要件定義。営業がここまで引き出せるかで、成功率と信頼が変わります。</p>
