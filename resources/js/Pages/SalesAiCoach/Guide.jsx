@@ -90,11 +90,31 @@ export default function Guide() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3 text-sm text-slate-700">
-                        <p>「こんなことがしたい」を、プログラマーが設計・工数見積もりできるレベルまでハッキリさせる作業です。</p>
-                        <p className="text-xs text-slate-500">ざっくりの願いごと（例: 「入出庫の流れを見たい」）を、やること・やらないこと・条件・例外まで言葉にしていきます。</p>
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                            <p className="text-sm font-semibold text-slate-800">例え話</p>
-                            <p className="text-sm text-slate-700">「遊園地を作りたい！」だけだと何も決められません。<br />どんなアトラクション？誰向け？安全ルールは？チケットの買い方は？を決めていくと、設計図と工事費が出せます。<br />システムも同じで、曖昧な願いごとを具体的なルールと手順に置き換えるのが要件定義です。</p>
+                        <p>システム開発の営業がやる仕事。「いい感じ」の願いを、プログラマーが設計・工数を出せるレベルまで細かくすること。</p>
+                        <div className="grid gap-3 lg:grid-cols-2">
+                            <div className="space-y-2">
+                                <p className="text-sm font-semibold text-slate-800">家づくりの例</p>
+                                <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 space-y-1">
+                                    <p className="text-sm font-semibold text-amber-800">ダメなパターン</p>
+                                    <p className="text-sm text-amber-700">お客さん:「家族4人で住めて、リビング広めの家がいいな」<br />新人営業:「いい感じの家、作っておきます！」→ 設計図なしで工事へ</p>
+                                    <p className="text-xs text-amber-700">大工(エンジニア)は困る: 予算? いつまで? 駐車場? 子ども部屋? 収納?</p>
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <p className="text-sm font-semibold text-slate-800">営業がすべきこと</p>
+                                <ul className="list-disc pl-5 space-y-1 text-sm text-slate-700">
+                                    <li>予算: 3,000万円以内</li>
+                                    <li>入居: 来年4月まで</li>
+                                    <li>駐車場: 車2台分</li>
+                                    <li>子ども部屋: 2部屋（将来仕切れるように）</li>
+                                    <li>リビング: 20畳以上を優先</li>
+                                </ul>
+                                <p className="text-xs text-slate-500">これが「図面にできる情報＝要件定義」。</p>
+                            </div>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
+                            <p className="text-sm font-semibold text-slate-800">まとめ</p>
+                            <p className="text-sm text-slate-700">「いい感じに」は図面にならない。<br />「いい感じ」を設計できる言葉に変えるのが営業の仕事。システムも同じ。</p>
                         </div>
                     </CardContent>
                 </Card>
