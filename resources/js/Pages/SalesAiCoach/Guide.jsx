@@ -86,17 +86,16 @@ export default function Guide() {
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <ListChecks className="h-5 w-5 text-emerald-600" />
-                            AIがよく聞くポイント
+                            要件定義ってなに？
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="space-y-2 text-sm text-slate-700">
-                        <ul className="list-disc pl-5 space-y-1">
-                            <li>帳票・印刷: どんな帳票、レイアウト、紙/プリンタ、Excel・CSV</li>
-                            <li>承認・権限: 誰が承認、例外、代理、通知、ログ</li>
-                            <li>在庫・購買: 入出庫、ロット/期限、直送、返品、棚卸、発注点</li>
-                            <li>請求・会計: 税/端数、締め/請求/入金、MF連携、仕訳への影響</li>
-                            <li>非機能・運用: 同時利用、速さ、バックアップ/冗長化、監査・保存期間</li>
-                        </ul>
+                    <CardContent className="space-y-3 text-sm text-slate-700">
+                        <p>「こんなことがしたい」を、プログラマーが設計・工数見積もりできるレベルまでハッキリさせる作業です。</p>
+                        <p className="text-xs text-slate-500">ざっくりの願いごと（例: 「入出庫の流れを見たい」）を、やること・やらないこと・条件・例外まで言葉にしていきます。</p>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                            <p className="text-sm font-semibold text-slate-800">例え話</p>
+                            <p className="text-sm text-slate-700">「遊園地を作りたい！」だけだと何も決められません。<br />どんなアトラクション？誰向け？安全ルールは？チケットの買い方は？を決めていくと、設計図と工事費が出せます。<br />システムも同じで、曖昧な願いごとを具体的なルールと手順に置き換えるのが要件定義です。</p>
+                        </div>
                     </CardContent>
                 </Card>
 
