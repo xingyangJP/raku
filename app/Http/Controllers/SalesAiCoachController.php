@@ -274,6 +274,7 @@ class SalesAiCoachController extends Controller
 
     public function settings()
     {
+        $this->authorizeManager();
         $setting = SalesAiCoachSetting::latest()->first();
         return Inertia::render('SalesAiCoach/Settings', [
             'basePrompt' => $setting?->base_prompt ?? '',
@@ -283,6 +284,7 @@ class SalesAiCoachController extends Controller
 
     public function updateSettings(Request $request)
     {
+        $this->authorizeManager();
         $validated = $request->validate([
             'base_prompt' => ['nullable', 'string', 'max:5000'],
         ]);
@@ -328,5 +330,14 @@ class SalesAiCoachController extends Controller
             'If the goal is vague, ask clarifying, open-ended questions to make it concrete.',
             'No markdown, no code fences.',
         ]);
+    }
+
+    private function authorizeManager(): void
+    {
+        $user = optional(request()->user());
+        $allowed = ['守部', '川口'];
+        if (!$user || !in_array($user->name, $allowed, true)) {
+            abort(403, 'You are not allowed to update AI coach settings.');
+        }
     }
 }

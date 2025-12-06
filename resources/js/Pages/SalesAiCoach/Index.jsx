@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, usePage } from '@inertiajs/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Input } from '@/Components/ui/input';
 import { Textarea } from '@/Components/ui/textarea';
@@ -51,6 +51,9 @@ const mustDecideToday = [
 ];
 
 export default function SalesAiCoachIndex() {
+    const { auth } = usePage().props;
+    const currentUserName = auth?.user?.name;
+    const canManageSettings = ['守部', '川口'].includes(currentUserName);
     const [goal, setGoal] = useState('');
     const [context, setContext] = useState('');
     const [questionDraft, setQuestionDraft] = useState('');
@@ -130,9 +133,11 @@ export default function SalesAiCoachIndex() {
             header={
                 <div className="flex items-center justify-between">
                     <h2 className="text-2xl font-semibold text-slate-800">訪問前AIコーチ</h2>
-                    <Button asChild variant="ghost" size="sm">
-                        <Link href={route('sales-ai-coach.settings')}>設定</Link>
-                    </Button>
+                    {canManageSettings && (
+                        <Button asChild variant="ghost" size="sm">
+                            <Link href={route('sales-ai-coach.settings')}>設定</Link>
+                        </Button>
+                    )}
                 </div>
             }
         >
