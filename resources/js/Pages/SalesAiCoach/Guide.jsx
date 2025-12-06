@@ -29,7 +29,7 @@ export default function Guide() {
         >
             <Head title="訪問前AIコーチ 使い方" />
 
-            <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
+            <div className="space-y-6">
                 <Card className="relative overflow-hidden">
                     <div className="absolute left-5 top-20 bottom-6 w-px bg-indigo-100" aria-hidden />
                     <CardHeader>
@@ -91,6 +91,7 @@ export default function Guide() {
                     </CardHeader>
                     <CardContent className="space-y-3 text-sm text-slate-700">
                         <p>システム開発の営業がやる仕事。「いい感じ」の願いを、プログラマーが設計・工数を出せるレベルまで細かくすること。</p>
+                        <p className="text-sm text-slate-700">まず最初にやることは、「何を作るか」「誰が使うか」「いつまでに」「どれだけの予算で」「やる/やらない・例外」を言葉で固めること。ここが固まれば図面（設計）と見積もりが出せます。</p>
                         <div className="grid gap-3 lg:grid-cols-2">
                             <div className="space-y-2">
                                 <p className="text-sm font-semibold text-slate-800">家づくりの例</p>
