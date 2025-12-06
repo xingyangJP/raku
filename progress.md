@@ -212,3 +212,29 @@
 
 ### 次アクション
 - RAGはフェーズ2で検討。必要に応じて生成結果の履歴表示や編集を拡充。
+
+## 2025-12-06
+### 要約
+- 訪問前AIコーチを拡張し、コンテキストURLの自動取得、質問件数の上限撤廃、やる/やらないリストのAI生成、ベースプロンプトの設定画面を追加。設定画面は守部/川口のみアクセス可。
+
+### 変更点
+- `app/Http/Controllers/SalesAiCoachController.php`
+  - `context` がURLならサーバ側で本文フェッチ（失敗時は警告を返却しつつフォールバック）。
+  - AIプロンプトを販売管理向けの標準観点（帳票/承認/在庫/請求/非機能）込みに強化し、質問件数上限を撤廃。
+  - AI応答から「やる/やらない」を `actions.do/dont` で受け取り返却。
+  - ベースプロンプト設定をDB保存し、最新を使用。守部/川口以外は 403。
+- `resources/js/Pages/SalesAiCoach/Index.jsx`
+  - 生成結果から「やる/やらない」を自動反映し、印刷ビューにも表示。
+  - ヘッダーに設定ボタン（守部/川口のみ表示）。
+- `resources/js/Pages/SalesAiCoach/Settings.jsx`
+  - ベースプロンプトを編集・保存する設定画面を追加。
+- `app/Models/SalesAiCoachSetting.php`, `database/migrations/2025_12_05_000002_create_sales_ai_coach_settings_table.php`
+  - ベースプロンプトの保存テーブルを追加。
+- `routes/web.php`
+  - `/sales-ai-coach/settings` の表示/更新ルートを追加。
+
+### 検証
+- `php artisan migrate` が必要（新テーブル追加）。生成ボタンでURLを含むコンテキストを入力し、質問/やる・やらないが生成されることを確認予定。
+
+### 次アクション
+- 守部/川口で `/sales-ai-coach/settings` にアクセスし、必要ならベースプロンプトを調整。
