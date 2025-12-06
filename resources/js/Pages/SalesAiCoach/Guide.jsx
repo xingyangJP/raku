@@ -117,45 +117,6 @@ export default function Guide() {
                     </CardContent>
                 </Card>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <ListChecks className="h-5 w-5 text-emerald-600" />
-                            要件定義ってなに？
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm text-slate-700">
-                        <p>システム開発の営業の仕事は「いい感じ」を図面と見積りに変えること。何を作るか・誰が使うか・いつまでに・いくらで・やる/やらない・例外を言葉で固めます。</p>
-                        <p className="text-sm text-slate-700">機能だけでなく、非機能（速さ・同時接続・停電/バックアップ・監査/ログ・セキュリティ）も最初に聞いておくと、後戻りを防げます。</p>
-                        <div className="grid gap-3 lg:grid-cols-2">
-                            <div className="space-y-2">
-                                <p className="text-sm font-semibold text-slate-800">家づくりの例</p>
-                                <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 space-y-1">
-                                    <p className="text-sm font-semibold text-amber-800">ダメなパターン</p>
-                                    <p className="text-sm text-amber-700">お客さん:「家族4人で住めて、リビング広めの家がいいな」<br />新人営業:「いい感じの家、作っておきます！」→ 設計図なしで工事へ</p>
-                                    <p className="text-xs text-amber-700">大工(エンジニア)は困る: 予算? いつまで? 駐車場? 子ども部屋? 収納?</p>
-                                </div>
-                            </div>
-                            <div className="space-y-2">
-                                <p className="text-sm font-semibold text-slate-800">営業がすべきこと</p>
-                                <ul className="list-disc pl-5 space-y-1 text-sm text-slate-700">
-                                    <li>予算: 3,000万円以内</li>
-                                    <li>入居: 来年4月まで</li>
-                                    <li>駐車場: 車2台分</li>
-                                    <li>子ども部屋: 2部屋（将来仕切れるように）</li>
-                                    <li>リビング: 20畳以上を優先</li>
-                                    <li>安全・快適: 暖房/換気、耐震、騒音対策（＝システムでいう非機能）</li>
-                                </ul>
-                                <p className="text-xs text-slate-500">これが「図面にできる情報＝要件定義」。</p>
-                            </div>
-                        </div>
-                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
-                            <p className="text-sm font-semibold text-slate-800">まとめ</p>
-                            <p className="text-sm text-slate-700">「いい感じに」は図面にならない。<br />「いい感じ」を設計できる言葉に変えるのが営業の仕事。システムも同じ。</p>
-                        </div>
-                    </CardContent>
-                </Card>
-
                 <Card className="lg:col-span-2">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
