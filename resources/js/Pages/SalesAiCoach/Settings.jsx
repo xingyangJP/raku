@@ -35,7 +35,7 @@ export default function Settings({ basePrompt, defaultPrompt }) {
                     <CardContent>
                         <form className="space-y-4" onSubmit={handleSubmit}>
                             <div className="space-y-2">
-                                <Label htmlFor="base_prompt">現在のベースプロンプト</Label>
+                                <Label htmlFor="base_prompt">現在のカスタムプロンプト</Label>
                                 <Textarea
                                     id="base_prompt"
                                     minRows={8}
