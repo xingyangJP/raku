@@ -30,7 +30,7 @@ export default function Settings({ basePrompt, defaultPrompt }) {
                 <Card className="lg:col-span-1">
                     <CardHeader>
                         <CardTitle>ベースプロンプト</CardTitle>
-                        <CardDescription>質問生成とやる/やらない案に使うシステムプロンプトを上書きできます。</CardDescription>
+                        <CardDescription>標準の販売管理向けプロンプトに追記するカスタム指示を設定できます（ベースは残ります）。</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <form className="space-y-4" onSubmit={handleSubmit}>
