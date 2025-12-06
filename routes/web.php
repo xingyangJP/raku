@@ -64,6 +64,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/help', fn () => Inertia::render('Help/Index'))->name('help.index');
     Route::get('/sales-ai-coach', fn () => Inertia::render('SalesAiCoach/Index'))->name('sales-ai-coach.index');
     Route::post('/sales-ai-coach/generate', [SalesAiCoachController::class, 'generate'])->name('sales-ai-coach.generate');
+    Route::get('/sales-ai-coach/settings', [SalesAiCoachController::class, 'settings'])->name('sales-ai-coach.settings');
+    Route::post('/sales-ai-coach/settings', [SalesAiCoachController::class, 'updateSettings'])->name('sales-ai-coach.settings.update');
 
     Route::get('/billing/create', fn () => Inertia::render('Billing/Create'))->name('billing.create');
 

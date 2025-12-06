@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use App\Models\SalesAiCoachSession;
+use App\Models\SalesAiCoachSetting;
+use Inertia\Inertia;
 
 class SalesAiCoachController extends Controller
 {
@@ -74,27 +76,7 @@ class SalesAiCoachController extends Controller
         $messages = [
             [
                 'role' => 'system',
-                'content' => implode(' ', [
-                    'You are a Japanese presales assistant for enterprise sales.',
-                    'Return only JSON: {"questions":[{"title":"...","body":"..."}],"actions":{"do":["..."],"dont":["..."]}}.',
-                    '"actions" should list concrete things to do / not do today based on goal/context; keep them short bullet strings.',
-                    'Context: this is for a sales/discovery meeting about a sales management system.',
-                    'Canonical angles you should prioritize based on goal/context hints:',
-                    '1) Reports/printing: report types, layout, printer/paper size, Excel/CSV output.',
-                    '2) Workflow/permissions: approval routes, exceptions, delegate, notifications, audit log.',
-                    '3) Inventory/purchasing: inbound/outbound, lot/expiry, drop-ship, returns, stocktake, reorder point/lead time.',
-                    '4) Billing/AR/accounting: tax/rounding, billing/closing/invoice, payment matching, MF integration, journal implications.',
-                    '5) Non-functional/operations: concurrent users, response, backup/HA, monitoring, audit/retention.',
-                    'If the user text suggests reports/printing, always include a question on layout/printer/paper/output.',
-                    'If it suggests workflow/web, include approval/permissions/notifications.',
-                    'If it suggests inventory, include lot/stocktake/drop-ship/returns.',
-                    'If it suggests billing/accounting, include tax/closing/payment matching/MF link.',
-                    'If the goal is vague, first ask to narrow scope using these angles.',
-                    'Number of questions can be as many as needed; include clarifying questions if the goal/context is vague.',
-                    'Derive questions strictly from the goal/context the user wrote. Do not assume specific products or domains.',
-                    'If the goal is vague, ask clarifying, open-ended questions to make it concrete.',
-                    'No markdown, no code fences.',
-                ]),
+                'content' => $this->buildSystemPrompt(),
             ],
             [
                 'role' => 'user',
@@ -288,5 +270,63 @@ class SalesAiCoachController extends Controller
                 'goal' => $validated['goal'],
             ]);
         }
+    }
+
+    public function settings()
+    {
+        $setting = SalesAiCoachSetting::latest()->first();
+        return Inertia::render('SalesAiCoach/Settings', [
+            'basePrompt' => $setting?->base_prompt ?? '',
+            'defaultPrompt' => $this->defaultSystemPrompt(),
+        ]);
+    }
+
+    public function updateSettings(Request $request)
+    {
+        $validated = $request->validate([
+            'base_prompt' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        SalesAiCoachSetting::create([
+            'user_id' => optional($request->user())->id,
+            'base_prompt' => $validated['base_prompt'] ?? null,
+        ]);
+
+        return back()->with('success', 'ベースプロンプトを更新しました。');
+    }
+
+    private function buildSystemPrompt(): string
+    {
+        $custom = SalesAiCoachSetting::latest()->value('base_prompt');
+        $base = $this->defaultSystemPrompt();
+        if ($custom && trim($custom) !== '') {
+            return $base . ' Additional instructions: ' . $custom;
+        }
+        return $base;
+    }
+
+    private function defaultSystemPrompt(): string
+    {
+        return implode(' ', [
+            'You are a Japanese presales assistant for enterprise sales.',
+            'Return only JSON: {"questions":[{"title":"...","body":"..."}],"actions":{"do":["..."],"dont":["..."]}}.',
+            '"actions" should list concrete things to do / not do today based on goal/context; keep them short bullet strings.',
+            'Context: this is for a sales/discovery meeting about a sales management system.',
+            'Canonical angles you should prioritize based on goal/context hints:',
+            '1) Reports/printing: report types, layout, printer/paper size, Excel/CSV output.',
+            '2) Workflow/permissions: approval routes, exceptions, delegate, notifications, audit log.',
+            '3) Inventory/purchasing: inbound/outbound, lot/expiry, drop-ship, returns, stocktake, reorder point/lead time.',
+            '4) Billing/AR/accounting: tax/rounding, billing/closing/invoice, payment matching, MF integration, journal implications.',
+            '5) Non-functional/operations: concurrent users, response, backup/HA, monitoring, audit/retention.',
+            'If the user text suggests reports/printing, always include a question on layout/printer/paper/output.',
+            'If it suggests workflow/web, include approval/permissions/notifications.',
+            'If it suggests inventory, include lot/stocktake/drop-ship/returns.',
+            'If it suggests billing/accounting, include tax/closing/payment matching/MF link.',
+            'If the goal is vague, first ask to narrow scope using these angles.',
+            'Number of questions can be as many as needed; include clarifying questions if the goal/context is vague.',
+            'Derive questions strictly from the goal/context the user wrote. Do not assume specific products or domains.',
+            'If the goal is vague, ask clarifying, open-ended questions to make it concrete.',
+            'No markdown, no code fences.',
+        ]);
     }
 }

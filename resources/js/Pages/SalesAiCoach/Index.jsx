@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Input } from '@/Components/ui/input';
 import { Textarea } from '@/Components/ui/textarea';
@@ -127,7 +127,14 @@ export default function SalesAiCoachIndex() {
 
     return (
         <AuthenticatedLayout
-            header={<h2 className="text-2xl font-semibold text-slate-800">訪問前AIコーチ</h2>}
+            header={
+                <div className="flex items-center justify-between">
+                    <h2 className="text-2xl font-semibold text-slate-800">訪問前AIコーチ</h2>
+                    <Button asChild variant="ghost" size="sm">
+                        <Link href={route('sales-ai-coach.settings')}>設定</Link>
+                    </Button>
+                </div>
+            }
         >
             <Head title="訪問前AIコーチ" />
 
