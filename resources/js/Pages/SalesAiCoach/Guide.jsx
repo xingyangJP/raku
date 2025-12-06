@@ -90,8 +90,8 @@ export default function Guide() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3 text-sm text-slate-700">
-                        <p>システム開発の営業がやる仕事。「いい感じ」の願いを、プログラマーが設計・工数を出せるレベルまで細かくすること。</p>
-                        <p className="text-sm text-slate-700">まず最初にやることは、「何を作るか」「誰が使うか」「いつまでに」「どれだけの予算で」「やる/やらない・例外」を言葉で固めること。ここが固まれば図面（設計）と見積もりが出せます。</p>
+                        <p>システム開発の営業の仕事は「いい感じ」を図面と見積りに変えること。何を作るか・誰が使うか・いつまでに・いくらで・やる/やらない・例外を言葉で固めます。</p>
+                        <p className="text-sm text-slate-700">機能だけでなく、非機能（速さ・同時接続・停電/バックアップ・監査/ログ・セキュリティ）も最初に聞いておくと、後戻りを防げます。</p>
                         <div className="grid gap-3 lg:grid-cols-2">
                             <div className="space-y-2">
                                 <p className="text-sm font-semibold text-slate-800">家づくりの例</p>
@@ -109,6 +109,7 @@ export default function Guide() {
                                     <li>駐車場: 車2台分</li>
                                     <li>子ども部屋: 2部屋（将来仕切れるように）</li>
                                     <li>リビング: 20畳以上を優先</li>
+                                    <li>安全・快適: 暖房/換気、耐震、騒音対策（＝システムでいう非機能）</li>
                                 </ul>
                                 <p className="text-xs text-slate-500">これが「図面にできる情報＝要件定義」。</p>
                             </div>
