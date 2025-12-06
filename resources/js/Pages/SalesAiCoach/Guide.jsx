@@ -38,31 +38,29 @@ export default function Guide() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4 text-sm text-slate-700">
-                        <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 space-y-1">
+                        <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 space-y-2">
                             <p className="text-sm font-semibold text-emerald-800">一言でいうと</p>
-                            <p>「ざっくり希望・不満・仕事のやり方」を、エンジニアが設計・開発にそのまま使えるレベルまで言葉にして整理すること。</p>
-                            <p className="text-xs text-emerald-700">例: 「売上・在庫・請求をまとめたい」を、誰が・いつ・どの画面で・どの項目を入力し、どのタイミングで伝票/請求書が出て、誰がどこから確認するか、まで具体化。</p>
+                            <p>お客様のざっくりした希望・不満・仕事のやり方を、エンジニアがそのまま設計・開発に使えるレベルまで言葉にして整理することです。販売管理システムなら「売上・在庫・請求をまとめたい」「請求漏れをなくしたい」「社長が外から売上を見たい」といった声をそのまま渡すのではなく、「誰が・いつ・どの画面で・どんな項目を入力し」「どのタイミングで伝票や請求書が発行され」「誰が・どんな権限で・どこから確認できるのか」まで具体化する仕事です。</p>
                         </div>
 
                         <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 space-y-2">
-                            <p className="text-sm font-semibold text-blue-800">機能要件だけで終わらない</p>
-                            <p className="text-xs text-blue-700">機能要件 = 何ができるか（売上登録/在庫照会/請求発行…）。</p>
-                            <p className="text-sm font-semibold text-indigo-800 pt-1">非機能要件も同じくらい大事</p>
-                            <p className="text-xs text-indigo-700">どのレベルでちゃんと使えるか（速さ・同時利用・止まっていい時間・セキュリティ・使いやすさ・バックアップ）。</p>
-                            <p className="text-xs text-indigo-700">例: ピーク時も検索3秒以内 / 停止は月1回夜間2時間まで / 過去7年を即検索 / 得意先ごとに参照制限 / 毎晩自動バックアップ。</p>
-                            <p className="text-xs text-indigo-700">非機能を聞かずに進めると「遅い/落ちる/怖い/使いにくい」システムになり、導入後に手戻りコストが膨らみます。</p>
+                            <p className="text-sm font-semibold text-blue-800">機能要件だけで終わらせない</p>
+                            <p className="text-xs text-blue-700">機能要件は「何ができるか」（例: 売上登録ができる、在庫照会ができる）。</p>
+                            <p className="text-sm font-semibold text-indigo-800">非機能要件も同じくらい重要</p>
+                            <p className="text-xs text-indigo-700">どれくらい速く動くべきか、何人同時に使えるか、どれくらい止まってはいけないか、どのレベルのセキュリティが必要か、どれだけ簡単に使えるべきか、といった“使い勝手・品質・安全性・運用面”の条件。販売管理の例: 「朝9〜11時のピークでも検索3秒以内」「停止は月1回夜間2時間まで」「過去7年分をすぐ検索」「得意先ごとに参照権限を分ける」「毎晩自動バックアップ」。</p>
+                            <p className="text-xs text-indigo-700">機能だけ固めて非機能を曖昧にすると、導入後に「遅い/落ちる/セキュリティ不安/使いにくい」で手戻り・追加コストになりがち。</p>
                         </div>
 
                         <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 space-y-2">
                             <p className="text-sm font-semibold text-amber-800">レストランの例</p>
-                            <p className="text-xs text-amber-700">お客:「接待で使う。あまり重くなくて、お酒に合う料理を一人5,000円くらいで」<br />ホール（営業）:「いい感じでお願いします」だけだと、和/洋、肉/魚、アレルギー、ドリンク込み？が不明で「違う料理」リスク。</p>
-                            <p className="text-xs text-amber-700">必要な注文票: 「接待で失敗NG」「5,000円は料理のみ」「量より質の和食中心」「18時に6名スタート」「酒に合う構成」→ キッチン（エンジニア）がすぐ動ける。</p>
-                            <p className="text-xs text-amber-700">見えにくいけど大事: 提供ペース・待ち時間・静かさ・衛生管理 = システムでいう速度/停止許容/セキュリティ/バックアップ/運用。</p>
+                            <p className="text-xs text-amber-700">お客:「今日、大事な接待で使うから、あまり重くなくて、お酒に合う料理を一人5,000円くらいでお願い」。<br />ホール（営業）がキッチン（エンジニア）に「なんか美味しいコース、いい感じでお願いします」だけだと、和/洋、肉/魚、アレルギー、5,000円に飲み物を含むのかが不明で「違う料理」が出るリスク大。</p>
+                            <p className="text-xs text-amber-700">必要なのは「接待で失敗できない」「予算は料理のみ5,000円」「役員クラスで量より質」「お酒に合う和食中心」「18時に6名でスタート」といった注文票＝システムでいう機能要件の整理。</p>
+                            <p className="text-xs text-amber-700">さらに「料理が出るまでの待ち時間」「提供ペース」「店内の静かさ・雰囲気」「食材管理・衛生」といった“見えにくい条件”＝システムでいう非機能要件（速度/同時アクセス/停止許容/セキュリティ/バックアップ）。</p>
                         </div>
 
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
                             <p className="text-sm font-semibold text-slate-800">まとめ</p>
-                            <p className="text-sm text-slate-700">「いい感じ」は図面にならない。機能と非機能を数字や条件で固めて、設計と見積もりに直結する“注文票”にするのが要件定義。営業がここまで引き出せるかで、成功率と信頼が変わります。</p>
+                            <p className="text-sm text-slate-700">「いい感じ」は図面にならない。機能要件と非機能要件を数字や条件で固め、“設計と見積もりに直結する注文票”にするのが要件定義。営業が非機能まで引き出し合意するかで、成功率と信頼が大きく変わります。</p>
                         </div>
                     </CardContent>
                 </Card>
