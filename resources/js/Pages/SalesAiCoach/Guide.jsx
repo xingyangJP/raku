@@ -34,15 +34,15 @@ export default function Guide() {
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <Sparkles className="h-5 w-5 text-amber-500" />
-                            基本の使い方
+                            まずやること
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3 text-sm text-slate-700">
-                        <p>1) 「今日決めたいこと」をできるだけ具体的に入力します（例: 発注→入荷→出庫の流れを追えるようにしたい）。</p>
-                        <p>2) 「過去議事録URL/要約」に共有リンクや要約を貼ると、内容を読み取り質問精度が上がります（閲覧可能URLのみ）。</p>
-                        <p>3) 「優先質問を生成」を押すと、質問リストと「やる/やらない」案が出ます。不要な質問は外し、追記してください。</p>
-                        <p>4) 「質問リライト」で Yes/No になりがちな質問を深掘り版に変換できます。</p>
-                        <p>5) 右カラムの「今日決め切る3点」と「やる/やらない」を埋め、印刷ボタンで1枚にまとめられます。</p>
+                        <p>1) 「今日決めたいこと」を短い文で書く（例: 入出庫の流れを見たい）。</p>
+                        <p>2) 前回のメモやURLがあれば「過去議事録URL/要約」に貼る（見られるURLだけ）。</p>
+                        <p>3) 「優先質問を生成」を押す → 質問と「やる/やらない」が出る。</p>
+                        <p>4) 聞き方を変えたいときは「質問リライト」を使う。</p>
+                        <p>5) 「やる/やらない」と「今日決める3点」を埋めて、必要なら印刷。</p>
                     </CardContent>
                 </Card>
 
@@ -50,18 +50,18 @@ export default function Guide() {
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <ListChecks className="h-5 w-5 text-emerald-600" />
-                            質問の観点（デフォルト）
+                            AIがよく聞くポイント
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm text-slate-700">
                         <ul className="list-disc pl-5 space-y-1">
-                            <li>帳票/印刷: 帳票種類、レイアウト、プリンタ/紙サイズ、Excel/CSV出力</li>
-                            <li>ワークフロー/権限: 承認経路、例外、代理、通知、操作ログ</li>
-                            <li>在庫/購買: 入出庫、ロット/期限、直送、返品、棚卸、発注点/リードタイム</li>
-                            <li>請求/会計: 税・端数、締め/請求/入金消込、MF連携、仕訳影響</li>
-                            <li>非機能/運用: 同時利用、レスポンス、バックアップ/冗長化、監査・保持期間</li>
+                            <li>帳票・印刷: どんな帳票、レイアウト、紙/プリンタ、Excel・CSV</li>
+                            <li>承認・権限: 誰が承認、例外、代理、通知、ログ</li>
+                            <li>在庫・購買: 入出庫、ロット/期限、直送、返品、棚卸、発注点</li>
+                            <li>請求・会計: 税/端数、締め/請求/入金、MF連携、仕訳への影響</li>
+                            <li>非機能・運用: 同時利用、速さ、バックアップ/冗長化、監査・保存期間</li>
                         </ul>
-                        <p className="text-xs text-slate-500">カスタムプロンプトを設定すると上記に追記されます。</p>
+                        <p className="text-xs text-slate-500">カスタムプロンプトに書くと、ここに追記されます。</p>
                     </CardContent>
                 </Card>
             </div>
