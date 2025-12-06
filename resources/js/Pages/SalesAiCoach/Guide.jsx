@@ -30,6 +30,48 @@ export default function Guide() {
             <Head title="訪問前AIコーチ 使い方" />
 
             <div className="space-y-6">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <ListChecks className="h-5 w-5 text-emerald-600" />
+                            要件定義ってなに？
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4 text-sm text-slate-700">
+                        <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3 space-y-1">
+                            <p className="text-sm font-semibold text-emerald-800">一言でいうと</p>
+                            <p>お客様の「ざっくり希望・不満・やり方」を、エンジニアがそのまま設計・開発に使える言葉まで落とし込むこと。</p>
+                            <p className="text-xs text-emerald-700">例: 「売上・在庫・請求をまとめたい」「請求漏れをなくしたい」を、誰が・いつ・どの画面で・どの項目を入力し、いつ伝票/請求書が出て、誰がどこから確認するかまで具体化。</p>
+                        </div>
+                        <div className="grid gap-3 lg:grid-cols-2">
+                            <div className="space-y-2">
+                                <p className="text-sm font-semibold text-slate-800">機能だけで終わらない</p>
+                                <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 space-y-1">
+                                    <p className="text-sm font-semibold text-blue-800">機能要件</p>
+                                    <p className="text-xs text-blue-700">何ができるか（売上登録、在庫照会、請求発行…）。</p>
+                                    <p className="text-sm font-semibold text-indigo-800 pt-2">非機能要件</p>
+                                    <p className="text-xs text-indigo-700">どのレベルで使えるか（速度・同時接続・停止許容・セキュリティ・使いやすさ・バックアップ）。</p>
+                                    <p className="text-xs text-indigo-700">例: ピーク時も検索3秒以内/月1回夜間2時間まで停止/過去7年を即検索/得意先ごとに参照制限/毎晩自動バックアップ。</p>
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <p className="text-sm font-semibold text-slate-800">レストランの例</p>
+                                <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 space-y-1">
+                                    <p className="text-sm font-semibold text-amber-800">注文を整理する</p>
+                                    <p className="text-xs text-amber-700">「おいしいコースで」だけだと、和/洋、アレルギー、5,000円にドリンク含む？が不明。</p>
+                                    <p className="text-xs text-amber-700">必要な注文票: 「接待で失敗NG」「5,000円(料理のみ)」「量より質の和食」「18時に6名」「酒に合う構成」→ キッチンがすぐ動ける。</p>
+                                    <p className="text-sm font-semibold text-amber-800 pt-1">見えにくいけど大事</p>
+                                    <p className="text-xs text-amber-700">提供ペース・待ち時間・静かさ・衛生管理＝システムでいう速度/停止許容/セキュリティ/バックアップ。</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
+                            <p className="text-sm font-semibold text-slate-800">まとめ</p>
+                            <p className="text-sm text-slate-700">「いい感じ」は図面にならない。機能と非機能を数字や条件で固めて、設計と見積もりに直結する“注文票”にするのが要件定義。営業がここまで引き出せるかで、成功率と信頼が変わります。</p>
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <Card className="relative overflow-hidden">
                     <div className="absolute left-5 top-20 bottom-6 w-px bg-indigo-100" aria-hidden />
                     <CardHeader>
