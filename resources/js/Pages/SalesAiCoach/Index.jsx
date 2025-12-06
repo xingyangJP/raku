@@ -133,11 +133,16 @@ export default function SalesAiCoachIndex() {
             header={
                 <div className="flex items-center justify-between">
                     <h2 className="text-2xl font-semibold text-slate-800">訪問前AIコーチ</h2>
-                    {canManageSettings && (
+                    <div className="flex items-center gap-2">
                         <Button asChild variant="ghost" size="sm">
-                            <Link href={route('sales-ai-coach.settings')}>設定</Link>
+                            <Link href={route('sales-ai-coach.guide')}>使い方</Link>
                         </Button>
-                    )}
+                        {canManageSettings && (
+                            <Button asChild variant="ghost" size="sm">
+                                <Link href={route('sales-ai-coach.settings')}>設定</Link>
+                            </Button>
+                        )}
+                    </div>
                 </div>
             }
         >

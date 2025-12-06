@@ -282,6 +282,11 @@ class SalesAiCoachController extends Controller
         ]);
     }
 
+    public function guide()
+    {
+        return Inertia::render('SalesAiCoach/Guide');
+    }
+
     public function updateSettings(Request $request)
     {
         $this->authorizeManager();
