@@ -335,7 +335,7 @@ class SalesAiCoachController extends Controller
     private function authorizeManager(): void
     {
         $user = optional(request()->user());
-        $allowed = ['守部', '川口'];
+        $allowed = ['守部幸洋', '川口大希'];
         if (!$user || !in_array($user->name, $allowed, true)) {
             abort(403, 'You are not allowed to update AI coach settings.');
         }

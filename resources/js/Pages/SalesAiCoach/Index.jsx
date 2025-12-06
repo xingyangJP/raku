@@ -53,7 +53,7 @@ const mustDecideToday = [
 export default function SalesAiCoachIndex() {
     const { auth } = usePage().props;
     const currentUserName = auth?.user?.name;
-    const canManageSettings = ['守部', '川口'].includes(currentUserName);
+    const canManageSettings = ['守部幸洋', '川口大希'].includes(currentUserName);
     const [goal, setGoal] = useState('');
     const [context, setContext] = useState('');
     const [questionDraft, setQuestionDraft] = useState('');
