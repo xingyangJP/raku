@@ -147,6 +147,22 @@ export default function SalesAiCoachIndex() {
             }
         >
             <Head title="訪問前AIコーチ" />
+            <style>{`
+                @media print {
+                    body * {
+                        visibility: hidden;
+                    }
+                    .print-area, .print-area * {
+                        visibility: visible;
+                    }
+                    .print-area {
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                        width: 100%;
+                    }
+                }
+            `}</style>
 
             <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
                 <div className="space-y-6">
@@ -311,7 +327,7 @@ export default function SalesAiCoachIndex() {
                         </CardContent>
                     </Card>
 
-                    <Card>
+                    <Card className="print-area">
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div>
                                 <CardTitle className="flex items-center gap-2 text-slate-800">
