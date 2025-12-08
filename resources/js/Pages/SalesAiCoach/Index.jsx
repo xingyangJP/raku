@@ -53,6 +53,7 @@ const mustDecideToday = [
 export default function SalesAiCoachIndex() {
     const { auth } = usePage().props;
     const currentUserId = auth?.user?.id;
+    const currentUserName = auth?.user?.name || 'ゲスト';
     const canManageSettings = [3, 8].includes(currentUserId);
     const [goal, setGoal] = useState('');
     const [context, setContext] = useState('');
@@ -134,15 +135,18 @@ export default function SalesAiCoachIndex() {
             header={
                 <div className="flex items-center justify-between">
                     <h2 className="text-2xl font-semibold text-slate-800">訪問前AIコーチ</h2>
-                    <div className="flex items-center gap-2">
-                        <Button asChild variant="ghost" size="sm">
-                            <Link href={route('sales-ai-coach.guide')}>使い方</Link>
-                        </Button>
-                        {canManageSettings && (
+                        <div className="flex items-center gap-2">
                             <Button asChild variant="ghost" size="sm">
-                                <Link href={route('sales-ai-coach.settings')}>設定</Link>
+                                <Link href={route('sales-ai-coach.guide')}>使い方</Link>
                             </Button>
-                        )}
+                            <div className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
+                                ログイン: {currentUserName}
+                            </div>
+                            {canManageSettings && (
+                                <Button asChild variant="ghost" size="sm">
+                                    <Link href={route('sales-ai-coach.settings')}>設定</Link>
+                                </Button>
+                            )}
                     </div>
                 </div>
             }
@@ -348,6 +352,10 @@ export default function SalesAiCoachIndex() {
                         </CardHeader>
                         <CardContent>
                             <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-800 space-y-3">
+                                <div className="flex items-center justify-between text-xs text-slate-500">
+                                    <span>ログインユーザ: {currentUserName}</span>
+                                    <span>{new Date().toLocaleDateString()}</span>
+                                </div>
                                 <div>
                                     <p className="text-xs text-slate-500">ゴール</p>
                                     <p className="font-semibold">{goal || '（未入力）'}</p>
