@@ -330,9 +330,7 @@ export default function SalesAiCoachIndex() {
                                     onChange={(e) => setPendingItems(e.target.value)}
                                     className="bg-white"
                                 />
-                                <p className="font-semibold text-slate-800 pt-2">次アクション</p>
-                                <p className="text-xs text-slate-600">顧客: 訪問後に記入</p>
-                                <p className="text-xs text-slate-600">自社: 訪問後に記入</p>
+                                {/* 次アクションは訪問後に記入するため、ここでは表示しない */}
                             </div>
                         </CardContent>
                     </Card>
@@ -399,13 +397,7 @@ export default function SalesAiCoachIndex() {
                                         ))}
                                     </ul>
                                 </div>
-                                <div>
-                                    <p className="text-xs text-slate-500 mb-1">次アクション</p>
-                                    <ul className="list-disc pl-5 space-y-1 whitespace-pre-wrap">
-                                        <li>顧客: 訪問後に記入</li>
-                                        <li>自社: 訪問後に記入</li>
-                                    </ul>
-                                </div>
+                                {/* 次アクションは訪問後に記入 */}
                             </div>
                         </CardContent>
                     </Card>
