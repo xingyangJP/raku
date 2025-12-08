@@ -62,8 +62,6 @@ export default function SalesAiCoachIndex() {
     const [doItems, setDoItems] = useState('');
     const [dontItems, setDontItems] = useState('');
     const [pendingItems, setPendingItems] = useState('');
-    const [nextActionCustomer, setNextActionCustomer] = useState('');
-    const [nextActionInternal, setNextActionInternal] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [goalError, setGoalError] = useState('');
     const [serverMessage, setServerMessage] = useState('');
@@ -329,18 +327,8 @@ export default function SalesAiCoachIndex() {
                                     className="bg-white"
                                 />
                                 <p className="font-semibold text-slate-800 pt-2">次アクション</p>
-                                <Label className="text-xs text-slate-600">顧客</Label>
-                                <Input
-                                    placeholder="例: 〇〇さんが在庫確認・期限12/10"
-                                    value={nextActionCustomer}
-                                    onChange={(e) => setNextActionCustomer(e.target.value)}
-                                />
-                                <Label className="text-xs text-slate-600">自社</Label>
-                                <Input
-                                    placeholder="例: △△が帳票サンプル収集・期限12/8"
-                                    value={nextActionInternal}
-                                    onChange={(e) => setNextActionInternal(e.target.value)}
-                                />
+                                <p className="text-xs text-slate-600">顧客: 訪問後に記入</p>
+                                <p className="text-xs text-slate-600">自社: 訪問後に記入</p>
                             </div>
                         </CardContent>
                     </Card>
@@ -406,8 +394,8 @@ export default function SalesAiCoachIndex() {
                                 <div>
                                     <p className="text-xs text-slate-500 mb-1">次アクション</p>
                                     <ul className="list-disc pl-5 space-y-1 whitespace-pre-wrap">
-                                        <li>顧客: {nextActionCustomer || '（担当/期限を記入）'}</li>
-                                        <li>自社: {nextActionInternal || '（担当/期限を記入）'}</li>
+                                        <li>顧客: 訪問後に記入</li>
+                                        <li>自社: 訪問後に記入</li>
                                     </ul>
                                 </div>
                             </div>
