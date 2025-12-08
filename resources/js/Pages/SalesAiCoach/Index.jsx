@@ -61,6 +61,9 @@ export default function SalesAiCoachIndex() {
     const [questions, setQuestions] = useState([]);
     const [doItems, setDoItems] = useState('');
     const [dontItems, setDontItems] = useState('');
+    const [pendingItems, setPendingItems] = useState('');
+    const [nextActionCustomer, setNextActionCustomer] = useState('');
+    const [nextActionInternal, setNextActionInternal] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [goalError, setGoalError] = useState('');
     const [serverMessage, setServerMessage] = useState('');
@@ -319,10 +322,25 @@ export default function SalesAiCoachIndex() {
                                     className="bg-white"
                                 />
                                 <p className="font-semibold text-slate-800 pt-2">未決事項</p>
-                                <p>- （未決事項を記入してください）</p>
+                                <Textarea
+                                    placeholder="例: 在庫差異の原因確認（〇〇担当、期限: 12/15）"
+                                    value={pendingItems}
+                                    onChange={(e) => setPendingItems(e.target.value)}
+                                    className="bg-white"
+                                />
                                 <p className="font-semibold text-slate-800 pt-2">次アクション</p>
-                                <p>- 顧客: （担当/期限を記入）</p>
-                                <p>- 自社: （担当/期限を記入）</p>
+                                <Label className="text-xs text-slate-600">顧客</Label>
+                                <Input
+                                    placeholder="例: 〇〇さんが在庫確認・期限12/10"
+                                    value={nextActionCustomer}
+                                    onChange={(e) => setNextActionCustomer(e.target.value)}
+                                />
+                                <Label className="text-xs text-slate-600">自社</Label>
+                                <Input
+                                    placeholder="例: △△が帳票サンプル収集・期限12/8"
+                                    value={nextActionInternal}
+                                    onChange={(e) => setNextActionInternal(e.target.value)}
+                                />
                             </div>
                         </CardContent>
                     </Card>
@@ -378,11 +396,18 @@ export default function SalesAiCoachIndex() {
                                     </ul>
                                 </div>
                                 <div>
-                                    <p className="text-xs text-slate-500 mb-1">今日決め切ること</p>
-                                    <ul className="list-disc pl-5 space-y-1">
-                                        {mustDecideToday.map((item, idx) => (
-                                            <li key={idx}>{item}</li>
+                                    <p className="text-xs text-slate-500 mb-1">未決事項</p>
+                                    <ul className="list-disc pl-5 space-y-1 whitespace-pre-wrap">
+                                        {(pendingItems ? pendingItems.split('\n') : ['（未決事項を記入してください）']).map((item, idx) => (
+                                            <li key={idx}>{item || '（空行）'}</li>
                                         ))}
+                                    </ul>
+                                </div>
+                                <div>
+                                    <p className="text-xs text-slate-500 mb-1">次アクション</p>
+                                    <ul className="list-disc pl-5 space-y-1 whitespace-pre-wrap">
+                                        <li>顧客: {nextActionCustomer || '（担当/期限を記入）'}</li>
+                                        <li>自社: {nextActionInternal || '（担当/期限を記入）'}</li>
                                     </ul>
                                 </div>
                             </div>
