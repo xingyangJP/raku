@@ -512,6 +512,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         title: estimate?.title || '',
         issue_date: isEditMode ? formatDate(estimate?.issue_date) : issueDateDefault,
         due_date: isEditMode ? formatDate(estimate?.due_date) : dueDateDefault,
+        delivery_date: isEditMode ? formatDate(estimate?.delivery_date) : '',
         total_amount: estimate?.total_amount || 0,
         tax_amount: estimate?.tax_amount || 0,
         notes: estimate?.notes || '',
@@ -1472,7 +1473,7 @@ useEffect(() => {
                                         {errors.staff_name && <p className="text-sm text-red-600 mt-1">{errors.staff_name}</p>}
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                                     <div className="space-y-2">
                                         <Label htmlFor="issue-date">発行日 <span className="text-red-500 ml-1">*</span></Label>
                                         <Input
@@ -1504,6 +1505,10 @@ useEffect(() => {
                                     <div className="space-y-2">
                                         <Label htmlFor="due-date">有効期間</Label>
                                         <Input type="date" id="due-date" value={data.due_date || ''} onChange={(e) => setData('due_date', e.target.value)} onBlur={handleDueDateBlur} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="delivery-date">納期</Label>
+                                        <Input type="date" id="delivery-date" value={data.delivery_date || ''} onChange={(e) => setData('delivery_date', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="payment-terms">支払条件</Label>

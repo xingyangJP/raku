@@ -421,6 +421,7 @@ class EstimateController extends Controller
                 'title' => 'required|string|max:255',
                 'issue_date' => 'nullable|date',
                 'due_date' => 'nullable|date',
+                'delivery_date' => 'nullable|date',
                 'total_amount' => 'required|integer',
                 'tax_amount' => 'required|integer',
                 'notes' => 'nullable|string',
@@ -459,6 +460,7 @@ class EstimateController extends Controller
                 'title' => 'required|string|max:255',
                 'issue_date' => 'nullable|date',
                 'due_date' => 'nullable|date',
+                'delivery_date' => 'nullable|date',
                 'total_amount' => 'required|integer',
                 'tax_amount' => 'required|integer',
                 'notes' => 'nullable|string',
@@ -511,6 +513,7 @@ class EstimateController extends Controller
             'title' => 'required|string|max:255',
             'issue_date' => 'required|date',
             'due_date' => 'nullable|date',
+            'delivery_date' => 'nullable|date',
             'total_amount' => 'required|integer',
             'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
@@ -539,6 +542,9 @@ class EstimateController extends Controller
         }
         if (!empty($validated['due_date'])) {
             $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
+        }
+        if (!empty($validated['delivery_date'])) {
+            $validated['delivery_date'] = date('Y-m-d', strtotime($validated['delivery_date']));
         }
 
         if (!Schema::hasColumn('estimates', 'approval_flow')) {
@@ -661,6 +667,7 @@ class EstimateController extends Controller
             'title' => 'required|string|max:255',
             'issue_date' => 'required|date',
             'due_date' => 'nullable|date',
+            'delivery_date' => 'nullable|date',
             'total_amount' => 'required|integer',
             'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
@@ -684,6 +691,9 @@ class EstimateController extends Controller
         }
         if (!empty($validated['due_date'])) {
             $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
+        }
+        if (!empty($validated['delivery_date'])) {
+            $validated['delivery_date'] = date('Y-m-d', strtotime($validated['delivery_date']));
         }
 
         $originalStatus = $estimate->status;

@@ -30,7 +30,7 @@ export default function PurchaseOrderPreview() {
     const deliveryLocationLines = toLines(estimate?.delivery_location);
 
     const issueDateDisplay = formatDate(estimate?.issue_date) || formatDate(new Date());
-    const dueDateDisplay = formatDate(estimate?.due_date) || '-';
+    const dueDateDisplay = formatDate(estimate?.delivery_date) || '-';
 
     return (
         <>

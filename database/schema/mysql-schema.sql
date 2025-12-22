@@ -205,6 +205,7 @@ CREATE TABLE `estimates` (
   `title` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `issue_date` date DEFAULT NULL,
   `due_date` date DEFAULT NULL,
+  `delivery_date` date DEFAULT NULL,
   `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `is_order_confirmed` tinyint(1) NOT NULL DEFAULT '0',
   `mf_quote_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

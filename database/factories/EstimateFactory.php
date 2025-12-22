@@ -27,6 +27,7 @@ class EstimateFactory extends Factory
             'title' => $this->faker->sentence(3),
             'issue_date' => $issueDate,
             'due_date' => $dueDate,
+            'delivery_date' => $dueDate,
             'status' => 'draft',
             'total_amount' => 55000,
             'tax_amount' => 5000,
