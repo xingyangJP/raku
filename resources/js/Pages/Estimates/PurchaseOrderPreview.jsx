@@ -13,6 +13,15 @@ function toLines(value) {
     return value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 }
 
+function formatQuantity(value) {
+    if (!Number.isFinite(value)) return '-';
+    if (Number.isInteger(value)) {
+        return value.toLocaleString('ja-JP');
+    }
+    const fixed = value.toFixed(2);
+    return fixed.replace(/\.?0+$/, '');
+}
+
 export default function PurchaseOrderPreview() {
     const { props } = usePage();
     const { estimate, company, client, purchaseOrderNumber } = props;
@@ -143,6 +152,15 @@ export default function PurchaseOrderPreview() {
                                 const qty = Number(item?.qty ?? item?.quantity ?? 0);
                                 const price = Number(item?.price ?? 0);
                                 const amount = Number.isFinite(price * qty) ? price * qty : null;
+                                let displayQty = qty;
+                                let displayUnit = item?.unit ?? '';
+                                let displayPrice = price;
+                                if (item?.display_mode === 'lump') {
+                                    const displayQtyCandidate = Number(item?.display_qty ?? 1);
+                                    displayQty = displayQtyCandidate > 0 ? displayQtyCandidate : 1;
+                                    displayUnit = item?.display_unit ?? '式';
+                                    displayPrice = displayQty !== 0 ? amount / displayQty : amount;
+                                }
                                 return (
                                     <tr key={`${item?.id ?? idx}`}>
                                         <td>{idx + 1}</td>
@@ -150,10 +168,10 @@ export default function PurchaseOrderPreview() {
                                             <div className="po-item-name">{item?.name ?? ''}</div>
                                             {item?.description && <div className="po-item-desc">{item.description}</div>}
                                         </td>
-                                        <td>{Number.isFinite(qty) ? qty.toLocaleString('ja-JP') : '-'}</td>
-                                        <td>{item?.unit ?? '式'}</td>
-                                        <td>{Number.isFinite(price) ? price.toLocaleString('ja-JP') : '-'}</td>
-                                        <td>{Number.isFinite(amount) ? amount.toLocaleString('ja-JP') : '-'}</td>
+                                        <td>{formatQuantity(displayQty)}</td>
+                                        <td>{displayUnit || '式'}</td>
+                                        <td>{Number.isFinite(displayPrice) ? Math.round(displayPrice).toLocaleString('ja-JP') : '-'}</td>
+                                        <td>{Number.isFinite(amount) ? Math.round(amount).toLocaleString('ja-JP') : '-'}</td>
                                     </tr>
                                 );
                             })}

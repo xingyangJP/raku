@@ -359,18 +359,19 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         code: item.code ?? item.sku ?? null,
         name: item.name ?? '',
         description: item.description ?? item.detail ?? '',
-        qty: normalizeNumber(item.qty ?? item.quantity, 1) || 1,
+        qty: Math.round(normalizeNumber(item.qty ?? item.quantity, 1) || 1),
         unit: item.unit ?? '式',
-        price: normalizeNumber(item.price, 0),
-        cost: normalizeNumber(item.cost, 0),
+        price: Math.round(normalizeNumber(item.price, 0)),
+        cost: Math.round(normalizeNumber(item.cost, 0)),
         tax_category: item.tax_category ?? 'standard',
         display_mode: item.display_mode ?? 'calculated',
-        display_qty: normalizeNumber(item.display_qty, 1) || 1,
+        display_qty: Math.round(normalizeNumber(item.display_qty, 1) || 1),
         display_unit: item.display_unit ?? '式',
         business_division: item.business_division ?? null,
     }));
 
     const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
+    const [hasDecimalInput, setHasDecimalInput] = useState(false);
     const displayModeOptions = [
         { value: 'calculated', label: '数量表示' },
         { value: 'lump', label: '1式表示' },
@@ -925,6 +926,7 @@ useEffect(() => {
     };
 
     const numericFields = new Set(['qty', 'price', 'cost', 'display_qty']);
+    const integerFields = new Set(['qty', 'price', 'cost', 'display_qty']);
 
     const cleanseNumericInput = (raw) => {
         if (typeof raw !== 'string') {
@@ -940,6 +942,13 @@ useEffect(() => {
         }
 
         let normalizedValue = numericFields.has(field) ? normalizeNumber(incomingValue, 0) : incomingValue;
+
+        if (integerFields.has(field) && typeof normalizedValue === 'number' && Number.isFinite(normalizedValue)) {
+            if (!Number.isInteger(normalizedValue)) {
+                setHasDecimalInput(true);
+            }
+            normalizedValue = Math.round(normalizedValue);
+        }
 
         if (field === 'display_qty' && (normalizedValue === null || normalizedValue <= 0)) {
             normalizedValue = 1;
@@ -1766,9 +1775,9 @@ useEffect(() => {
                                                 <TableCell className="text-right">
                                                     <Input
                                                         type="number"
-                                                        step="0.1"
+                                                        step="1"
                                                         min="0"
-                                                        inputMode="decimal"
+                                                        inputMode="numeric"
                                                         value={item.qty}
                                                         onChange={(e) => handleItemChange(item.id, 'qty', e.target.value)}
                                                         className="w-20 text-right appearance-none"
@@ -1808,11 +1817,11 @@ useEffect(() => {
                                                             <div className="flex items-center gap-2 text-xs">
                                                                 <Input
                                                                     type="number"
-                                                                    step="0.1"
+                                                                    step="1"
                                                                     className="w-16 text-right"
                                                                     value={item.display_qty}
                                                                     min="0"
-                                                                    inputMode="decimal"
+                                                                    inputMode="numeric"
                                                                     onChange={(e) => handleItemChange(item.id, 'display_qty', e.target.value)}
                                                                     onKeyDown={preventArrowKeyChange}
                                                                 />
@@ -1831,7 +1840,7 @@ useEffect(() => {
                                                         type="number"
                                                         step="1"
                                                         min="0"
-                                                        inputMode="decimal"
+                                                        inputMode="numeric"
                                                         value={item.price}
                                                         onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
                                                         className="w-24 text-right appearance-none"
@@ -1863,7 +1872,7 @@ useEffect(() => {
                                                         type="number"
                                                         step="1"
                                                         min="0"
-                                                        inputMode="decimal"
+                                                        inputMode="numeric"
                                                         value={item.cost}
                                                         onChange={(e) => handleItemChange(item.id, 'cost', e.target.value)}
                                                         className="w-24 text-right appearance-none"
@@ -1887,6 +1896,11 @@ useEffect(() => {
                                 <div className="mt-4 flex items-center space-x-2">
                                     <Button type="button" variant="outline" size="sm" onClick={addLineItem}><PlusCircle className="mr-2 h-4 w-4" />行を追加</Button>
                                 </div>
+                                {hasDecimalInput && (
+                                    <p className="text-sm text-amber-600 mt-2">
+                                        数量・単価・原価・1式数量は整数のみです。小数は四捨五入されます。
+                                    </p>
+                                )}
                                 {errors.items && <p className="text-sm text-red-600 mt-2">{errors.items}</p>}
                             </CardContent>
                         </Card>
