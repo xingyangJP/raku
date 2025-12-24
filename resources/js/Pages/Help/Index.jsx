@@ -291,6 +291,39 @@ export default function HelpIndex({ auth }) {
 
                 <section className="space-y-4">
                     <div className="flex items-center gap-2">
+                        <Info className="h-5 w-5 text-slate-500" />
+                        <h2 className="text-xl font-semibold text-slate-800">顧客情報の編集・追加について</h2>
+                    </div>
+                    <Card className="border border-slate-200 shadow-sm">
+                        <CardHeader className="bg-slate-50/70">
+                            <CardTitle className="text-slate-800">顧客マスターは XeroPM で管理します</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-sm text-slate-700 leading-relaxed">
+                                見積書で選択する顧客は XeroPM 側の顧客マスターを参照しており、RAKUSHIRU Cloud からは編集・追加できません。
+                                新規顧客の登録や既存顧客の修正は、XeroPM 上で実施してください。
+                            </p>
+                            <ul className="mt-3 space-y-2 text-sm text-slate-700 leading-relaxed list-disc pl-5">
+                                <li>顧客の追加・編集：XeroPM 管理画面で実施</li>
+                                <li>反映タイミング：次回の取引先同期で見積画面の候補に反映</li>
+                                <li>
+                                    XeroPM はこちら：
+                                    <a
+                                        className="ml-1 text-sky-600 underline underline-offset-2 hover:text-sky-700"
+                                        href="https://pm.xerographix.co.jp/"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                    >
+                                        https://pm.xerographix.co.jp/
+                                    </a>
+                                </li>
+                            </ul>
+                        </CardContent>
+                    </Card>
+                </section>
+
+                <section className="space-y-4">
+                    <div className="flex items-center gap-2">
                         <Workflow className="h-5 w-5 text-slate-500" />
                         <h2 className="text-xl font-semibold text-slate-800">画面ごとの基本操作と同期の挙動</h2>
                     </div>
