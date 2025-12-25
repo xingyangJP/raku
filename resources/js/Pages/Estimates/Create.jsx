@@ -353,22 +353,82 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return fallback;
     };
 
-    const transformIncomingItems = (items = []) => items.map((item, index) => ({
-        id: item.id ?? item.__temp_id ?? Date.now() + index,
-        product_id: item.product_id ?? null,
-        code: item.code ?? item.sku ?? null,
-        name: item.name ?? '',
-        description: item.description ?? item.detail ?? '',
-        qty: Math.round(normalizeNumber(item.qty ?? item.quantity, 1) || 1),
-        unit: item.unit ?? '式',
-        price: Math.round(normalizeNumber(item.price, 0)),
-        cost: Math.round(normalizeNumber(item.cost, 0)),
-        tax_category: item.tax_category ?? 'standard',
-        display_mode: item.display_mode ?? 'calculated',
-        display_qty: Math.round(normalizeNumber(item.display_qty, 1) || 1),
-        display_unit: item.display_unit ?? '式',
-        business_division: item.business_division ?? null,
-    }));
+    const roundToOneDecimal = (value) => {
+        const rounded = Math.round(value * 10) / 10;
+        return Number.isFinite(rounded) ? rounded : 0;
+    };
+
+    const formatDecimalForDisplay = (value) => {
+        if (value === null || value === undefined || value === '') {
+            return '';
+        }
+        const numberValue = Number(value);
+        if (!Number.isFinite(numberValue)) {
+            return '';
+        }
+        const rounded = roundToOneDecimal(numberValue);
+        if (Number.isInteger(rounded)) {
+            return String(Math.round(rounded));
+        }
+        return rounded.toFixed(1);
+    };
+
+    const sanitizeDecimalInput = (raw = '') => {
+        let value = String(raw ?? '');
+        value = value.replace(/,/g, '');
+        let sawDecimal = false;
+        const characters = [];
+        for (const char of value) {
+            if (char === '.' && !sawDecimal) {
+                characters.push(char);
+                sawDecimal = true;
+            } else if (/[0-9]/.test(char)) {
+                characters.push(char);
+            }
+        }
+        const cleaned = characters.join('');
+        if (cleaned === '') {
+            return '';
+        }
+        if (cleaned === '.') {
+            return '0.';
+        }
+        if (cleaned.endsWith('.')) {
+            return cleaned;
+        }
+        if (sawDecimal) {
+            const [intPart, decimalPart = ''] = cleaned.split('.');
+            const limitedDecimal = decimalPart.slice(0, 1);
+            if (limitedDecimal === '') {
+                return intPart || '0';
+            }
+            return `${intPart || '0'}.${limitedDecimal}`;
+        }
+        return cleaned;
+    };
+
+    const normalizeDecimalForPayload = (value) => roundToOneDecimal(normalizeNumber(value, 0));
+
+    const transformIncomingItems = (items = []) => items.map((item, index) => {
+        const incomingQty = roundToOneDecimal(normalizeNumber(item.qty ?? item.quantity, 1));
+        const incomingDisplayQty = roundToOneDecimal(normalizeNumber(item.display_qty, 1));
+        return {
+            id: item.id ?? item.__temp_id ?? Date.now() + index,
+            product_id: item.product_id ?? null,
+            code: item.code ?? item.sku ?? null,
+            name: item.name ?? '',
+            description: item.description ?? item.detail ?? '',
+            qty: formatDecimalForDisplay(incomingQty > 0 ? incomingQty : 1),
+            unit: item.unit ?? '式',
+            price: Math.round(normalizeNumber(item.price, 0)),
+            cost: Math.round(normalizeNumber(item.cost, 0)),
+            tax_category: item.tax_category ?? 'standard',
+            display_mode: item.display_mode ?? 'calculated',
+            display_qty: formatDecimalForDisplay(incomingDisplayQty > 0 ? incomingDisplayQty : 1),
+            display_unit: item.display_unit ?? '式',
+            business_division: item.business_division ?? null,
+        };
+    });
 
     const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
     const [hasDecimalInput, setHasDecimalInput] = useState(false);
@@ -802,25 +862,25 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const total = subtotal + tax;
 
 useEffect(() => {
-    const payloadItems = lineItems.map(item => ({
-        product_id: item.product_id,
-        code: item.code,
-        name: item.name,
-        description: item.description,
-        qty: normalizeNumber(item.qty, 0),
-        unit: item.unit,
-        price: normalizeNumber(item.price, 0),
-        cost: normalizeNumber(item.cost, 0),
-        tax_category: item.tax_category,
-        business_division: item.business_division ?? null,
-        display_mode: item.display_mode,
-        display_qty: item.display_mode === 'lump'
-            ? (normalizeNumber(item.display_qty, 1) || 1)
-            : null,
-        display_unit: item.display_mode === 'lump'
-            ? (item.display_unit || '式')
-            : null,
-    }));
+        const payloadItems = lineItems.map(item => ({
+            product_id: item.product_id,
+            code: item.code,
+            name: item.name,
+            description: item.description,
+            qty: normalizeDecimalForPayload(item.qty),
+            unit: item.unit,
+            price: normalizeNumber(item.price, 0),
+            cost: normalizeNumber(item.cost, 0),
+            tax_category: item.tax_category,
+            business_division: item.business_division ?? null,
+            display_mode: item.display_mode,
+            display_qty: item.display_mode === 'lump'
+                ? (normalizeDecimalForPayload(item.display_qty) || 1)
+                : null,
+            display_unit: item.display_mode === 'lump'
+                ? (item.display_unit || '式')
+                : null,
+        }));
 
     setData(prevData => ({
         ...prevData,
@@ -909,13 +969,13 @@ useEffect(() => {
                 product_id: null,
                 name: '',
                 description: '',
-                qty: 1,
+                qty: '1',
                 unit: '式',
                 price: 0,
                 cost: 0,
                 tax_category: 'standard',
                 display_mode: 'calculated',
-                display_qty: 1,
+                display_qty: '1',
                 display_unit: '式',
             }
         ]);
@@ -926,7 +986,8 @@ useEffect(() => {
     };
 
     const numericFields = new Set(['qty', 'price', 'cost', 'display_qty']);
-    const integerFields = new Set(['qty', 'price', 'cost', 'display_qty']);
+    const decimalFields = new Set(['qty', 'display_qty']);
+    const integerFields = new Set(['price', 'cost']);
 
     const cleanseNumericInput = (raw) => {
         if (typeof raw !== 'string') {
@@ -941,17 +1002,33 @@ useEffect(() => {
             incomingValue = cleanseNumericInput(value);
         }
 
-        let normalizedValue = numericFields.has(field) ? normalizeNumber(incomingValue, 0) : incomingValue;
+        let normalizedValue = incomingValue;
 
-        if (integerFields.has(field) && typeof normalizedValue === 'number' && Number.isFinite(normalizedValue)) {
-            if (!Number.isInteger(normalizedValue)) {
+        if (decimalFields.has(field)) {
+            const sanitized = sanitizeDecimalInput(incomingValue);
+            if (sanitized === '' && incomingValue === '') {
+                normalizedValue = '';
+            } else if (sanitized === '') {
+                normalizedValue = '';
+            } else if (sanitized.endsWith('.')) {
+                normalizedValue = sanitized;
+            } else {
+                const numeric = normalizeNumber(sanitized, 0);
+                normalizedValue = formatDecimalForDisplay(numeric);
+            }
+        } else if (integerFields.has(field)) {
+            let numericValue = normalizeNumber(incomingValue, 0);
+            if (!Number.isInteger(numericValue)) {
                 setHasDecimalInput(true);
             }
-            normalizedValue = Math.round(normalizedValue);
+            normalizedValue = Math.round(numericValue);
         }
 
-        if (field === 'display_qty' && (normalizedValue === null || normalizedValue <= 0)) {
-            normalizedValue = 1;
+        if (field === 'display_qty') {
+            const sanitized = normalizeNumber(normalizedValue, 0);
+            if (!(Number.isFinite(sanitized) && sanitized > 0)) {
+                normalizedValue = '1';
+            }
         }
 
         setLineItems(prevItems =>
@@ -1048,22 +1125,22 @@ useEffect(() => {
         items.map((item, index) => {
             const qty = normalizeNumber(item.qty, 0);
             const normalizedQty = qty <= 0 ? 0.5 : Math.max(0.5, Math.round(qty * 2) / 2);
-            return {
-                id: Date.now() + index,
-                product_id: item.product_id ?? null,
-                code: item.code ?? null,
-                name: item.name ?? '',
-                description: item.description ?? '',
-                qty: normalizedQty,
-                unit: item.unit ?? '人日',
-                price: normalizeNumber(item.price, 0),
-                cost: normalizeNumber(item.cost, 0),
-                tax_category: item.tax_category ?? 'standard',
-                display_mode: 'calculated',
-                display_qty: 1,
-                display_unit: '式',
-                business_division: item.business_division ?? null,
-            };
+        return {
+            id: Date.now() + index,
+            product_id: item.product_id ?? null,
+            code: item.code ?? null,
+            name: item.name ?? '',
+            description: item.description ?? '',
+            qty: formatDecimalForDisplay(normalizedQty),
+            unit: item.unit ?? '人日',
+            price: normalizeNumber(item.price, 0),
+            cost: normalizeNumber(item.cost, 0),
+            tax_category: item.tax_category ?? 'standard',
+            display_mode: 'calculated',
+            display_qty: '1',
+            display_unit: '式',
+            business_division: item.business_division ?? null,
+        };
         });
 
     const applyAiDraft = (mode = 'replace') => {
@@ -1775,9 +1852,9 @@ useEffect(() => {
                                                 <TableCell className="text-right">
                                                     <Input
                                                         type="number"
-                                                        step="1"
+                                                        step="0.1"
                                                         min="0"
-                                                        inputMode="numeric"
+                                                        inputMode="decimal"
                                                         value={item.qty}
                                                         onChange={(e) => handleItemChange(item.id, 'qty', e.target.value)}
                                                         className="w-20 text-right appearance-none"
@@ -1817,11 +1894,11 @@ useEffect(() => {
                                                             <div className="flex items-center gap-2 text-xs">
                                                                 <Input
                                                                     type="number"
-                                                                    step="1"
+                                                                    step="0.1"
                                                                     className="w-16 text-right"
                                                                     value={item.display_qty}
                                                                     min="0"
-                                                                    inputMode="numeric"
+                                                                    inputMode="decimal"
                                                                     onChange={(e) => handleItemChange(item.id, 'display_qty', e.target.value)}
                                                                     onKeyDown={preventArrowKeyChange}
                                                                 />
@@ -1898,7 +1975,7 @@ useEffect(() => {
                                 </div>
                                 {hasDecimalInput && (
                                     <p className="text-sm text-amber-600 mt-2">
-                                        数量・単価・原価・1式数量は整数のみです。小数は四捨五入されます。
+                                        単価・原価は整数のみです。小数を入力すると四捨五入されます。
                                     </p>
                                 )}
                                 {errors.items && <p className="text-sm text-red-600 mt-2">{errors.items}</p>}
