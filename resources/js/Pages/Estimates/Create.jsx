@@ -985,6 +985,20 @@ useEffect(() => {
         setLineItems(prevItems => prevItems.filter(item => item.id !== id));
     };
 
+    const moveLineItem = (id, direction) => {
+        setLineItems((prevItems) => {
+            const index = prevItems.findIndex((item) => item.id === id);
+            if (index === -1) return prevItems;
+            const offset = direction === 'up' ? -1 : 1;
+            const targetIndex = index + offset;
+            if (targetIndex < 0 || targetIndex >= prevItems.length) return prevItems;
+            const updated = [...prevItems];
+            const [moved] = updated.splice(index, 1);
+            updated.splice(targetIndex, 0, moved);
+            return updated;
+        });
+    };
+
     const numericFields = new Set(['qty', 'price', 'cost', 'display_qty']);
     const decimalFields = new Set(['qty', 'display_qty']);
     const integerFields = new Set(['price', 'cost']);
@@ -1962,9 +1976,13 @@ useEffect(() => {
                                                 {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossProfit(item).toLocaleString()}</TableCell>}
                                                 {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossMargin(item).toFixed(1)}%</TableCell>}
                                                 <TableCell className="flex items-center justify-center space-x-1">
-                                                    <Button variant="ghost" size="icon"><ArrowUp className="h-4 w-4" /></Button>
-                                                    <Button variant="ghost" size="icon"><ArrowDown className="h-4 w-4" /></Button>
-                                                    <Button variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
+                                                    <Button type="button" variant="ghost" size="icon" onClick={() => moveLineItem(item.id, 'up')}>
+                                                        <ArrowUp className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button type="button" variant="ghost" size="icon" onClick={() => moveLineItem(item.id, 'down')}>
+                                                        <ArrowDown className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button type="button" variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
                                                 </TableCell>
                                             </TableRow>
                                         ))}
