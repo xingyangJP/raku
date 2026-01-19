@@ -1277,6 +1277,16 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                             {(() => {
                                                                 const flow = Array.isArray(estimate.approval_flow) ? estimate.approval_flow : [];
                                                                 const steps = flow.length ? flow : [];
+                                                                const requiresRequirementDoc = Array.isArray(estimate.items)
+                                                                    ? estimate.items.some((item) => {
+                                                                        const rawCode = `${item?.code ?? item?.product_code ?? ''}`.trim().toUpperCase();
+                                                                        if (!rawCode) {
+                                                                            return false;
+                                                                        }
+                                                                        const prefix = rawCode.split('-')[0];
+                                                                        return prefix === 'B' || prefix === 'C';
+                                                                    })
+                                                                    : false;
                                                                 // 現行ステップ index（approved_at 基準）
                                                                 let currentStepIndex = -1;
                                                                 for (let i = 0; i < steps.length; i++) {
@@ -1460,26 +1470,30 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                                                             : (step.isCurrent ? '承認待ちです。' : '前段の承認待ちです。')}
                                                                                                 </div>
                                                                                                 <div className="mt-3 flex items-center gap-2">
-                                                                                                    <Checkbox
-                                                                                                        id={`requirement-check-${estimate.id}-${index}`}
-                                                                                                        checked={Boolean(step.originalApprover?.requirements_checked)}
-                                                                                                        disabled={!estimate?.google_docs_url || (() => {
-                                                                                                            const stepId = step.originalApprover?.id == null ? '' : String(step.originalApprover.id);
-                                                                                                            const meId = props.auth?.user?.id != null ? String(props.auth.user.id) : '';
-                                                                                                            const meExternal = props.auth?.user?.external_user_id != null ? String(props.auth.user.external_user_id) : '';
-                                                                                                            return !(stepId !== '' && (stepId === meExternal || stepId === meId));
-                                                                                                        })()}
-                                                                                                        onCheckedChange={(checked) => {
-                                                                                                            handleRequirementCheck(step.originalApprover?.id, checked === true);
-                                                                                                        }}
-                                                                                                    />
-                                                                                                    <label htmlFor={`requirement-check-${estimate.id}-${index}`} className="text-sm text-slate-700">
-                                                                                                        要件定義書を確認済み
-                                                                                                    </label>
-                                                                                                    {step.originalApprover?.requirements_checked_at && (
-                                                                                                        <span className="text-xs text-slate-500">
-                                                                                                            {new Date(step.originalApprover.requirements_checked_at).toLocaleDateString('ja-JP')}
-                                                                                                        </span>
+                                                                                                    {requiresRequirementDoc && (
+                                                                                                        <>
+                                                                                                            <Checkbox
+                                                                                                                id={`requirement-check-${estimate.id}-${index}`}
+                                                                                                                checked={Boolean(step.originalApprover?.requirements_checked)}
+                                                                                                                disabled={!estimate?.google_docs_url || (() => {
+                                                                                                                    const stepId = step.originalApprover?.id == null ? '' : String(step.originalApprover.id);
+                                                                                                                    const meId = props.auth?.user?.id != null ? String(props.auth.user.id) : '';
+                                                                                                                    const meExternal = props.auth?.user?.external_user_id != null ? String(props.auth.user.external_user_id) : '';
+                                                                                                                    return !(stepId !== '' && (stepId === meExternal || stepId === meId));
+                                                                                                                })()}
+                                                                                                                onCheckedChange={(checked) => {
+                                                                                                                    handleRequirementCheck(step.originalApprover?.id, checked === true);
+                                                                                                                }}
+                                                                                                            />
+                                                                                                            <label htmlFor={`requirement-check-${estimate.id}-${index}`} className="text-sm text-slate-700">
+                                                                                                                要件定義書を確認済み
+                                                                                                            </label>
+                                                                                                            {step.originalApprover?.requirements_checked_at && (
+                                                                                                                <span className="text-xs text-slate-500">
+                                                                                                                    {new Date(step.originalApprover.requirements_checked_at).toLocaleDateString('ja-JP')}
+                                                                                                                </span>
+                                                                                                            )}
+                                                                                                        </>
                                                                                                     )}
                                                                                                 </div>
                                                                                             </CardContent>
