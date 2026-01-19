@@ -6,6 +6,7 @@ import { Badge } from "@/Components/ui/badge";
 import { Button } from "@/Components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
 import { Textarea } from "@/Components/ui/textarea";
+import { Checkbox } from "@/Components/ui/checkbox";
 import {
     FileText,
     TrendingUp,
@@ -18,11 +19,13 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cn } from "@/lib/utils";
 import { usePage, router } from '@inertiajs/react'; // Import usePage and router
+import axios from 'axios';
 
 export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
     const { auth } = usePage().props; // Get auth user from usePage
     const [isRejecting, setIsRejecting] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
+    const [approvalFlow, setApprovalFlow] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
     const estimateItems = Array.isArray(estimate?.items) ? estimate.items : [];
 
     useEffect(() => {
@@ -31,6 +34,10 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
             setRejectReason('');
         }
     }, [isOpen]);
+
+    useEffect(() => {
+        setApprovalFlow(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
+    }, [estimate?.approval_flow]);
 
     const getStatusBadge = (status) => {
         const configs = {
@@ -443,7 +450,7 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
 
                     <TabsContent data-testid="approval-history-content" value="approval" className="py-6">
                         {(() => {
-                            const flow = Array.isArray(estimate.approval_flow) ? estimate.approval_flow : [];
+                            const flow = approvalFlow;
                             const steps = flow.length ? flow : [];
 
                             // 現行ステップを approved_at に基づいて決定
@@ -495,13 +502,51 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                 };
                             });
 
+                            const handleRequirementCheck = async (approverId, checked) => {
+                                if (!estimate?.id) {
+                                    return;
+                                }
+                                try {
+                                    await axios.put(route('estimates.updateRequirementCheck', estimate.id), {
+                                        approver_id: approverId,
+                                        checked,
+                                    });
+                                    setApprovalFlow((prev) => prev.map((step) => {
+                                        const stepId = step?.id == null ? '' : String(step.id);
+                                        if (stepId !== String(approverId)) {
+                                            return step;
+                                        }
+                                        return {
+                                            ...step,
+                                            requirements_checked: checked,
+                                            requirements_checked_at: checked ? new Date().toISOString() : null,
+                                        };
+                                    }));
+                                } catch (error) {
+                                    const message = error?.response?.data?.message || '要件定義書の確認状態を更新できませんでした。';
+                                    alert(message);
+                                }
+                            };
+
                             return (
                                 <Card>
                                     <CardHeader>
-                                        <CardTitle className="flex items-center gap-2">
-                                            <CheckCircle className="h-5 w-5" />
-                                            承認フロー
-                                        </CardTitle>
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <CardTitle className="flex items-center gap-2">
+                                                <CheckCircle className="h-5 w-5" />
+                                                承認フロー
+                                            </CardTitle>
+                                            {estimate?.google_docs_url && (
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => window.open(estimate.google_docs_url, '_blank', 'noopener,noreferrer')}
+                                                >
+                                                    要件定義書を開く
+                                                </Button>
+                                            )}
+                                        </div>
                                         <CardDescription>
                                             この見積書の承認プロセスと履歴
                                         </CardDescription>
@@ -594,6 +639,29 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                                                             : step.status === '却下'
                                                                                 ? 'このステップで却下されました。'
                                                                                 : (step.isCurrent ? '承認待ちです。' : '前段の承認待ちです。')}
+                                                                    </div>
+                                                                    <div className="mt-3 flex items-center gap-2">
+                                                                        <Checkbox
+                                                                            id={`requirement-check-${index}`}
+                                                                            checked={Boolean(step.originalApprover?.requirements_checked)}
+                                                                            disabled={!estimate?.google_docs_url || (() => {
+                                                                                const stepId = step.originalApprover?.id == null ? '' : String(step.originalApprover.id);
+                                                                                const meId = auth?.user?.id != null ? String(auth.user.id) : '';
+                                                                                const meExternal = auth?.user?.external_user_id != null ? String(auth.user.external_user_id) : '';
+                                                                                return !(stepId !== '' && (stepId === meExternal || stepId === meId));
+                                                                            })()}
+                                                                            onCheckedChange={(checked) => {
+                                                                                handleRequirementCheck(step.originalApprover?.id, checked === true);
+                                                                            }}
+                                                                        />
+                                                                        <label htmlFor={`requirement-check-${index}`} className="text-sm text-slate-700">
+                                                                            要件定義書を確認済み
+                                                                        </label>
+                                                                        {step.originalApprover?.requirements_checked_at && (
+                                                                            <span className="text-xs text-slate-500">
+                                                                                {new Date(step.originalApprover.requirements_checked_at).toLocaleDateString('ja-JP')}
+                                                                            </span>
+                                                                        )}
                                                                     </div>
                                                                     {/* ボタンは右肩に移動済み */}
                                                                 </CardContent>

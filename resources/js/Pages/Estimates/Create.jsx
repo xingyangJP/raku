@@ -26,6 +26,7 @@ const REQUIRED_FIELD_LABELS = {
     staff_name: '自社担当者',
     issue_date: '発行日',
     items: '明細',
+    google_docs_url: '要件定義書',
 };
 
 // --- Components defined outside EstimateCreate to prevent state loss on re-render ---
@@ -476,6 +477,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [approvalStatus, setApprovalStatus] = useState('');
     // UI即時反映用のローカルフラグ（サーバ反映前でもボタンを切替）
     const [approvalLocal, setApprovalLocal] = useState(false);
+    const [requirementsOpen, setRequirementsOpen] = useState(false);
 
     const [openIssueMFQuoteConfirm, setOpenIssueMFQuoteConfirm] = useState(false);
     const [openConvertToInvoiceConfirm, setOpenConvertToInvoiceConfirm] = useState(false);
@@ -578,6 +580,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         tax_amount: estimate?.tax_amount || 0,
         notes: estimate?.notes || '',
         internal_memo: estimate?.internal_memo || '',
+        google_docs_url: estimate?.google_docs_url || '',
         requirement_summary: estimate?.requirement_summary || '',
         delivery_location: estimate?.delivery_location || '',
         items: transformIncomingItems(estimate?.items),
@@ -797,6 +800,36 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return { byId, bySku, byName };
     }, [products]);
 
+    const productCategoryMaps = useMemo(() => {
+        const byId = new Map();
+        const byCode = new Map();
+        const byName = new Map();
+        products.forEach((product) => {
+            if (product?.id === undefined || product?.id === null) {
+                return;
+            }
+            byId.set(Number(product.id), {
+                name: product?.category_name ?? null,
+                code: product?.category_code ?? null,
+            });
+            const code = (product?.code ?? '').trim().toLowerCase();
+            if (code) {
+                byCode.set(code, {
+                    name: product?.category_name ?? null,
+                    code: product?.category_code ?? null,
+                });
+            }
+            const name = (product?.name ?? '').trim().toLowerCase();
+            if (name) {
+                byName.set(name, {
+                    name: product?.category_name ?? null,
+                    code: product?.category_code ?? null,
+                });
+            }
+        });
+        return { byId, byCode, byName };
+    }, [products]);
+
     const EXCLUDED_DIVISION = 'first_business';
 
     const resolveBusinessDivisionForItem = (item) => {
@@ -841,6 +874,36 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         if (/第?\s*[5５]\s*種/.test(text) || /\b5\s*種/.test(text)) return 'type5';
         return 'other';
     };
+
+    const requiresInternalDocsLink = useMemo(() => {
+        const requiredCategoryCodes = new Set(['B', 'C']);
+        return lineItems.some((item) => {
+            const productId = item?.product_id;
+            let categoryInfo = null;
+            if (productId !== undefined && productId !== null) {
+                categoryInfo = productCategoryMaps.byId.get(Number(productId)) ?? null;
+            }
+            if (!categoryInfo) {
+                const code = `${item?.code ?? ''}`.trim().toLowerCase();
+                if (code) {
+                    categoryInfo = productCategoryMaps.byCode.get(code) ?? null;
+                }
+            }
+            if (!categoryInfo) {
+                const name = `${item?.name ?? ''}`.trim().toLowerCase();
+                if (name) {
+                    categoryInfo = productCategoryMaps.byName.get(name) ?? null;
+                }
+            }
+            if (categoryInfo) {
+                const categoryCode = `${categoryInfo?.code ?? ''}`.trim().toUpperCase();
+                if (requiredCategoryCodes.has(categoryCode)) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }, [lineItems, productCategoryMaps]);
 
     const categoryTotals = lineItems.reduce((acc, item) => {
         const cat = categorizeItem(item);
@@ -1359,8 +1422,15 @@ useEffect(() => {
     const submitWithApprovers = () => {
         // 送信直前に明確な payload を構築して、状態更新の非同期に依存しない
         const payload = { ...data, status: 'pending' };
+        const requiredErrors = [];
         if (!payload.title || payload.title.trim() === '') {
-            setSubmitErrors(['件名']);
+            requiredErrors.push('件名');
+        }
+        if (requiresInternalDocsLink && !(payload.google_docs_url || '').trim()) {
+            requiredErrors.push('Google Docsリンク');
+        }
+        if (requiredErrors.length > 0) {
+            setSubmitErrors(requiredErrors);
             setHasRequiredError(true);
             setApprovalStatus('error');
             return;
@@ -1620,152 +1690,168 @@ useEffect(() => {
                                     </div>
                                 </div>
                                 <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4">
-                                    <div className="flex flex-wrap items-center gap-2 justify-between">
-                                        <div className="flex gap-2">
-                                            <Button type="button" variant={requirementsMode === 'chat' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('chat')}>要件整理チャット</Button>
-                                            <Button type="button" variant={requirementsMode === 'manual' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('manual')}>手動入力</Button>
-                                        </div>
-                                        <span className="text-xs text-muted-foreground">要件を整理し、AIドラフトに渡す情報です。</span>
-                                    </div>
-                                    {requirementsMode === 'manual' && (
-                                    <div className="flex flex-col gap-3 md:flex-row md:items-start">
-                                        <div className="flex-1 space-y-2">
-                                            <div className="flex items-center justify-between">
-                                                <Label htmlFor="requirement-summary" className="text-sm font-medium">要件概要（AIプロンプト）</Label>
-                                                <span className="text-xs text-muted-foreground">システム開発のみ対象</span>
+                                    <button
+                                        type="button"
+                                        className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold text-slate-700"
+                                        onClick={() => setRequirementsOpen((prev) => !prev)}
+                                        aria-expanded={requirementsOpen}
+                                    >
+                                        <span>要件整理（内部用）</span>
+                                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                            {requirementsOpen ? '閉じる' : '開く'}
+                                            <ChevronsUpDown className="h-4 w-4" />
+                                        </span>
+                                    </button>
+                                    {requirementsOpen && (
+                                        <>
+                                            <div className="flex flex-wrap items-center gap-2 justify-between">
+                                                <div className="flex gap-2">
+                                                    <Button type="button" variant={requirementsMode === 'chat' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('chat')}>要件整理チャット</Button>
+                                                    <Button type="button" variant={requirementsMode === 'manual' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('manual')}>手動入力</Button>
+                                                </div>
+                                                <span className="text-xs text-muted-foreground">要件を整理し、AIドラフトに渡す情報です。</span>
                                             </div>
-                                            <Textarea
-                                                id="requirement-summary"
-                                                value={data.requirement_summary || ''}
-                                                maxLength={4000}
-                                                rows={4}
-                                                onChange={(e) => setData('requirement_summary', e.target.value)}
-                                                placeholder="例: Salesforce連携と新承認フローの実装。ユーザー50名、モバイル対応必須。非機能として可用性99.9%と監査ログが必要。"
-                                            />
-                                        </div>
-                                    </div>
-                                    )}
-                                    {requirementsMode === 'chat' && isInternalView && (
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            {requirementsMode === 'manual' && (
+                                            <div className="flex flex-col gap-3 md:flex-row md:items-start">
+                                                <div className="flex-1 space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <Label htmlFor="requirement-summary" className="text-sm font-medium">要件概要（AIプロンプト）</Label>
+                                                        <span className="text-xs text-muted-foreground">システム開発のみ対象</span>
+                                                    </div>
+                                                    <Textarea
+                                                        id="requirement-summary"
+                                                        value={data.requirement_summary || ''}
+                                                        maxLength={4000}
+                                                        rows={4}
+                                                        onChange={(e) => setData('requirement_summary', e.target.value)}
+                                                        placeholder="例: Salesforce連携と新承認フローの実装。ユーザー50名、モバイル対応必須。非機能として可用性99.9%と監査ログが必要。"
+                                                    />
+                                                </div>
+                                            </div>
+                                            )}
+                                            {requirementsMode === 'chat' && isInternalView && (
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <Label className="text-sm font-medium">要件整理チャット（内部用）</Label>
+                                                            <Button type="button" variant="outline" size="sm" onClick={loadChat} disabled={chatLoading || !isEditMode}>
+                                                                再読込
+                                                            </Button>
+                                                        </div>
+                                                        <div className="h-60 overflow-y-auto rounded border bg-white p-2 text-sm space-y-2">
+                                                            {chatLoading && <p className="text-xs text-muted-foreground">読み込み中...</p>}
+                                                            {!chatLoading && chatMessages.length === 0 && <p className="text-xs text-muted-foreground">メッセージはありません。</p>}
+                                                            {chatMessages.map((m, idx) => (
+                                                                <div key={m.id || idx} className={`rounded p-2 ${m.role === 'assistant' ? 'bg-slate-50 border' : ''}`}>
+                                                                    <p className="text-[11px] text-muted-foreground mb-1">{m.role === 'assistant' ? 'AI' : 'あなた'}</p>
+                                                                    <div className="whitespace-pre-wrap text-slate-800 text-sm">{m.content}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <Input
+                                                                value={chatInput}
+                                                                onChange={(e) => setChatInput(e.target.value)}
+                                                                placeholder="不足情報や要望を入力"
+                                                                disabled={chatLoading}
+                                                            />
+                                                            <Button type="button" onClick={sendChat} disabled={chatLoading}>送信</Button>
+                                                        </div>
+                                                        {!estimate?.id && (
+                                                            <p className="text-xs text-muted-foreground">未保存の間はローカルで保持します（保存後はサーバに永続化されます）。</p>
+                                                        )}
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-sm font-medium">AI整理結果プレビュー</Label>
+                                                        <div className="rounded border bg-white p-3 text-sm h-60 overflow-y-auto whitespace-pre-wrap">
+                                                            {(() => {
+                                                                const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
+                                                                return lastAssistant ? lastAssistant.content : 'AI整理結果はまだありません。';
+                                                            })()}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
                                             <div className="space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <Label className="text-sm font-medium">要件整理チャット（内部用）</Label>
-                                                    <Button type="button" variant="outline" size="sm" onClick={loadChat} disabled={chatLoading || !isEditMode}>
-                                                        再読込
+                                                <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        onClick={handleGenerateRequirementOverview}
+                                                        disabled={!canGenerateOverview || isStructuringRequirements}
+                                                    >
+                                                        {isStructuringRequirements ? '生成中...' : '要件概要を生成'}
+                                                    </Button>
+                                                    <Button
+                                                        type="button"
+                                                        variant="secondary"
+                                                        onClick={handleGenerateAiDraft}
+                                                        disabled={!canGenerateDraft || isGeneratingAiDraft}
+                                                    >
+                                                        {isGeneratingAiDraft ? '生成中...' : 'AIでドラフト見積生成'}
                                                     </Button>
                                                 </div>
-                                                <div className="h-60 overflow-y-auto rounded border bg-white p-2 text-sm space-y-2">
-                                                    {chatLoading && <p className="text-xs text-muted-foreground">読み込み中...</p>}
-                                                    {!chatLoading && chatMessages.length === 0 && <p className="text-xs text-muted-foreground">メッセージはありません。</p>}
-                                                    {chatMessages.map((m, idx) => (
-                                                        <div key={m.id || idx} className={`rounded p-2 ${m.role === 'assistant' ? 'bg-slate-50 border' : ''}`}>
-                                                            <p className="text-[11px] text-muted-foreground mb-1">{m.role === 'assistant' ? 'AI' : 'あなた'}</p>
-                                                            <div className="whitespace-pre-wrap text-slate-800 text-sm">{m.content}</div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                                        <div className="flex gap-2">
-                            <Input
-                                value={chatInput}
-                                onChange={(e) => setChatInput(e.target.value)}
-                                placeholder="不足情報や要望を入力"
-                                disabled={chatLoading}
-                            />
-                            <Button type="button" onClick={sendChat} disabled={chatLoading}>送信</Button>
-                        </div>
-                        {!estimate?.id && (
-                            <p className="text-xs text-muted-foreground">未保存の間はローカルで保持します（保存後はサーバに永続化されます）。</p>
-                        )}
+                                                <p className="text-xs text-muted-foreground">
+                                                    {requirementsMode === 'chat'
+                                                        ? '最新のAI整理結果をもとに要件概要と見積ドラフトを生成します。'
+                                                        : '要件概要の入力内容をもとに生成します。'}
+                                                </p>
                                             </div>
-                                            <div className="space-y-2">
-                                                <Label className="text-sm font-medium">AI整理結果プレビュー</Label>
-                                                <div className="rounded border bg-white p-3 text-sm h-60 overflow-y-auto whitespace-pre-wrap">
-                                                    {(() => {
-                                                        const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
-                                                        return lastAssistant ? lastAssistant.content : 'AI整理結果はまだありません。';
-                                                    })()}
+                                            {structureError && (
+                                                <p className="text-sm text-red-600">{structureError}</p>
+                                            )}
+                                            <div className="grid gap-4 md:grid-cols-3">
+                                                <div>
+                                                    <p className="text-xs font-semibold text-slate-500">機能要件</p>
+                                                    {structuredRequirements.functional.length > 0 ? (
+                                                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                            {structuredRequirements.functional.map((line, idx) => (
+                                                                <li key={`fr-${idx}`}>{line}</li>
+                                                            ))}
+                                                        </ul>
+                                                    ) : (
+                                                        <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-semibold text-slate-500">非機能要件</p>
+                                                    {structuredRequirements.nonFunctional.length > 0 ? (
+                                                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                            {structuredRequirements.nonFunctional.map((line, idx) => (
+                                                                <li key={`nfr-${idx}`}>{line}</li>
+                                                            ))}
+                                                        </ul>
+                                                    ) : (
+                                                        <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-semibold text-slate-500">未確定要件</p>
+                                                    {structuredRequirements.unresolved.length > 0 ? (
+                                                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                            {structuredRequirements.unresolved.map((line, idx) => (
+                                                                <li key={`unresolved-${idx}`}>{line}</li>
+                                                            ))}
+                                                        </ul>
+                                                    ) : (
+                                                        <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
+                                                    )}
                                                 </div>
                                             </div>
-                                        </div>
-                                    )}
-                                    <div className="space-y-2">
-                                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                onClick={handleGenerateRequirementOverview}
-                                                disabled={!canGenerateOverview || isStructuringRequirements}
-                                            >
-                                                {isStructuringRequirements ? '生成中...' : '要件概要を生成'}
-                                            </Button>
-                                            <Button
-                                                type="button"
-                                                variant="secondary"
-                                                onClick={handleGenerateAiDraft}
-                                                disabled={!canGenerateDraft || isGeneratingAiDraft}
-                                            >
-                                                {isGeneratingAiDraft ? '生成中...' : 'AIでドラフト見積生成'}
-                                            </Button>
-                                        </div>
-                                        <p className="text-xs text-muted-foreground">
-                                            {requirementsMode === 'chat'
-                                                ? '最新のAI整理結果をもとに要件概要と見積ドラフトを生成します。'
-                                                : '要件概要の入力内容をもとに生成します。'}
-                                        </p>
-                                    </div>
-                                    {structureError && (
-                                        <p className="text-sm text-red-600">{structureError}</p>
-                                    )}
-                                    <div className="grid gap-4 md:grid-cols-3">
-                                        <div>
-                                            <p className="text-xs font-semibold text-slate-500">機能要件</p>
-                                            {structuredRequirements.functional.length > 0 ? (
-                                                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                                                    {structuredRequirements.functional.map((line, idx) => (
-                                                        <li key={`fr-${idx}`}>{line}</li>
-                                                    ))}
-                                                </ul>
-                                            ) : (
-                                                <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
+                                            <div className="flex flex-wrap items-center gap-2 text-sm">
+                                                <Checkbox
+                                                    id="pm-support-required"
+                                                    checked={pmSupportRequired}
+                                                    onCheckedChange={(checked) => setPmSupportRequired(checked === true)}
+                                                />
+                                                <Label htmlFor="pm-support-required" className="text-sm">
+                                                    PM支援が必要（プロジェクト管理品目を必須挿入）
+                                                </Label>
+                                            </div>
+                                            {aiDraftError && (
+                                                <p className="text-sm text-red-600">{aiDraftError}</p>
                                             )}
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-semibold text-slate-500">非機能要件</p>
-                                            {structuredRequirements.nonFunctional.length > 0 ? (
-                                                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                                                    {structuredRequirements.nonFunctional.map((line, idx) => (
-                                                        <li key={`nfr-${idx}`}>{line}</li>
-                                                    ))}
-                                                </ul>
-                                            ) : (
-                                                <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
-                                            )}
-                                        </div>
-                                        <div>
-                                            <p className="text-xs font-semibold text-slate-500">未確定要件</p>
-                                            {structuredRequirements.unresolved.length > 0 ? (
-                                                <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                                                    {structuredRequirements.unresolved.map((line, idx) => (
-                                                        <li key={`unresolved-${idx}`}>{line}</li>
-                                                    ))}
-                                                </ul>
-                                            ) : (
-                                                <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                                        <Checkbox
-                                            id="pm-support-required"
-                                            checked={pmSupportRequired}
-                                            onCheckedChange={(checked) => setPmSupportRequired(checked === true)}
-                                        />
-                                        <Label htmlFor="pm-support-required" className="text-sm">
-                                            PM支援が必要（プロジェクト管理品目を必須挿入）
-                                        </Label>
-                                    </div>
-                                    {aiDraftError && (
-                                        <p className="text-sm text-red-600">{aiDraftError}</p>
+                                        </>
                                     )}
                                 </div>
                                 <div className="space-y-2">
@@ -1800,6 +1886,31 @@ useEffect(() => {
                                         <div className="space-y-2">
                                             <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
                                             <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="google-docs-url" className="flex items-center gap-1 text-red-600">
+                                                要件定義書（必須）（設計/開発が含まれる場合のみ）
+                                                {requiresInternalDocsLink && <span className="text-red-500 leading-none">*</span>}
+                                            </Label>
+                                            <Input
+                                                id="google-docs-url"
+                                                type="url"
+                                                placeholder="https://docs.google.com/..."
+                                                value={data.google_docs_url}
+                                                onChange={(e) => setData('google_docs_url', e.target.value)}
+                                            />
+                                            {data.google_docs_url?.trim() && (
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => window.open(data.google_docs_url, '_blank', 'noopener,noreferrer')}
+                                                >
+                                                    要件定義書を開く
+                                                </Button>
+                                            )}
+                                            <p className="text-xs text-slate-500">設計/開発の明細がある場合は必須。見積書には表示されません。</p>
+                                            {errors.google_docs_url && <p className="text-sm text-red-600">{errors.google_docs_url}</p>}
                                         </div>
                                     </>
                                 )}

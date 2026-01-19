@@ -103,6 +103,9 @@ Route::middleware('auth')->group(function () {
     Route::put('/estimates/{estimate}/approval', [App\Http\Controllers\EstimateController::class, 'updateApproval'])
         ->whereNumber('estimate')
         ->name('estimates.updateApproval');
+    Route::put('/estimates/{estimate}/approval-requirement-check', [App\Http\Controllers\EstimateController::class, 'updateRequirementCheck'])
+        ->whereNumber('estimate')
+        ->name('estimates.updateRequirementCheck');
 
     Route::get('/estimates/create', [App\Http\Controllers\EstimateController::class, 'create'])->name('estimates.create');
     Route::get('/estimates/{estimate}/edit', [App\Http\Controllers\EstimateController::class, 'edit'])->whereNumber('estimate')->name('estimates.edit');

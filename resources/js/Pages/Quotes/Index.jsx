@@ -7,6 +7,8 @@ import { Badge } from "@/Components/ui/badge";
 import { Button } from "@/Components/ui/button";
 import { Input } from "@/Components/ui/input";
 import { Textarea } from "@/Components/ui/textarea";
+import { Checkbox } from "@/Components/ui/checkbox";
+import axios from 'axios';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger, SheetFooter } from "@/Components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/Components/ui/accordion";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
@@ -1316,6 +1318,18 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                         isCurrent,
                                                                     };
                                                                 });
+                                                                const handleRequirementCheck = async (approverId, checked) => {
+                                                                    try {
+                                                                        await axios.put(route('estimates.updateRequirementCheck', estimate.id), {
+                                                                            approver_id: approverId,
+                                                                            checked,
+                                                                        });
+                                                                        router.reload({ preserveScroll: true });
+                                                                    } catch (error) {
+                                                                        const message = error?.response?.data?.message || '要件定義書の確認状態を更新できませんでした。';
+                                                                        alert(message);
+                                                                    }
+                                                                };
                                                                 const approveFromSheet = () => {
                                                                     if (!confirm('この見積書を承認しますか？')) return;
                                                                     router.put(route('estimates.updateApproval', estimate.id), { action: 'approve' }, {
@@ -1344,10 +1358,22 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                 return (
                                                             <Card>
                                                                 <CardHeader>
-                                                                    <CardTitle className="flex items-center gap-2">
-                                                                        <CheckCircle className="h-5 w-5" />
-                                                                        承認フロー
-                                                                    </CardTitle>
+                                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                                        <CardTitle className="flex items-center gap-2">
+                                                                            <CheckCircle className="h-5 w-5" />
+                                                                            承認フロー
+                                                                        </CardTitle>
+                                                                        {estimate?.google_docs_url && (
+                                                                            <Button
+                                                                                type="button"
+                                                                                variant="outline"
+                                                                                size="sm"
+                                                                                onClick={() => window.open(estimate.google_docs_url, '_blank', 'noopener,noreferrer')}
+                                                                            >
+                                                                                要件定義書を開く
+                                                                            </Button>
+                                                                        )}
+                                                                    </div>
                                                                     <CardDescription>
                                                                         この見積書の承認プロセスと履歴
                                                                     </CardDescription>
@@ -1432,6 +1458,29 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                                                         : step.status === '却下'
                                                                                                             ? `このステップで却下されました。${step.rejectionReason ? `理由: ${step.rejectionReason}` : ''}`
                                                                                                             : (step.isCurrent ? '承認待ちです。' : '前段の承認待ちです。')}
+                                                                                                </div>
+                                                                                                <div className="mt-3 flex items-center gap-2">
+                                                                                                    <Checkbox
+                                                                                                        id={`requirement-check-${estimate.id}-${index}`}
+                                                                                                        checked={Boolean(step.originalApprover?.requirements_checked)}
+                                                                                                        disabled={!estimate?.google_docs_url || (() => {
+                                                                                                            const stepId = step.originalApprover?.id == null ? '' : String(step.originalApprover.id);
+                                                                                                            const meId = props.auth?.user?.id != null ? String(props.auth.user.id) : '';
+                                                                                                            const meExternal = props.auth?.user?.external_user_id != null ? String(props.auth.user.external_user_id) : '';
+                                                                                                            return !(stepId !== '' && (stepId === meExternal || stepId === meId));
+                                                                                                        })()}
+                                                                                                        onCheckedChange={(checked) => {
+                                                                                                            handleRequirementCheck(step.originalApprover?.id, checked === true);
+                                                                                                        }}
+                                                                                                    />
+                                                                                                    <label htmlFor={`requirement-check-${estimate.id}-${index}`} className="text-sm text-slate-700">
+                                                                                                        要件定義書を確認済み
+                                                                                                    </label>
+                                                                                                    {step.originalApprover?.requirements_checked_at && (
+                                                                                                        <span className="text-xs text-slate-500">
+                                                                                                            {new Date(step.originalApprover.requirements_checked_at).toLocaleDateString('ja-JP')}
+                                                                                                        </span>
+                                                                                                    )}
                                                                                                 </div>
                                                                                             </CardContent>
                                                                                         </Card>

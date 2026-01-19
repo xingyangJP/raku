@@ -32,15 +32,24 @@ class EstimateController extends Controller
     private function loadProducts()
     {
         if (Schema::hasTable('products')) {
-            $columns = ['id', 'name', 'price', 'cost', 'unit', 'sku as code', 'description'];
+            $columns = ['products.id', 'products.name', 'products.price', 'products.cost', 'products.unit', 'products.sku as code', 'products.description'];
             if (Schema::hasColumn('products', 'business_division')) {
-                $columns[] = 'business_division';
+                $columns[] = 'products.business_division';
+            }
+            if (Schema::hasTable('categories')) {
+                $columns[] = 'categories.name as category_name';
+                $columns[] = 'categories.code as category_code';
             }
 
-            return DB::table('products')
+            $query = DB::table('products')
+                ->when(Schema::hasTable('categories'), function ($builder) {
+                    $builder->leftJoin('categories', 'products.category_id', '=', 'categories.id');
+                })
                 ->where('is_active', true)
                 ->orderBy('name')
                 ->get($columns);
+
+            return $query;
         }
         return [];
     }
@@ -426,6 +435,7 @@ class EstimateController extends Controller
                 'tax_amount' => 'required|integer',
                 'notes' => 'nullable|string',
                 'internal_memo' => 'nullable|string',
+                'google_docs_url' => 'nullable|url|max:2048',
                 'delivery_location' => 'nullable|string',
                 'items' => 'required|array|min:1',
                 'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
@@ -465,6 +475,7 @@ class EstimateController extends Controller
                 'tax_amount' => 'required|integer',
                 'notes' => 'nullable|string',
                 'internal_memo' => 'nullable|string',
+                'google_docs_url' => 'nullable|url|max:2048',
                 'delivery_location' => 'nullable|string',
                 'items' => 'required|array|min:1',
                 'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
@@ -518,6 +529,7 @@ class EstimateController extends Controller
             'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
             'internal_memo' => 'nullable|string',
+            'google_docs_url' => 'nullable|url|max:2048',
             'delivery_location' => 'nullable|string',
             'items' => 'required|array',
             'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
@@ -580,6 +592,8 @@ class EstimateController extends Controller
                     'approved_at' => $approvedAt,
                     'rejected_at' => $statusValue === 'rejected' ? $rejectedAt : null,
                     'rejection_reason' => $statusValue === 'rejected' ? ($step['rejection_reason'] ?? null) : null,
+                    'requirements_checked' => $step['requirements_checked'] ?? null,
+                    'requirements_checked_at' => $step['requirements_checked_at'] ?? null,
                     'status' => $statusValue,
                 ];
             }
@@ -606,6 +620,12 @@ class EstimateController extends Controller
             }
             if (!$this->approvalFlowIncludesRequiredApprover($validated['approval_flow'] ?? [])) {
                 $errors['approval_flow'] = $contextText . '承認者に「守部幸洋」または「吉井靖人」を含めてください。';
+            }
+        }
+        if ($this->requiresDesignOrDevelopmentAttachment($validated['items'] ?? [])) {
+            $docsUrl = trim((string) ($validated['google_docs_url'] ?? ''));
+            if ($docsUrl === '') {
+                $errors['google_docs_url'] = '設計/開発の明細がある場合は要件定義書（必須）の入力が必要です。';
             }
         }
         if (!empty($errors)) {
@@ -672,6 +692,7 @@ class EstimateController extends Controller
             'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
             'internal_memo' => 'nullable|string',
+            'google_docs_url' => 'nullable|url|max:2048',
             'delivery_location' => 'nullable|string',
             'items' => 'required|array',
             'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
@@ -731,6 +752,8 @@ class EstimateController extends Controller
                     'id' => $step['id'] ?? null,
                     'name' => $step['name'] ?? null,
                     'approved_at' => $approvedAt,
+                    'requirements_checked' => $step['requirements_checked'] ?? null,
+                    'requirements_checked_at' => $step['requirements_checked_at'] ?? null,
                     'status' => $approvedAt ? 'approved' : 'pending',
                 ];
             }
@@ -747,6 +770,8 @@ class EstimateController extends Controller
                     'approved_at' => null,
                     'rejected_at' => null,
                     'rejection_reason' => null,
+                    'requirements_checked' => $s['requirements_checked'] ?? null,
+                    'requirements_checked_at' => $s['requirements_checked_at'] ?? null,
                     'status' => 'pending',
                 ];
             }, $estimate->approval_flow);
@@ -785,6 +810,12 @@ class EstimateController extends Controller
             }
             if (!$this->approvalFlowIncludesRequiredApprover($validated['approval_flow'] ?? [])) {
                 $errors['approval_flow'] = $contextText . '承認者に「守部幸洋」または「吉井靖人」を含めてください。';
+            }
+        }
+        if ($this->requiresDesignOrDevelopmentAttachment($validated['items'] ?? [])) {
+            $docsUrl = trim((string) ($validated['google_docs_url'] ?? ''));
+            if ($docsUrl === '') {
+                $errors['google_docs_url'] = '設計/開発の明細がある場合は要件定義書（必須）の入力が必要です。';
             }
         }
         if (!empty($errors)) {
@@ -969,6 +1000,50 @@ class EstimateController extends Controller
         return redirect()->back()->with('success', '承認しました。');
     }
 
+    public function updateRequirementCheck(Request $request, Estimate $estimate)
+    {
+        $user = Auth::user();
+        $validated = $request->validate([
+            'approver_id' => 'required',
+            'checked' => 'required|boolean',
+        ]);
+
+        $flow = $estimate->approval_flow;
+        if (!is_array($flow) || empty($flow)) {
+            return response()->json(['message' => '承認フローが設定されていません。'], 422);
+        }
+
+        $approverId = (string) $validated['approver_id'];
+        $userExt = (string) ($user->external_user_id ?? '');
+        $userId = (string) ($user->id ?? '');
+        $isSelf = ($approverId !== '' && ($approverId === $userExt || $approverId === $userId));
+        if (!$isSelf) {
+            return response()->json(['message' => 'この操作を行う権限がありません。'], 403);
+        }
+
+        $updated = false;
+        foreach ($flow as $idx => $step) {
+            $stepId = $step['id'] ?? null;
+            $stepIdStr = is_null($stepId) ? '' : (string) $stepId;
+            if ($stepIdStr !== $approverId) {
+                continue;
+            }
+            $flow[$idx]['requirements_checked'] = (bool) $validated['checked'];
+            $flow[$idx]['requirements_checked_at'] = $validated['checked'] ? now()->toDateTimeString() : null;
+            $updated = true;
+            break;
+        }
+
+        if (!$updated) {
+            return response()->json(['message' => '承認者が見つかりません。'], 422);
+        }
+
+        $estimate->approval_flow = $flow;
+        $estimate->save();
+
+        return response()->json(['status' => 'ok']);
+    }
+
     private function calculateGrossMarginRate($items, string $category = 'all'): float
     {
         $items = is_array($items) ? $items : [];
@@ -991,6 +1066,115 @@ class EstimateController extends Controller
         }
         if ($revenue <= 0) { return 0.0; }
         return ($revenue - $cost) / $revenue;
+    }
+
+    private function requiresDesignOrDevelopmentAttachment(array $items): bool
+    {
+        if (empty($items)) {
+            return false;
+        }
+
+        $requiredCategoryCodes = ['B', 'C'];
+        $productIds = collect($items)
+            ->map(fn ($item) => data_get($item, 'product_id'))
+            ->filter(fn ($id) => is_numeric($id))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+        $productCodes = collect($items)
+            ->map(fn ($item) => data_get($item, 'code') ?? data_get($item, 'product_code'))
+            ->map(fn ($value) => is_string($value) ? trim($value) : '')
+            ->filter(fn ($value) => $value !== '')
+            ->unique()
+            ->values()
+            ->all();
+        $productNames = collect($items)
+            ->map(fn ($item) => data_get($item, 'name'))
+            ->map(fn ($value) => is_string($value) ? trim($value) : '')
+            ->filter(fn ($value) => $value !== '')
+            ->unique()
+            ->values()
+            ->all();
+
+        $categoryByProductId = [];
+        $categoryByProductCode = [];
+        $categoryByProductName = [];
+        if (( !empty($productIds) || !empty($productCodes) || !empty($productNames))
+            && Schema::hasTable('products')
+            && Schema::hasTable('categories')
+        ) {
+            $rows = DB::table('products')
+                ->leftJoin('categories', 'products.category_id', '=', 'categories.id')
+                ->where(function ($query) use ($productIds, $productCodes, $productNames) {
+                    $applied = false;
+                    if (!empty($productIds)) {
+                        $query->whereIn('products.id', $productIds);
+                        $applied = true;
+                    }
+                    if (!empty($productCodes)) {
+                        $method = $applied ? 'orWhereIn' : 'whereIn';
+                        $query->{$method}('products.sku', $productCodes);
+                        $applied = true;
+                    }
+                    if (!empty($productNames)) {
+                        $method = $applied ? 'orWhereIn' : 'whereIn';
+                        $query->{$method}('products.name', $productNames);
+                    }
+                })
+                ->get([
+                    'products.id as id',
+                    'products.sku as sku',
+                    'products.name as name',
+                    'categories.name as category_name',
+                    'categories.code as category_code',
+                ]);
+
+            foreach ($rows as $row) {
+                $payload = [
+                    'name' => $row->category_name ?? null,
+                    'code' => $row->category_code ?? null,
+                ];
+                if ($row->id !== null) {
+                    $categoryByProductId[(int) $row->id] = $payload;
+                }
+                if (!empty($row->sku)) {
+                    $categoryByProductCode[(string) $row->sku] = $payload;
+                }
+                if (!empty($row->name)) {
+                    $categoryByProductName[(string) $row->name] = $payload;
+                }
+            }
+        }
+
+        foreach ($items as $item) {
+            $categoryInfo = null;
+            $productId = data_get($item, 'product_id');
+            if (is_numeric($productId)) {
+                $categoryInfo = $categoryByProductId[(int) $productId] ?? null;
+            }
+            if (!$categoryInfo) {
+                $code = data_get($item, 'code') ?? data_get($item, 'product_code');
+                if (is_string($code) && $code !== '') {
+                    $categoryInfo = $categoryByProductCode[$code] ?? null;
+                }
+            }
+            if (!$categoryInfo) {
+                $name = data_get($item, 'name');
+                if (is_string($name) && $name !== '') {
+                    $categoryInfo = $categoryByProductName[$name] ?? null;
+                }
+            }
+            if ($categoryInfo) {
+                $categoryCode = strtoupper(trim((string) ($categoryInfo['code'] ?? '')));
+                if ($categoryCode !== '' && in_array($categoryCode, $requiredCategoryCodes, true)) {
+                    return true;
+                }
+            }
+
+        }
+
+        return false;
     }
 
     private function isTypeFiveItem($item): bool

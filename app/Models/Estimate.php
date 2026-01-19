@@ -40,6 +40,7 @@ class Estimate extends Model
         'approval_started',
         'internal_memo',
         'requirement_summary',
+        'google_docs_url',
         'structured_requirements',
         'delivery_location',
         'mf_quote_id',
