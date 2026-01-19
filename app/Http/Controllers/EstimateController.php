@@ -969,6 +969,17 @@ class EstimateController extends Controller
             return redirect()->back()->with('success', '却下しました。');
         }
 
+        if ($this->requiresDesignOrDevelopmentAttachment($estimate->items ?? [])) {
+            $docsUrl = trim((string) ($estimate->google_docs_url ?? ''));
+            if ($docsUrl === '') {
+                return redirect()->back()->withErrors(['approval' => '要件定義書のURLが未設定のため承認できません。']);
+            }
+            $requirementsChecked = (bool) ($currentStep['requirements_checked'] ?? false);
+            if (!$requirementsChecked) {
+                return redirect()->back()->withErrors(['approval' => '要件定義書の確認が未完了のため承認できません。']);
+            }
+        }
+
         $flow[$currentIndex]['approved_at'] = now()->toDateTimeString();
         $flow[$currentIndex]['status'] = 'approved';
         $flow[$currentIndex]['rejected_at'] = null;
