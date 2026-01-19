@@ -1320,7 +1320,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                 });
                                                                 const handleRequirementCheck = async (approverId, checked) => {
                                                                     try {
-                                                                        await axios.put(route('estimates.updateRequirementCheck', estimate.id), {
+                                                                        await axios.put(`/estimates/${estimate.id}/approval-requirement-check`, {
                                                                             approver_id: approverId,
                                                                             checked,
                                                                         });

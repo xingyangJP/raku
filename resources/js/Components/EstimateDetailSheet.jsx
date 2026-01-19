@@ -507,7 +507,7 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                     return;
                                 }
                                 try {
-                                    await axios.put(route('estimates.updateRequirementCheck', estimate.id), {
+                                    await axios.put(`/estimates/${estimate.id}/approval-requirement-check`, {
                                         approver_id: approverId,
                                         checked,
                                     });
