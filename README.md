@@ -91,6 +91,8 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 - PHPUnit テストは MySQL `xero_raku_test` データベースを使用します。存在しない場合は `CREATE DATABASE xero_raku_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;` を実行してください。
 
 ## Troubleshooting
+### GitHub Actions deploy fails with SSH reset
+- If the deploy job fails with `ssh: handshake failed: connection reset by peer`, retry the workflow or push a new commit to re-trigger the deploy.
 
 ### SQLSTATE\[HY000] \[2002] Connection refused（セッション初期化で失敗する）
 - 症状: 初回アクセス時に `Illuminate\Database\QueryException` が発生し、`sessions` テーブルの取得でコネクション確立に失敗する。
