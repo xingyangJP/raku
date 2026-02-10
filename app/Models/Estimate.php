@@ -4,11 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Services\RequirementDocumentChecker;
 use Illuminate\Support\Facades\Schema;
 
 class Estimate extends Model
 {
     use HasFactory;
+
+    protected $appends = [
+        'requires_requirement_doc',
+    ];
 
     /**
      * Normalize stored notes by stripping trailing whitespace on each line.
@@ -129,5 +134,11 @@ class Estimate extends Model
         $normalized = implode("\n", $lines);
 
         return trim($normalized) === '' ? null : $normalized;
+    }
+
+    public function getRequiresRequirementDocAttribute(): bool
+    {
+        $checker = app(RequirementDocumentChecker::class);
+        return $checker->requiresDesignOrDevelopmentAttachment($this->items ?? []);
     }
 }

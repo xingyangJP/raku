@@ -28,6 +28,9 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
     const [approvalFlow, setApprovalFlow] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
     const estimateItems = Array.isArray(estimate?.items) ? estimate.items : [];
     const requiresRequirementDoc = useMemo(() => {
+        if (estimate?.requires_requirement_doc) {
+            return true;
+        }
         return estimateItems.some((item) => {
             const rawCode = `${item?.code ?? item?.product_code ?? ''}`.trim().toUpperCase();
             if (!rawCode) {
@@ -36,7 +39,7 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
             const prefix = rawCode.split('-')[0];
             return prefix === 'B' || prefix === 'C';
         });
-    }, [estimateItems]);
+    }, [estimate?.requires_requirement_doc, estimateItems]);
 
     useEffect(() => {
         if (!isOpen) {
