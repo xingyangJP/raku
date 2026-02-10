@@ -1,6 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, router, usePage } from '@inertiajs/react';
-import { useState, useEffect, useMemo } from 'react';
+import { Fragment, useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { Badge } from "@/Components/ui/badge";
@@ -9,9 +9,7 @@ import { Input } from "@/Components/ui/input";
 import { Textarea } from "@/Components/ui/textarea";
 import { Checkbox } from "@/Components/ui/checkbox";
 import axios from 'axios';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger, SheetFooter } from "@/Components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/Components/ui/accordion";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/Components/ui/dropdown-menu";
 import { DotsHorizontalIcon } from "@radix-ui/react-icons";
 import {
@@ -42,6 +40,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog';
 import SyncButton from '@/Components/SyncButton';
+import EstimateDetailSheet from '@/Components/EstimateDetailSheet';
 
 const computeDefaultQuoteMonth = (value) => {
     if (value) return value;
@@ -883,36 +882,12 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                 </TableHeader>
                                 <TableBody>
                                     {filteredEstimates.map((estimate) => {
-                                        const subtotal = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateAmount(item), 0) : 0;
-                                        const totalCost = estimate.items ? estimate.items.reduce((acc, item) => acc + calculateCostAmount(item), 0) : 0;
-                                        const totalGrossProfit = subtotal - totalCost;
-                                        const totalGrossMargin = subtotal !== 0 ? (totalGrossProfit / subtotal) * 100 : 0;
                                         const customerPortalUrl = normalizedCustomerPortalBase && estimate.pm_customer_id
                                             ? `${normalizedCustomerPortalBase}/${estimate.pm_customer_id}`
                                             : null;
-                                        const itemSummaryMap = estimate.items ? estimate.items.reduce((acc, item) => {
-                                            const itemName = item.name || '項目';
-                                            if (!acc[itemName]) {
-                                                acc[itemName] = { grossProfit: 0, cost: 0, amount: 0 };
-                                            }
-                                            const amount = calculateAmount(item);
-                                            const cost = calculateCostAmount(item);
-                                            acc[itemName].grossProfit += amount - cost;
-                                            acc[itemName].cost += cost;
-                                            acc[itemName].amount += amount;
-                                            return acc;
-                                        }, {}) : {};
-                                        const summaryList = Object.entries(itemSummaryMap).map(([name, data]) => ({ name, ...data }));
-
-                                        const grossProfitChartData = summaryList.map(({ name, grossProfit }) => ({ name, value: grossProfit }));
-                                        const costChartData = summaryList.map(({ name, cost }) => ({ name, value: cost }));
 
                                         return (
-                                            <Sheet
-                                                key={estimate.id}
-                                                open={activeDetailId === estimate.id}
-                                                onOpenChange={(isOpen) => handleDetailSheetChange(estimate.id, isOpen)}
-                                            >
+                                            <Fragment key={estimate.id}>
                                                 <TableRow className="hover:bg-slate-50 transition-colors group">
                                                     <TableCell className="text-center w-16">
                                                         {estimate.is_order_confirmed ? (
@@ -972,12 +947,13 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                                 </Button>
                                                             </DropdownMenuTrigger>
                                                             <DropdownMenuContent align="end" className="w-48">
-                                                                <SheetTrigger asChild>
-                                                                    <DropdownMenuItem className="flex items-center gap-2">
-                                                                        <Eye className="h-4 w-4" />
-                                                                        詳細を見る
-                                                                    </DropdownMenuItem>
-                                                                </SheetTrigger>
+                                                                <DropdownMenuItem
+                                                                    onClick={() => handleDetailSheetChange(estimate.id, true)}
+                                                                    className="flex items-center gap-2"
+                                                                >
+                                                                    <Eye className="h-4 w-4" />
+                                                                    詳細を見る
+                                                                </DropdownMenuItem>
                                                                 <Link href={route('estimates.edit', estimate.id)}>
                                                                     <DropdownMenuItem className="flex items-center gap-2">
                                                                         <Edit className="h-4 w-4" />
@@ -1011,506 +987,12 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                         </DropdownMenu>
                                                     </TableCell>
                                                 </TableRow>
-                                                
-                                                {/* 詳細シート */}
-                                                <SheetContent className="w-[800px] sm:max-w-none overflow-y-auto">
-                                                    <SheetHeader className="space-y-4">
-                                                        <div className="flex items-start justify-between">
-                                                            <div>
-                                                                <SheetTitle className="text-2xl flex items-center gap-2">
-                                                                    <FileText className="h-6 w-6" />
-                                                                    {estimate.title}
-                                                                </SheetTitle>
-                                                                <SheetDescription className="text-base mt-2">
-                                                                    {estimate.estimate_number} / {estimate.customer_name}
-                                                                </SheetDescription>
-                                                            </div>
-                                                            {getStatusBadge(estimate.status)}
-                                                        </div>
-                                                    </SheetHeader>
-                                                    
-                                                    <Tabs defaultValue="overview" className="mt-6">
-                                                        <TabsList className="grid w-full grid-cols-3">
-                                                            <TabsTrigger value="overview" className="flex items-center gap-2">
-                                                                <Target className="h-4 w-4" />
-                                                                概要
-                                                            </TabsTrigger>
-                                                            <TabsTrigger value="items" className="flex items-center gap-2">
-                                                                <FileText className="h-4 w-4" />
-                                                                明細
-                                                            </TabsTrigger>
-                                                            <TabsTrigger value="approval" className="flex items-center gap-2">
-                                                                <CheckCircle className="h-4 w-4" />
-                                                                承認履歴
-                                                            </TabsTrigger>
-                                                        </TabsList>
-                                                        
-                                                        <TabsContent value="overview" className="py-6 space-y-6">
-                                                            {/* 基本情報カード */}
-                                                            <Card>
-                                                                <CardHeader>
-                                                                    <CardTitle className="flex items-center gap-2">
-                                                                        <FileText className="h-5 w-5" />
-                                                                        基本情報
-                                                                    </CardTitle>
-                                                                </CardHeader>
-                                                                <CardContent>
-                                                                    <div className="grid grid-cols-2 gap-4">
-                                                                        <div>
-                                                                            <p className="text-sm text-slate-500">顧客名</p>
-                                                                            <p className="font-semibold">{estimate.customer_name}</p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-sm text-slate-500">件名</p>
-                                                                            <p className="font-semibold">{estimate.title}</p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-sm text-slate-500">見積番号</p>
-                                                                            <p className="font-semibold text-blue-600">{estimate.estimate_number}</p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-sm text-slate-500">発行日</p>
-                                                                            <p className="font-semibold">{formatIssueDate(estimate.issue_date)}</p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-sm text-slate-500">自社担当者</p>
-                                                                            <p className="font-semibold">{estimate.staff_name || (estimate.staff ? estimate.staff.name : '-')}</p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-sm text-slate-500">合計金額 (税込)</p>
-                                                                            <p className="font-bold text-xl text-green-600">
-                                                                                ¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}
-                                                                            </p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-sm text-slate-500">粗利率</p>
-                                                                            <p className={`font-semibold text-lg ${Number.isFinite(totalGrossMargin) && totalGrossMargin >= 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
-                                                                                {Number.isFinite(totalGrossMargin) ? `${totalGrossMargin.toFixed(1)}%` : '―'}
-                                                                            </p>
-                                                                            <p className="text-xs text-slate-500 mt-1">
-                                                                                粗利 ¥{Number.isFinite(totalGrossProfit) ? totalGrossProfit.toLocaleString() : '―'} / 原価 ¥{Number.isFinite(totalCost) ? totalCost.toLocaleString() : '―'}
-                                                                            </p>
-                                                                        </div>
-                                                                        <div>
-                                                                            <p className="text-sm text-slate-500">承認フロー</p>
-                                                                            {Array.isArray(estimate.approval_flow) && estimate.approval_flow.length ? (
-                                                                                <ol className="text-sm text-slate-700 list-decimal list-inside space-y-1">
-                                                                                    {estimate.approval_flow.map((ap, i) => (
-                                                                                        <li key={`${ap.id}-${i}`}>{ap.name}</li>
-                                                                                    ))}
-                                                                                </ol>
-                                                                            ) : (
-                                                                                <p className="text-sm text-slate-400">未設定</p>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                    {estimate.notes && (
-                                                                        <div className="mt-4 pt-4 border-t">
-                                                                            <p className="text-sm text-slate-500">備考</p>
-                                                                            <p className="mt-1">{estimate.notes}</p>
-                                                                        </div>
-                                                                    )}
-                                                                </CardContent>
-                                                            </Card>
-
-                                                            {/* 原価・粗利分析カード */}
-                                                            <Card>
-                                                                <CardHeader>
-                                                                    <CardTitle className="flex items-center gap-2">
-                                                                        <TrendingUp className="h-5 w-5" />
-                                                                        原価・粗利分析
-                                                                    </CardTitle>
-                                                                </CardHeader>
-                                                                <CardContent>
-                                                                    <div className="flex flex-col lg:flex-row justify-between items-center gap-6">
-                                                                        <div className="w-full lg:w-1/2 flex justify-center items-center relative h-48">
-                                                                            <ResponsiveContainer width="100%" height="100%">
-                                                                                <PieChart>
-                                                                                    <Pie
-                                                                                        data={grossProfitChartData}
-                                                                                        cx="50%"
-                                                                                        cy="50%"
-                                                                                        innerRadius={60}
-                                                                                        outerRadius={80}
-                                                                                        paddingAngle={5}
-                                                                                        dataKey="value"
-                                                                                    >
-                                                                                        {grossProfitChartData.map((entry, index) => (
-                                                                                            <Cell key={`cell-gross-profit-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                                                        ))}
-                                                                                    </Pie>
-                                                                                </PieChart>
-                                                                            </ResponsiveContainer>
-                                                                            <div className="absolute inset-0 flex items-center justify-center text-lg font-bold">粗利</div>
-                                                                        </div>
-                                                                        <div className="w-full lg:w-1/2 flex justify-center items-center relative h-48">
-                                                                            <ResponsiveContainer width="100%" height="100%">
-                                                                                <PieChart>
-                                                                                    <Pie
-                                                                                        data={costChartData}
-                                                                                        cx="50%"
-                                                                                        cy="50%"
-                                                                                        innerRadius={60}
-                                                                                        outerRadius={80}
-                                                                                        paddingAngle={5}
-                                                                                        dataKey="value"
-                                                                                    >
-                                                                                        {costChartData.map((entry, index) => (
-                                                                                            <Cell key={`cell-cost-${index}`} fill={COLORS[index % COLORS.length]} />
-                                                                                        ))}
-                                                                                    </Pie>
-                                                                                </PieChart>
-                                                                            </ResponsiveContainer>
-                                                                            <div className="absolute inset-0 flex items-center justify-center text-lg font-bold">原価</div>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="mt-6 space-y-2">
-                                                                        <p className="font-bold mb-4">品目別 粗利・原価分析</p>
-                                    {summaryList.map((item) => (
-                                        <div key={item.name} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
-                                            <span className="font-medium">{item.name}</span>
-                                            <div className="text-right">
-                                                <div className="font-bold text-green-600">
-                                                    粗利: {formatCurrency(item.grossProfit)}（粗利率: {formatGrossRate(item.grossProfit, item.amount)}）
-                                                </div>
-                                                <div className="text-sm text-slate-500">
-                                                    原価: {formatCurrency(item.cost)}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    <div className="border-t pt-4 mt-4">
-                                        <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg">
-                                            <span className="font-bold text-lg">合計</span>
-                                            <div className="text-right">
-                                                <div className="font-bold text-xl text-green-600">
-                                                    粗利: {formatCurrency(totalGrossProfit)}（粗利率: {formatGrossRate(totalGrossProfit, subtotal)}）
-                                                </div>
-                                                <div className="text-sm text-slate-600">
-                                                    原価: {formatCurrency(totalCost)}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                                                    </div>
-                                                                </CardContent>
-                                                            </Card>
-                                                        </TabsContent>
-                                                        
-                                                        <TabsContent value="items" className="py-6">
-                                                            <Card>
-                                                                <CardHeader>
-                                                                    <CardTitle className="flex items-center gap-2">
-                                                                        <FileText className="h-5 w-5" />
-                                                                        見積明細
-                                                                    </CardTitle>
-                                                                </CardHeader>
-                                                                <CardContent>
-                                                                    <Table>
-                                                                        <TableHeader>
-                                                                            <TableRow>
-                                                                                <TableHead>品目名</TableHead>
-                                                                                <TableHead>詳細</TableHead>
-                                                                                <TableHead className="text-right">数量</TableHead>
-                                                                                <TableHead>単位</TableHead>
-                                                                                <TableHead className="text-right">単価</TableHead>
-                                                                                <TableHead className="text-right">金額</TableHead>
-                                                                            </TableRow>
-                                                                        </TableHeader>
-                                                                        <TableBody>
-                                                                            {estimate.items && estimate.items.map((item, index) => (
-                                                                                <TableRow key={index}>
-                                                                                    <TableCell className="font-medium">{item.name}</TableCell>
-                                                                                    <TableCell>{item.description}</TableCell>
-                                                                                    <TableCell className="text-right">{item.qty}</TableCell>
-                                                                                    <TableCell>{item.unit}</TableCell>
-                                                                                    <TableCell className="text-right">¥{item.price ? item.price.toLocaleString() : 'N/A'}</TableCell>
-                                                                                    <TableCell className="text-right font-bold">¥{(item.qty * item.price).toLocaleString()}</TableCell>
-                                                                                </TableRow>
-                                                                            ))}
-                                                                        </TableBody>
-                                                                    </Table>
-                                                                    <div className="mt-6 flex flex-col md:flex-row gap-4 md:gap-6 md:justify-between">
-                                                                        {/* 承認フロー（合計の左） */}
-                                                                        <Card className="w-full md:w-96">
-                                                                            <CardHeader>
-                                                                                <CardTitle className="text-sm">承認フロー</CardTitle>
-                                                                            </CardHeader>
-                                                                            <CardContent className="p-4">
-                                                                                {Array.isArray(estimate.approval_flow) && estimate.approval_flow.length ? (
-                                                                                    <ol className="list-decimal list-inside space-y-1 text-sm text-slate-700">
-                                                                                        {estimate.approval_flow.map((ap, i) => (
-                                                                                            <li key={`${ap.id}-${i}`}>{ap.name}</li>
-                                                                                        ))}
-                                                                                    </ol>
-                                                                                ) : (
-                                                                                    <p className="text-sm text-slate-400">未設定</p>
-                                                                                )}
-                                                                            </CardContent>
-                                                                        </Card>
-
-                                                                        {/* 合計 */}
-                                                                        <Card className="w-full md:w-96 md:ml-auto">
-                                                                            <CardContent className="p-4 space-y-2">
-                                                                                <div className="flex justify-between">
-                                                                                    <span>小計（税抜）</span>
-                                                                                    <span>¥{subtotal.toLocaleString()}</span>
-                                                                                </div>
-                                                                                <div className="flex justify-between">
-                                                                                    <span>消費税</span>
-                                                                                    <span>¥{estimate.tax_amount ? estimate.tax_amount.toLocaleString() : 'N/A'}</span>
-                                                                                </div>
-                                                                                <div className="border-t pt-2">
-                                                                                    <div className="flex justify-between font-bold text-lg">
-                                                                                        <span>合計金額 (税込)</span>
-                                                                                        <span className="text-green-600">¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}</span>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </CardContent>
-                                                                        </Card>
-                                                                    </div>
-                                                                </CardContent>
-                                                            </Card>
-                                                        </TabsContent>
-                                                        
-                                                        <TabsContent value="approval" className="py-6">
-                                                            {(() => {
-                                                                const flow = Array.isArray(estimate.approval_flow) ? estimate.approval_flow : [];
-                                                                const steps = flow.length ? flow : [];
-                                                                const requiresRequirementDoc = Array.isArray(estimate.items)
-                                                                    ? estimate.items.some((item) => {
-                                                                        const rawCode = `${item?.code ?? item?.product_code ?? ''}`.trim().toUpperCase();
-                                                                        if (!rawCode) {
-                                                                            return false;
-                                                                        }
-                                                                        const prefix = rawCode.split('-')[0];
-                                                                        return prefix === 'B' || prefix === 'C';
-                                                                    })
-                                                                    : false;
-                                                                // 現行ステップ index（approved_at 基準）
-                                                                let currentStepIndex = -1;
-                                                                for (let i = 0; i < steps.length; i++) {
-                                                                    const status = steps[i].status ?? (steps[i].approved_at ? 'approved' : 'pending');
-                                                                    if (status !== 'approved' && status !== 'rejected') {
-                                                                        currentStepIndex = i;
-                                                                        break;
-                                                                    }
-                                                                }
-                                                                const meId = props.auth?.user?.id;
-                                                                const meExt = props.auth?.user?.external_user_id;
-                                                                const isMeCurrent = (() => {
-                                                                    if (currentStepIndex === -1) return false;
-                                                                    const cid = steps[currentStepIndex].id;
-                                                                    const cidStr = cid == null ? '' : String(cid);
-                                                                    if (meExt) {
-                                                                        if (cidStr && cidStr === String(meExt)) return true;
-                                                                    } else if (meId != null && cidStr === String(meId)) {
-                                                                        return true;
-                                                                    }
-                                                                    return false;
-                                                                })();
-                                                                const derived = steps.map((s, idx) => {
-                                                                    const statusValue = s.status ?? (s.approved_at ? 'approved' : 'pending');
-                                                                    const isApproved = statusValue === 'approved';
-                                                                    const isRejected = statusValue === 'rejected';
-                                                                    const isCurrent = !isApproved && !isRejected && idx === currentStepIndex;
-                                                                    return {
-                                                                        name: s.name,
-                                                                        avatar: s.name?.[0] || '承',
-                                                                        role: idx === 0 ? '第1承認者' : `第${idx+1}承認者`,
-                                                                        status: isRejected ? '却下' : (isApproved ? '承認済' : (isCurrent ? '未承認' : '待機中')),
-                                                                        date: isRejected
-                                                                            ? (s.rejected_at ? new Date(s.rejected_at).toLocaleDateString('ja-JP') : '')
-                                                                            : (isApproved && s.approved_at ? new Date(s.approved_at).toLocaleDateString('ja-JP') : ''),
-                                                                        originalApprover: s,
-                                                                        isRejected,
-                                                                        rejectionReason: s.rejection_reason ?? '',
-                                                                        isCurrent,
-                                                                    };
-                                                                });
-                                                                const handleRequirementCheck = async (approverId, checked) => {
-                                                                    try {
-                                                                        await axios.put(`/estimates/${estimate.id}/approval-requirement-check`, {
-                                                                            approver_id: approverId,
-                                                                            checked,
-                                                                        });
-                                                                        router.reload({ preserveScroll: true });
-                                                                    } catch (error) {
-                                                                        const message = error?.response?.data?.message || '要件定義書の確認状態を更新できませんでした。';
-                                                                        alert(message);
-                                                                    }
-                                                                };
-                                                                const approveFromSheet = () => {
-                                                                    if (!confirm('この見積書を承認しますか？')) return;
-                                                                    router.put(route('estimates.updateApproval', estimate.id), { action: 'approve' }, {
-                                                                        onSuccess: () => {
-                                                                            router.reload({ preserveScroll: true });
-                                                                            setRejectForm({ id: null, reason: '' });
-                                                                        },
-                                                                        onError: (errors) => { alert(errors?.approval || '承認中にエラーが発生しました。'); }
-                                                                    });
-                                                                };
-                                                                const submitRejectFromSheet = () => {
-                                                                    if (rejectForm.id !== estimate.id || !rejectForm.reason.trim()) {
-                                                                        alert('却下理由を入力してください。');
-                                                                        return;
-                                                                    }
-                                                                    if (!confirm('この見積書を却下しますか？')) return;
-                                                                    router.put(route('estimates.updateApproval', estimate.id), { action: 'reject', reason: rejectForm.reason }, {
-                                                                        onSuccess: () => {
-                                                                            router.reload({ preserveScroll: true });
-                                                                            setRejectForm({ id: null, reason: '' });
-                                                                        },
-                                                                        onError: (errors) => { alert(errors?.approval || '却下処理中にエラーが発生しました。'); }
-                                                                    });
-                                                                };
-                                                                const isRejectingThis = rejectForm.id === estimate.id;
-                                                                return (
-                                                            <Card>
-                                                                <CardHeader>
-                                                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                                                        <CardTitle className="flex items-center gap-2">
-                                                                            <CheckCircle className="h-5 w-5" />
-                                                                            承認フロー
-                                                                        </CardTitle>
-                                                                        {estimate?.google_docs_url && (
-                                                                            <Button
-                                                                                type="button"
-                                                                                variant="outline"
-                                                                                size="sm"
-                                                                                onClick={() => window.open(estimate.google_docs_url, '_blank', 'noopener,noreferrer')}
-                                                                            >
-                                                                                要件定義書を開く
-                                                                            </Button>
-                                                                        )}
-                                                                    </div>
-                                                                    <CardDescription>
-                                                                        この見積書の承認プロセスと履歴
-                                                                    </CardDescription>
-                                                                </CardHeader>
-                                                                <CardContent>
-                                                                    <div className="relative">
-                                                                        {/* Timeline line */}
-                                                                        <div className="absolute left-8 top-0 bottom-0 w-0.5 bg-slate-200"></div>
-                                                                        
-                                                                        <div className="space-y-8">
-                                                                            {(derived.length ? derived : [{name:'承認者未設定', avatar:'ー', role:'', status:'未承認', date:''}]).map((step, index) => (
-                                                                                <div key={index} className="flex items-start gap-4 relative">
-                                                                                    {/* Avatar circle */}
-                                                                                    <div className="flex-shrink-0 w-16 h-16 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold text-lg z-10 shadow-lg">
-                                                                                        {step.avatar}
-                                                                                    </div>
-                                                                                    
-                                                                                    {/* Content card */}
-                                                                                    <div className="flex-1 min-w-0">
-                                                                                        <Card className="shadow-sm">
-                                                                                            <CardContent className="p-4">
-                                                                                                <div className="flex items-center justify-between mb-2">
-                                                                                                    <div>
-                                                                                                        <h4 className="font-semibold text-lg">{step.name}</h4>
-                                                                                                        <p className="text-sm text-slate-500">{step.role}</p>
-                                                                                                        {step.rejectionReason && (
-                                                                                                            <p className="text-xs text-red-600 mt-1">理由: {step.rejectionReason}</p>
-                                                                                                        )}
-                                                                                                    </div>
-                                                                                                    <div className="text-right">
-                                                                                <div className="flex items-center justify-end gap-2 mb-1">
-                                                                                    {step.isCurrent && isMeCurrent && (
-                                                                                        isRejectingThis ? (
-                                                                                            <div className="flex flex-col gap-2 w-56">
-                                                                                                <Textarea
-                                                                                                    value={rejectForm.reason}
-                                                                                                    onChange={(e) => setRejectForm({ id: estimate.id, reason: e.target.value })}
-                                                                                                    placeholder="却下理由を入力"
-                                                                                                    className="text-sm"
-                                                                                                    rows={3}
-                                                                                                />
-                                                                                                <div className="flex items-center gap-2">
-                                                                                                    <Button onClick={submitRejectFromSheet} size="sm" variant="destructive">理由を送信</Button>
-                                                                                                    <Button onClick={() => setRejectForm({ id: null, reason: '' })} size="sm" variant="outline">キャンセル</Button>
-                                                                                                </div>
-                                                                                            </div>
-                                                                                        ) : (
-                                                                                            <div className="flex items-center gap-2">
-                                                                                                <Button onClick={approveFromSheet} size="sm" className="bg-black hover:bg-black/90 text-white">承認する</Button>
-                                                                                                <Button onClick={() => setRejectForm({ id: estimate.id, reason: '' })} size="sm" variant="destructive">却下する</Button>
-                                                                                            </div>
-                                                                                        )
-                                                                                    )}
-                                                                                    <Badge 
-                                                                                        className={cn(
-                                                                                            "flex items-center gap-1",
-                                                                                            step.status === '承認済'
-                                                                                                ? 'bg-green-100 text-green-800'
-                                                                                                : step.status === '却下'
-                                                                                                    ? 'bg-red-100 text-red-800'
-                                                                                                    : 'bg-amber-100 text-amber-800'
-                                                                                        )}
-                                                                                    >
-                                                                                        {step.status === '承認済' && <CheckCircle className="h-3 w-3" />}
-                                                                                        {step.status === '却下' && <XCircle className="h-3 w-3" />}
-                                                                                        {step.status !== '承認済' && step.status !== '却下' && <Clock className="h-3 w-3" />}
-                                                                                        {step.status}
-                                                                                    </Badge>
-                                                                                </div>
-                                                                                    {step.date && (
-                                                                                        <p className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                                                                                            <Calendar className="h-3 w-3" />
-                                                                                                                {step.date}
-                                                                                                            </p>
-                                                                                                        )}
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                                
-                                                                                                <div className="text-sm text-slate-600">
-                                                                                                    {step.status === '承認済'
-                                                                                                        ? '承認が完了しました。'
-                                                                                                        : step.status === '却下'
-                                                                                                            ? `このステップで却下されました。${step.rejectionReason ? `理由: ${step.rejectionReason}` : ''}`
-                                                                                                            : (step.isCurrent ? '承認待ちです。' : '前段の承認待ちです。')}
-                                                                                                </div>
-                                                                                                <div className="mt-3 flex items-center gap-2">
-                                                                                                    {requiresRequirementDoc && (
-                                                                                                        <>
-                                                                                                            <Checkbox
-                                                                                                                id={`requirement-check-${estimate.id}-${index}`}
-                                                                                                                checked={Boolean(step.originalApprover?.requirements_checked)}
-                                                                                                                disabled={!estimate?.google_docs_url || (() => {
-                                                                                                                    const stepId = step.originalApprover?.id == null ? '' : String(step.originalApprover.id);
-                                                                                                                    const meId = props.auth?.user?.id != null ? String(props.auth.user.id) : '';
-                                                                                                                    const meExternal = props.auth?.user?.external_user_id != null ? String(props.auth.user.external_user_id) : '';
-                                                                                                                    return !(stepId !== '' && (stepId === meExternal || stepId === meId));
-                                                                                                                })()}
-                                                                                                                onCheckedChange={(checked) => {
-                                                                                                                    handleRequirementCheck(step.originalApprover?.id, checked === true);
-                                                                                                                }}
-                                                                                                            />
-                                                                                                            <label htmlFor={`requirement-check-${estimate.id}-${index}`} className="text-sm text-slate-700">
-                                                                                                                要件定義書を確認済み
-                                                                                                            </label>
-                                                                                                            {step.originalApprover?.requirements_checked_at && (
-                                                                                                                <span className="text-xs text-slate-500">
-                                                                                                                    {new Date(step.originalApprover.requirements_checked_at).toLocaleDateString('ja-JP')}
-                                                                                                                </span>
-                                                                                                            )}
-                                                                                                        </>
-                                                                                                    )}
-                                                                                                </div>
-                                                                                            </CardContent>
-                                                                                        </Card>
-                                                                                    </div>
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    </div>
-                                                                </CardContent>
-                                                            </Card>
-                                                                );
-                                                            })()}
-                                                        </TabsContent>
-                                                    </Tabs>
-                                                </SheetContent>
-                                            </Sheet>
+                                                <EstimateDetailSheet
+                                                    estimate={estimate}
+                                                    isOpen={activeDetailId === estimate.id}
+                                                    onClose={() => handleDetailSheetChange(estimate.id, false)}
+                                                />
+                                            </Fragment>
                                         );
                                     })}
                                 </TableBody>
