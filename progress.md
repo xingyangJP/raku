@@ -238,3 +238,40 @@
 
 ### 次アクション
 - 守部/川口で `/sales-ai-coach/settings` にアクセスし、必要ならベースプロンプトを調整。
+
+## 2026-02-16
+### 要約
+- ダッシュボードを経営者向けの予実管理へ再構成し、納期ベースで売上・粗利・仕入を集計。
+- 工数キャパに対する充足率、空き工数、生産性（粗利/人日）を追加。
+
+### 変更点
+- `app/Http/Controllers/DashboardController.php`
+  - 予算=見積、実績=受注確定見積の納期ベース集計へ変更。
+  - 月次予実（12か月）と工数指標（工数、稼働率、生産性）を返却。
+  - 売上ランキングを受注確定見積の納期ベース集計へ変更。
+- `resources/js/Pages/Dashboard.jsx`
+  - KPIカードを売上/粗利/仕入の予算実績比較に変更。
+  - 工数KPIカード（稼働率・空き工数・生産性）を追加。
+  - 月次予実テーブル（売上/粗利/仕入/工数）を追加。
+- `config/app.php`, `.env.example`
+  - `APP_MONTHLY_CAPACITY_PERSON_DAYS` を追加。
+  - バージョン fallback を `v1.0.1` へ更新。
+- `README_Dashboard.md`
+  - 新しい経営者向けダッシュボード仕様に更新。
+
+### 検証
+- ローカル動作確認は次ステップで実施（`/dashboard` 表示とカード/テーブル整合）。
+- `app/Http/Controllers/DashboardController.php`
+  - 日報API（`/api/daily-reports`）実績工数連携を追加（未設定時フォールバックあり）。
+  - 資金繰り向けに支払予定/回収予定/回収実績/ネットCFを月次計算。
+- `resources/js/Pages/Dashboard.jsx`
+  - 日報実績工数（プロジェクト別トップ5、紐付率）カードを追加。
+  - 資金繰りカードと月次キャッシュフローテーブルを追加。
+- `.env.example` / `README_Dashboard.md`
+  - `XERO_PM_API_BASE`, `XERO_PM_API_TOKEN` を追記。
+- 見積と日報の厳密紐付けを追加。
+  - `database/migrations/2026_02_16_000000_add_xero_project_fields_to_estimates_table.php` を追加。
+  - `Estimate` に `xero_project_id/xero_project_name` を追加。
+  - `ApiController@getProjects` と `GET /api/projects` を追加。
+  - `Estimates/Create.jsx` にプロジェクト選択UIを追加。
+  - `DashboardController` の日報集計をプロジェクトID突合ベースに変更。

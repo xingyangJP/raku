@@ -28,6 +28,8 @@ class Estimate extends Model
         'client_contact_name',
         'client_contact_title',
         'client_id',
+        'xero_project_id',
+        'xero_project_name',
         'mf_department_id',
         'title',
         'issue_date',

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Throwable;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Http;
 use App\Models\Partner;
 
 class ApiController extends Controller
@@ -78,6 +79,63 @@ class ApiController extends Controller
 
             \Log::error('External API error (users): ' . $response);
             return response()->json(['message' => 'Failed to fetch users from external API. Status: ' . $httpcode . ' Error: ' . $error], $httpcode);
+        } catch (Throwable $e) {
+            \Log::error($e);
+            return response()->json(['message' => 'An unexpected error occurred: ' . $e->getMessage()], 500);
+        }
+    }
+
+    public function getProjects(Request $request)
+    {
+        $search = trim((string) $request->input('search', ''));
+
+        try {
+            $token = (string) (env('XERO_PM_API_TOKEN') ?: env('EXTERNAL_API_TOKEN') ?: '');
+            if ($token === '') {
+                return response()->json([]);
+            }
+
+            $base = rtrim((string) env('XERO_PM_API_BASE', 'https://api.xerographix.co.jp/api'), '/');
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $token,
+                'Accept' => 'application/json',
+            ])->get($base . '/projects');
+
+            if (!$response->successful()) {
+                \Log::warning('Failed to fetch projects from external API.', [
+                    'status' => $response->status(),
+                    'url' => $base . '/projects',
+                ]);
+                return response()->json([]);
+            }
+
+            $projects = $response->json();
+            if (!is_array($projects)) {
+                return response()->json([]);
+            }
+
+            $normalized = collect($projects)->map(function ($p) {
+                return [
+                    'id' => (string) ($p['id'] ?? ''),
+                    'name' => (string) ($p['name'] ?? ''),
+                    'customer_id' => isset($p['customer_id']) ? (string) $p['customer_id'] : null,
+                    'customer_name' => (string) ($p['customer']['name'] ?? ''),
+                    'is_active' => (bool) ($p['is_active'] ?? true),
+                ];
+            })->filter(function ($p) {
+                return $p['id'] !== '' && $p['name'] !== '';
+            });
+
+            if ($search !== '') {
+                $needle = mb_strtolower($search);
+                $normalized = $normalized->filter(function ($p) use ($needle) {
+                    $name = mb_strtolower((string) ($p['name'] ?? ''));
+                    $customer = mb_strtolower((string) ($p['customer_name'] ?? ''));
+                    return str_contains($name, $needle) || str_contains($customer, $needle);
+                });
+            }
+
+            return response()->json($normalized->take(50)->values());
         } catch (Throwable $e) {
             \Log::error($e);
             return response()->json(['message' => 'An unexpected error occurred: ' . $e->getMessage()], 500);
