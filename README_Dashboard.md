@@ -10,8 +10,8 @@
 - 発生月: `delivery_date` を優先。未設定時は `due_date`、さらに未設定時は `issue_date` を使用。
 - 粗利: `total_amount - items(cost * qty)`。
 - 仕入: `items(cost * qty)`。
-- 工数: `items.qty` の合計（`unit` が人日/人月相当、または `products.business_division != first_business` の明細のみ集計）。
-- 実績工数: 日報API（`GET /api/daily-reports`）の `actual_hours` / `hours` を月次集計。トークン未設定時は見積工数で代替。
+- 工数: `items.qty` を人日換算して集計（`人日`=そのまま、`人月`=20人日換算、`人時/時間`=8時間=1人日換算）。
+- 実績工数: 日報API（`GET /api/daily-reports`）の `actual_hours` / `hours` を人日換算して月次集計。トークン未設定時は見積工数で代替。
 - 厳密紐付け: `estimates.xero_project_id`（優先）/`xero_project_name` を使って日報の `project_id` / `project.name` を突合。紐付け対象外の日報は未紐付として分離。
 - キャッシュフロー:
   - 支払予定（仕入）: 見積日（`issue_date`）月に計上（未設定時は期限日/納期で補完）。
@@ -54,7 +54,9 @@
 | Key | Purpose | Default |
 | --- | --- | --- |
 | `APP_MONTHLY_CAPACITY_PERSON_DAYS` | 当月の工数キャパ（人日） | `160` |
-| `APP_VERSION` | 画面表示用バージョン（fallback） | `v1.0.2` |
+| `APP_PERSON_DAYS_PER_PERSON_MONTH` | 人月→人日の換算係数 | `20` |
+| `APP_PERSON_HOURS_PER_PERSON_DAY` | 時間→人日の換算係数 | `8` |
+| `APP_VERSION` | 画面表示用バージョン（fallback） | `v1.0.3` |
 | `XERO_PM_API_BASE` | 日報APIのベースURL | `https://api.xerographix.co.jp/api` |
 | `XERO_PM_API_TOKEN` | 日報APIのBearerトークン | empty |
 

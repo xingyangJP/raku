@@ -335,7 +335,7 @@ class DashboardController extends Controller
             $trackedProjectIds,
             $trackedProjectNames
         );
-        $dailyEffortByMonth = $dailyReportSummary['monthly_hours'] ?? [];
+        $dailyEffortByMonth = $dailyReportSummary['monthly_person_days'] ?? [];
         $hasDailyEffort = (bool) ($dailyReportSummary['enabled'] ?? false);
 
         foreach ($estimates as $estimate) {
@@ -496,7 +496,7 @@ class DashboardController extends Controller
                     'purchase' => (float) ($currentRow['budget_purchase'] ?? 0),
                     'effort' => $currentBudgetEffort,
                     'utilization_rate' => $this->calculateRate($currentBudgetEffort, $monthlyCapacity),
-                    'productivity' => $this->calculateRate((float) ($currentRow['budget_gross_profit'] ?? 0), $currentBudgetEffort),
+                    'productivity' => $this->calculateProductivity((float) ($currentRow['budget_gross_profit'] ?? 0), $currentBudgetEffort),
                     'count' => (int) ($currentRow['budget_count'] ?? 0),
                 ],
                 'previous' => [
@@ -505,7 +505,7 @@ class DashboardController extends Controller
                     'purchase' => (float) ($previousRow['budget_purchase'] ?? 0),
                     'effort' => $previousBudgetEffort,
                     'utilization_rate' => $this->calculateRate($previousBudgetEffort, $monthlyCapacity),
-                    'productivity' => $this->calculateRate((float) ($previousRow['budget_gross_profit'] ?? 0), $previousBudgetEffort),
+                    'productivity' => $this->calculateProductivity((float) ($previousRow['budget_gross_profit'] ?? 0), $previousBudgetEffort),
                     'count' => (int) ($previousRow['budget_count'] ?? 0),
                 ],
             ],
@@ -516,7 +516,7 @@ class DashboardController extends Controller
                     'purchase' => (float) ($currentRow['actual_purchase'] ?? 0),
                     'effort' => $currentActualEffort,
                     'utilization_rate' => $this->calculateRate($currentActualEffort, $monthlyCapacity),
-                    'productivity' => $this->calculateRate((float) ($currentRow['actual_gross_profit'] ?? 0), $currentActualEffort),
+                    'productivity' => $this->calculateProductivity((float) ($currentRow['actual_gross_profit'] ?? 0), $currentActualEffort),
                     'count' => (int) ($currentRow['actual_count'] ?? 0),
                 ],
                 'previous' => [
@@ -525,7 +525,7 @@ class DashboardController extends Controller
                     'purchase' => (float) ($previousRow['actual_purchase'] ?? 0),
                     'effort' => $previousActualEffort,
                     'utilization_rate' => $this->calculateRate($previousActualEffort, $monthlyCapacity),
-                    'productivity' => $this->calculateRate((float) ($previousRow['actual_gross_profit'] ?? 0), $previousActualEffort),
+                    'productivity' => $this->calculateProductivity((float) ($previousRow['actual_gross_profit'] ?? 0), $previousActualEffort),
                     'count' => (int) ($previousRow['actual_count'] ?? 0),
                 ],
             ],
@@ -534,8 +534,8 @@ class DashboardController extends Controller
                     'type' => $hasDailyEffort ? 'daily_reports' : 'estimate_fallback',
                     'label' => $hasDailyEffort ? '日報API実績（プロジェクト紐付け）' : '日報未連携のため見積工数を代替使用',
                     'match_rate' => (float) ($dailyReportSummary['match_rate'] ?? 0),
-                    'matched_hours' => (float) ($dailyReportSummary['matched_hours'] ?? 0),
-                    'unmatched_hours' => (float) ($dailyReportSummary['unmatched_hours'] ?? 0),
+                    'matched_person_days' => (float) ($dailyReportSummary['matched_person_days'] ?? 0),
+                    'unmatched_person_days' => (float) ($dailyReportSummary['unmatched_person_days'] ?? 0),
                     'tracked_project_count' => (int) ($dailyReportSummary['tracked_project_count'] ?? 0),
                 ],
                 'top_projects' => $dailyReportSummary['top_projects'] ?? [],
@@ -656,7 +656,7 @@ class DashboardController extends Controller
 
             $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 0));
             if ($qty > 0) {
-                $effort += $qty;
+                $effort += $this->toPersonDays($qty, (string) (data_get($item, 'unit') ?? ''));
             }
         }
 
@@ -740,6 +740,35 @@ class DashboardController extends Controller
         return ($numerator / $denominator) * 100;
     }
 
+    private function calculateProductivity(float $grossProfit, float $effortPersonDays): float
+    {
+        if ($effortPersonDays <= 0.0) {
+            return 0.0;
+        }
+
+        return $grossProfit / $effortPersonDays;
+    }
+
+    private function toPersonDays(float $value, string $unit): float
+    {
+        $normalizedUnit = mb_strtolower(trim($unit));
+        $personDaysPerPersonMonth = (float) config('app.person_days_per_person_month', 20.0);
+        $hoursPerPersonDay = (float) config('app.person_hours_per_person_day', 8.0);
+
+        if ($normalizedUnit !== '' && str_contains($normalizedUnit, '人月')) {
+            return $value * $personDaysPerPersonMonth;
+        }
+
+        if (
+            $normalizedUnit !== ''
+            && (str_contains($normalizedUnit, '人時') || str_contains($normalizedUnit, '時間') || $normalizedUnit === 'h' || $normalizedUnit === 'hr')
+        ) {
+            return $hoursPerPersonDay > 0 ? ($value / $hoursPerPersonDay) : 0.0;
+        }
+
+        return $value;
+    }
+
     private function buildDailyReportSummary(
         Carbon $from,
         Carbon $to,
@@ -752,19 +781,19 @@ class DashboardController extends Controller
         if (empty($reports)) {
             return [
                 'enabled' => false,
-                'monthly_hours' => [],
+                'monthly_person_days' => [],
                 'top_projects' => [],
                 'match_rate' => 0.0,
-                'matched_hours' => 0.0,
-                'unmatched_hours' => 0.0,
+                'matched_person_days' => 0.0,
+                'unmatched_person_days' => 0.0,
                 'tracked_project_count' => count($trackedProjectIds) + count($trackedProjectNames),
             ];
         }
 
-        $monthlyHours = [];
-        $projectHours = [];
-        $matchedHours = 0.0;
-        $unmatchedHours = 0.0;
+        $monthlyPersonDays = [];
+        $projectPersonDays = [];
+        $matchedPersonDays = 0.0;
+        $unmatchedPersonDays = 0.0;
         $scopeById = collect($trackedProjectIds)->map(fn ($id) => (string) $id)->filter()->values()->all();
         $scopeByName = collect($trackedProjectNames)
             ->map(fn ($name) => mb_strtolower(trim((string) $name)))
@@ -782,6 +811,7 @@ class DashboardController extends Controller
             if ($hours <= 0) {
                 continue;
             }
+            $personDays = $this->toPersonDays($hours, '時間');
 
             $monthKey = Carbon::parse($date, $timezone)->startOfMonth()->toDateString();
             $projectId = (string) (data_get($report, 'project_id') ?? data_get($report, 'project.id') ?? '');
@@ -789,7 +819,7 @@ class DashboardController extends Controller
             if ($projectName === '') {
                 $projectName = '未紐付け';
             }
-            $projectHours[$projectName] = ($projectHours[$projectName] ?? 0) + $hours;
+            $projectPersonDays[$projectName] = ($projectPersonDays[$projectName] ?? 0) + $personDays;
 
             $nameKey = mb_strtolower($projectName);
             $isMatched = $scopeEnabled
@@ -800,28 +830,28 @@ class DashboardController extends Controller
                 : false;
 
             if ($isMatched) {
-                $monthlyHours[$monthKey] = ($monthlyHours[$monthKey] ?? 0) + $hours;
-                $matchedHours += $hours;
+                $monthlyPersonDays[$monthKey] = ($monthlyPersonDays[$monthKey] ?? 0) + $personDays;
+                $matchedPersonDays += $personDays;
             } else {
-                $unmatchedHours += $hours;
+                $unmatchedPersonDays += $personDays;
             }
         }
 
-        arsort($projectHours);
-        $topProjects = collect($projectHours)->map(function ($hours, $name) {
-            return ['project_name' => $name, 'hours' => (float) $hours];
+        arsort($projectPersonDays);
+        $topProjects = collect($projectPersonDays)->map(function ($personDays, $name) {
+            return ['project_name' => $name, 'person_days' => (float) $personDays];
         })->values()->take(5)->toArray();
 
-        $total = $matchedHours + $unmatchedHours;
-        $matchRate = $total > 0 ? ($matchedHours / $total) * 100 : 0.0;
+        $total = $matchedPersonDays + $unmatchedPersonDays;
+        $matchRate = $total > 0 ? ($matchedPersonDays / $total) * 100 : 0.0;
 
         return [
             'enabled' => true,
-            'monthly_hours' => $monthlyHours,
+            'monthly_person_days' => $monthlyPersonDays,
             'top_projects' => $topProjects,
             'match_rate' => $matchRate,
-            'matched_hours' => $matchedHours,
-            'unmatched_hours' => $unmatchedHours,
+            'matched_person_days' => $matchedPersonDays,
+            'unmatched_person_days' => $unmatchedPersonDays,
             'tracked_project_count' => count($scopeById) + count($scopeByName),
         ];
     }

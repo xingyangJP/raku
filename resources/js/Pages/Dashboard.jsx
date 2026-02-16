@@ -245,7 +245,7 @@ export default function Dashboard({
                         </CardHeader>
                         <CardContent className="space-y-2">
                             <div className="text-xs text-slate-600">
-                                紐付率: {formatPercent(effortSource?.match_rate ?? 0)} / 紐付工数: {formatPersonDays(effortSource?.matched_hours ?? 0)} / 未紐付: {formatPersonDays(effortSource?.unmatched_hours ?? 0)}
+                                紐付率: {formatPercent(effortSource?.match_rate ?? 0)} / 紐付工数: {formatPersonDays(effortSource?.matched_person_days ?? 0)} / 未紐付: {formatPersonDays(effortSource?.unmatched_person_days ?? 0)}
                             </div>
                             <div className="text-xs text-slate-500">
                                 紐付対象プロジェクト数: {Number(effortSource?.tracked_project_count ?? 0)}
@@ -267,7 +267,7 @@ export default function Dashboard({
                                         {topProjects.map((p) => (
                                             <TableRow key={p.project_name}>
                                                 <TableCell>{p.project_name}</TableCell>
-                                                <TableCell className="text-right">{formatPersonDays(p.hours)}</TableCell>
+                                                <TableCell className="text-right">{formatPersonDays(p.person_days)}</TableCell>
                                             </TableRow>
                                         ))}
                                     </TableBody>

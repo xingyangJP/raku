@@ -72,3 +72,14 @@
   - `EstimateController@store`（`is_order_confirmed=true`）
   - `EstimateController@update`（`is_order_confirmed=true`）
 - 仕様上の運用制約（受注後にプロジェクト作成）に合わせた必須化ポイントへ変更。
+
+### Step 11: 工数・生産性の単位整合修正
+- `DashboardController` の生産性計算を `%計算` から `粗利 / 人日` に修正。
+- 見積工数の人日換算を追加。
+  - `人月` → `20人日`
+  - `人時/時間` → `8時間=1人日`
+- 日報工数（時間）を人日換算して月次実績へ反映。
+- フロント表示キーを `matched_person_days / unmatched_person_days / person_days` に更新。
+- 設定追加:
+  - `APP_PERSON_DAYS_PER_PERSON_MONTH`
+  - `APP_PERSON_HOURS_PER_PERSON_DAY`
