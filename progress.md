@@ -275,3 +275,10 @@
   - `ApiController@getProjects` と `GET /api/projects` を追加。
   - `Estimates/Create.jsx` にプロジェクト選択UIを追加。
   - `DashboardController` の日報集計をプロジェクトID突合ベースに変更。
+- 既存見積向けに `xero_project_id` 一括補完バッチを追加。
+  - `php artisan estimates:backfill-project-id`（デフォルトDRY-RUN）
+  - `AUTO_LINKED / REVIEW_REQUIRED / UNMATCHED` をCSV出力し、`--apply` 時のみ更新。
+- 必須化ポイントを調整。
+  - 見積作成時点では `xero_project_id` は任意（運用継続）。
+  - 受注確定時のみ `xero_project_id` 必須チェックに変更。
+- バージョン表記 fallback を `v1.0.2` に更新。

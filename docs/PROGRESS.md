@@ -54,3 +54,21 @@
 - 見積作成/更新/下書き保存でプロジェクトID/名称を保存可能に変更。
 - 見積画面に XERO PM プロジェクト検索コンボボックスを追加（`/api/projects`）。
 - 日報実績工数集計を `xero_project_id` 優先で突合するロジックへ変更し、未紐付工数を分離表示。
+
+### Step 9: 既存見積の xero_project_id 一括補完バッチ
+- Artisan コマンド `estimates:backfill-project-id` を追加。
+- 対象: `xero_project_id` 未設定の見積（デフォルトで受注確定済みのみ）。
+- 突合ルール:
+  - `xero_project_name` 完全一致（顧客一致を優先）
+  - 見積件名（`title`）完全一致 + 顧客一致
+  - 納期がプロジェクト期間内の場合は加点
+- 出力: `AUTO_LINKED / REVIEW_REQUIRED / UNMATCHED` のCSVを `storage/app/reports/` へ保存。
+- `--apply` 指定時のみDB更新、未指定はDRY-RUN。
+
+### Step 10: 受注確定時のプロジェクト紐付け必須化
+- 見積作成時点では `xero_project_id` を任意のまま維持。
+- 受注確定時のみ `xero_project_id` を必須チェック。
+  - `EstimateController@updateOrderConfirmation`
+  - `EstimateController@store`（`is_order_confirmed=true`）
+  - `EstimateController@update`（`is_order_confirmed=true`）
+- 仕様上の運用制約（受注後にプロジェクト作成）に合わせた必須化ポイントへ変更。

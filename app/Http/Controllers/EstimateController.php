@@ -634,6 +634,9 @@ class EstimateController extends Controller
                 $errors['google_docs_url'] = '設計/開発の明細がある場合は要件定義書（必須）の入力が必要です。';
             }
         }
+        if ($validated['is_order_confirmed'] && !$this->hasProjectLink($validated['xero_project_id'] ?? null)) {
+            $errors['xero_project_id'] = '受注確定時はプロジェクト紐付け（xero_project_id）が必須です。';
+        }
         if (!empty($errors)) {
             return back()->withErrors($errors)->withInput();
         }
@@ -826,6 +829,9 @@ class EstimateController extends Controller
                 $errors['google_docs_url'] = '設計/開発の明細がある場合は要件定義書（必須）の入力が必要です。';
             }
         }
+        if ($validated['is_order_confirmed'] && !$this->hasProjectLink($validated['xero_project_id'] ?? $estimate->xero_project_id)) {
+            $errors['xero_project_id'] = '受注確定時はプロジェクト紐付け（xero_project_id）が必須です。';
+        }
         if (!empty($errors)) {
             return back()->withErrors($errors)->withInput();
         }
@@ -890,6 +896,11 @@ class EstimateController extends Controller
         }
 
         $confirmed = $request->boolean('confirmed');
+        if ($confirmed && !$this->hasProjectLink($estimate->xero_project_id)) {
+            return redirect()->back()->withErrors([
+                'xero_project_id' => '受注確定にはプロジェクト紐付け（xero_project_id）が必要です。先に見積へプロジェクトを設定してください。',
+            ]);
+        }
         $estimate->is_order_confirmed = $confirmed;
         $estimate->save();
 
@@ -899,6 +910,11 @@ class EstimateController extends Controller
         }
 
         return redirect()->back()->with('success', '受注確定を解除しました。');
+    }
+
+    private function hasProjectLink(?string $projectId): bool
+    {
+        return trim((string) $projectId) !== '';
     }
 
     public function previewPdf(Request $request)

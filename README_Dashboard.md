@@ -54,7 +54,7 @@
 | Key | Purpose | Default |
 | --- | --- | --- |
 | `APP_MONTHLY_CAPACITY_PERSON_DAYS` | 当月の工数キャパ（人日） | `160` |
-| `APP_VERSION` | 画面表示用バージョン（fallback） | `v1.0.1` |
+| `APP_VERSION` | 画面表示用バージョン（fallback） | `v1.0.2` |
 | `XERO_PM_API_BASE` | 日報APIのベースURL | `https://api.xerographix.co.jp/api` |
 | `XERO_PM_API_TOKEN` | 日報APIのBearerトークン | empty |
 
@@ -62,6 +62,9 @@
 - 見積に `xero_project_id` / `xero_project_name` を保持。
 - 見積作成・編集画面で `/api/projects` からXERO PMプロジェクトを検索して選択。
 - 選択したプロジェクトが日報実績工数の厳密突合キーになる。
+- 見積作成時点では `xero_project_id` は任意。運用上、プロジェクト作成後に紐付ける。
+- ただし受注確定（`is_order_confirmed=true`）時は `xero_project_id` を必須とする。
+- 既存見積の補完には `php artisan estimates:backfill-project-id` を使用する（`--apply` なしはDRY-RUN）。
 
 ## Existing Partner Sync Flow
 1. ダッシュボード表示時、`attemptAutoPartnerSync` を実行。
