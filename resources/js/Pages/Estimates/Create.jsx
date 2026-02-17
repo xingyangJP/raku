@@ -305,125 +305,6 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
     )
 }
 
-function ProjectCombobox({ selectedProject, onProjectChange, customerId = null }) {
-    const [open, setOpen] = useState(false);
-    const [projects, setProjects] = useState([]);
-    const [search, setSearch] = useState("");
-    const [loading, setLoading] = useState(false);
-
-    useEffect(() => {
-        if (!open) {
-            setSearch("");
-            setProjects([]);
-            setLoading(false);
-            return;
-        }
-
-        const trimmed = search.trim();
-        if (!trimmed) {
-            setProjects([]);
-            setLoading(false);
-            return;
-        }
-
-        let ignore = false;
-        const fetchProjects = async () => {
-            try {
-                setLoading(true);
-                const response = await axios.get('/api/projects', { params: { search: trimmed } });
-                const fetched = Array.isArray(response.data) ? response.data : [];
-                const filtered = customerId
-                    ? fetched.filter((p) => String(p.customer_id || '') === String(customerId))
-                    : fetched;
-                if (!ignore) {
-                    setProjects(filtered);
-                }
-            } catch (error) {
-                console.error("Failed to fetch projects:", error);
-                if (!ignore) {
-                    setProjects([]);
-                }
-            } finally {
-                if (!ignore) {
-                    setLoading(false);
-                }
-            }
-        };
-        fetchProjects();
-
-        return () => {
-            ignore = true;
-        };
-    }, [open, search, customerId]);
-
-    return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-                <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={open}
-                    className="w-full justify-between"
-                >
-                    {selectedProject ? selectedProject.name : "プロジェクトを選択..."}
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent
-                align="start"
-                side="bottom"
-                sideOffset={4}
-                avoidCollisions={false}
-                className="w-full p-0"
-            >
-                <Command>
-                    <CommandInput
-                        value={search}
-                        placeholder="プロジェクトを検索..."
-                        onValueChange={setSearch}
-                    />
-                    <CommandList>
-                        <CommandEmpty className="px-4 py-3 text-left text-xs text-muted-foreground">
-                            {loading
-                                ? "検索中..."
-                                : search.trim()
-                                    ? "プロジェクトが見つかりません。"
-                                    : "検索キーワードを入力してください。"}
-                        </CommandEmpty>
-                        {projects.length > 0 && (
-                            <CommandGroup>
-                                {projects.map((project) => (
-                                    <CommandItem
-                                        key={project.id}
-                                        value={`${project.name ?? ''} ${project.customer_name ?? ''} ${project.id ?? ''}`}
-                                        onSelect={() => {
-                                            onProjectChange(project);
-                                            setOpen(false);
-                                        }}
-                                    >
-                                        <Check
-                                            className={cn(
-                                                "mr-2 h-4 w-4",
-                                                String(selectedProject?.id || '') === String(project.id) ? "opacity-100" : "opacity-0"
-                                            )}
-                                        />
-                                        <div className="flex flex-col">
-                                            <span>{project.name}</span>
-                                            {project.customer_name && (
-                                                <span className="text-xs text-muted-foreground">{project.customer_name}</span>
-                                            )}
-                                        </div>
-                                    </CommandItem>
-                                ))}
-                            </CommandGroup>
-                        )}
-                    </CommandList>
-                </Command>
-            </PopoverContent>
-        </Popover>
-    );
-}
-
 // --- Main Component ---
 
 const mapStructuredRequirements = (payload) => {
@@ -579,11 +460,6 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         ? { id: estimate.staff_id, name: estimate.staff_name }
         : null
     );
-    const [selectedProject, setSelectedProject] = useState(() => (
-        estimate?.xero_project_id
-            ? { id: estimate.xero_project_id, name: estimate?.xero_project_name || '選択済みプロジェクト' }
-            : null
-    ));
     const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
     const [approvers, setApprovers] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
     const [selectedDepartment, setSelectedDepartment] = useState(() => (
@@ -695,8 +571,6 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         client_contact_name: estimate?.client_contact_name || '',
         client_contact_title: estimate?.client_contact_title || '',
         client_id: estimate?.client_id || null,
-        xero_project_id: estimate?.xero_project_id || null,
-        xero_project_name: estimate?.xero_project_name || '',
         mf_department_id: estimate?.mf_department_id || null,
         title: estimate?.title || '',
         issue_date: isEditMode ? formatDate(estimate?.issue_date) : issueDateDefault,
@@ -852,12 +726,6 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         setData('staff_id', selectedStaff?.id || null);
         setData('staff_name', selectedStaff?.name || null);
     }, [selectedStaff]);
-
-    // Keep project in sync when selected
-    useEffect(() => {
-        setData('xero_project_id', selectedProject?.id || null);
-        setData('xero_project_name', selectedProject?.name || '');
-    }, [selectedProject]);
 
     // 部門選択の同期
     useEffect(() => {
@@ -1763,20 +1631,11 @@ useEffect(() => {
                                         {errors.client_contact_name && <p className="text-sm text-red-600 mt-1">{errors.client_contact_name}</p>}
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <Label htmlFor="project-name">件名 <span className="text-red-500 ml-1">*</span></Label>
                                         <Input id="project-name" value={data.title} onChange={(e) => setData('title', e.target.value)} placeholder="新会計システム導入" />
                                         {errors.title && <p className="text-sm text-red-600 mt-1">{errors.title}</p>}
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="xero-project">プロジェクト（XERO PM）</Label>
-                                        <ProjectCombobox
-                                            selectedProject={selectedProject}
-                                            onProjectChange={setSelectedProject}
-                                            customerId={selectedCustomer?.id || null}
-                                        />
-                                        {errors.xero_project_id && <p className="text-sm text-red-600 mt-1">{errors.xero_project_id}</p>}
                                     </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="staff">自社担当者 <span className="text-red-500 ml-1">*</span></Label>

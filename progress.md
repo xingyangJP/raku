@@ -299,3 +299,8 @@
   - `POST /maintenance-fees/resync-current` で当月スナップショットをAPI再取得。
   - 実行後は当月を再表示し、成功メッセージを表示。
 - バージョン表記 fallback を `v1.0.5` に更新。
+- 見積のプロジェクト選択を撤去。
+  - `Estimates/Create.jsx` のプロジェクト選択UIを削除。
+  - 受注確定時の `xero_project_id` 必須チェックを削除。
+  - 未使用の `/api/projects` と `ApiController@getProjects` を削除。
+- バージョン表記 fallback を `v1.0.6` に更新。

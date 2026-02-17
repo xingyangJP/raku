@@ -25,7 +25,6 @@ Route::get('/dashboard', [DashboardController::class, 'index'])
 // Guest-accessible API endpoints for login page user/customer lookup
 Route::get('/api/customers', [App\Http\Controllers\ApiController::class, 'getCustomers']);
 Route::get('/api/users', [App\Http\Controllers\ApiController::class, 'getUsers']);
-Route::get('/api/projects', [App\Http\Controllers\ApiController::class, 'getProjects']);
 // Partner departments lookup (by mf_partner_id)
 Route::get('/api/partners/{partner}/departments', [App\Http\Controllers\ApiController::class, 'getPartnerDepartments']);
 

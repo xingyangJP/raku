@@ -105,3 +105,10 @@
   - `POST /maintenance-fees/resync-current` (`maintenance-fees.resyncCurrent`)
 - `MaintenanceFees/Index.jsx` に「当月を再同期」ボタンを追加し、成功メッセージを表示。
 - バージョンを `v1.0.5` に更新。
+
+### Step 15: 見積のプロジェクト選択UI撤去
+- 見積作成/編集画面から XERO PM プロジェクト選択コンポーネントを削除。
+- 見積フォーム送信から `xero_project_id` / `xero_project_name` の入力連携を削除。
+- 受注確定時の `xero_project_id` 必須バリデーションを削除。
+- 未使用となった `GET /api/projects` と `ApiController@getProjects` を削除。
+- バージョンを `v1.0.6` に更新。
