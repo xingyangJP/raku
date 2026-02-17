@@ -58,6 +58,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/mf/billings/auth/start', [BillingController::class, 'redirectToAuth'])->name('billing.auth.start');
     Route::get('/billing/{billing}/pdf', [BillingController::class, 'downloadPdf'])->name('billing.downloadPdf');
     Route::get('/maintenance-fees', [MaintenanceFeeController::class, 'index'])->name('maintenance-fees.index');
+    Route::post('/maintenance-fees/resync-current', [MaintenanceFeeController::class, 'resyncCurrentMonth'])->name('maintenance-fees.resyncCurrent');
     Route::post('/maintenance-fees/items', [MaintenanceFeeController::class, 'storeItem'])->name('maintenance-fees.items.store');
     Route::patch('/maintenance-fees/items/{item}', [MaintenanceFeeController::class, 'updateItem'])->name('maintenance-fees.items.update');
     Route::delete('/maintenance-fees/items/{item}', [MaintenanceFeeController::class, 'deleteItem'])->name('maintenance-fees.items.delete');

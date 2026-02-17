@@ -97,3 +97,11 @@
   - 明細原価あり: 明細原価を使用
   - 明細原価なし: `APP_LABOR_COST_PER_PERSON_DAY` で補完
 - バージョンを `v1.0.4` に更新。
+
+### Step 14: 保守売上管理「当月を再同期」追加
+- `MaintenanceFeeController` に当月強制再同期アクションを追加。
+  - 既存当月スナップショットがあっても `customers` API から明細を再取得して置換。
+- ルート追加:
+  - `POST /maintenance-fees/resync-current` (`maintenance-fees.resyncCurrent`)
+- `MaintenanceFees/Index.jsx` に「当月を再同期」ボタンを追加し、成功メッセージを表示。
+- バージョンを `v1.0.5` に更新。
