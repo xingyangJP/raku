@@ -11,6 +11,28 @@ use App\Models\MaintenanceFeeSnapshotItem;
 
 class MaintenanceFeeController extends Controller
 {
+    public function resyncCurrentMonth(Request $request)
+    {
+        $month = Carbon::now()->startOfMonth();
+
+        $snapshot = MaintenanceFeeSnapshot::whereDate('month', $month)->first();
+        if (!$snapshot) {
+            $snapshot = MaintenanceFeeSnapshot::create([
+                'month' => $month,
+                'total_fee' => 0,
+                'total_gross' => 0,
+                'source' => 'api',
+            ]);
+        }
+
+        $this->populateSnapshotItemsFromApi($snapshot);
+        $itemCount = $snapshot->fresh()->items()->count();
+
+        return redirect()->route('maintenance-fees.index', [
+            'month' => $month->format('Y-m'),
+        ])->with('success', "当月保守売上を再同期しました（{$itemCount}件）。");
+    }
+
     public function index(Request $request)
     {
         $search = trim((string) $request->query('search', ''));

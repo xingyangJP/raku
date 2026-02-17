@@ -1,41 +1,84 @@
 # Dashboard Screen Spec
 
 ## Purpose
-- 承認待ち見積のタスクを素早く確認し、必要に応じて詳細を開いて承認できるようにする。
-- Money Forward とローカル DB の同期状況を自動把握し、パートナー情報の差分同期を行う。
+- 経営者向けに、予算（見積）と実績（注文確定）を納期ベースで比較し、売上・粗利・仕入・工数・生産性を月次で把握する。
+- 既存の承認タスク導線と Money Forward 取引先同期導線は維持する。
+
+## Accounting Basis
+- 予算: `estimates`（`mf_deleted_at` が null、`status != rejected`）。
+- 実績: `estimates.is_order_confirmed = true`。
+- 発生月: `delivery_date` を優先。未設定時は `due_date`、さらに未設定時は `issue_date` を使用。
+- 粗利: `total_amount - items(cost * qty)`。
+- 仕入: `items(cost * qty)`。
+- 工数: `items.qty` を人日換算して集計（`人日`=そのまま、`人月`=20人日換算、`人時/時間`=8時間=1人日換算）。
+- 工数表示: 日報未連携前提のため、計画工数（見積ベース）のみ表示。
+- 仕入: 物品仕入 + 工数原価で算出（工数原価は明細原価を優先、未設定時は人日単価設定で補完）。
+- キャッシュフロー:
+  - 支払予定（仕入）: 見積日（`issue_date`）月に計上（未設定時は期限日/納期で補完）。
+  - 回収予定: 期限日（`due_date`）月に計上（未設定時は納期翌月）。
+  - 回収実績: Money Forward 請求（`billings.payment_status` が入金済系）の期限日月で計上。
 
 ## Visible Sections
-- **Summary Cards**: 当月の見積サマリ・粗利サマリ（請求書へ変換済みの見積ベース）・売上サマリ（請求書ベース）を表示。各カードには先月分の比較値をサブカードとして表示する。
-- **やることリスト**: `Estimate` の `approval_flow` を元に、未承認の見積を申請日降順で表示。
-  - ログインユーザーが現行承認者なら「確認して承認」ボタンが出現し、`EstimateDetailSheet` を開いて承認可能。
-  - 他者が現行承認者の場合は「{担当者名}さんの承認待ち」バッジを表示。
-- **売上ランキング**: 当月のローカル請求書を集計し、得意先別売上トップ5を表示。
-- **取引先自動同期**: 画面表示時に Money Forward の取引先 API を呼び出し、最新情報をローカル `partners` テーブルに反映。未認証の場合は OAuth に遷移し、復帰後に同期を継続する。
-- **取引先取得ボタン**: 手動で再同期したい場合のトリガ。成功／失敗はダッシュボード内の専用メッセージ領域に表示される。
+- **集計基準カード**: 予算/実績/発生月の基準を明示。
+- **KPIカード（当月）**:
+  - 売上（予算・実績・差異）
+  - 粗利（予算・実績・差異）
+  - 仕入（予算・実績・差異）
+- **工数KPI（当月）**:
+  - 計画工数稼働率
+  - 空き工数（計画）
+  - 計画生産性（粗利/人日）
+  - 案件件数（予算・実績）
+- **仕入内訳カード**: 物品仕入と工数原価の内訳を表示。
+- **月次予実テーブル**: 12か月（当月〜11か月先）の売上/粗利/仕入/工数を予算実績で比較。
+- **月次キャッシュフロー**: 支払予定・回収予定・回収実績・ネットCFを月次で表示。
+- **売上ランキング**: 当月の注文確定案件を得意先別に集計（納期ベース）したトップ5。
+- **やることリスト**: 承認フローに基づくタスク。
+- **取引先取得**: Money Forward 取引先の手動再同期。
 
-## Money Forward Partner Sync Flow
-1. ダッシュボード表示時、`DashboardController@index` が自動的に `attemptAutoPartnerSync` を呼び出す。
-2. 有効なアクセストークンがある場合は即座に `performPartnerSync` を実行。結果はセッションに保存し、ダッシュボード内メッセージとして表示。
-3. トークンが無い／スコープ不足の場合は `/mf/partners/auth/start` に遷移し、OAuth 認可画面へ。復帰後に同期が再開される。
-4. 「取引先取得」ボタンを押下した場合は従来通り `DashboardController@syncPartners` → `doPartnerSync` が起動し、手動再実行が可能。
-5. 取得結果を `partners` テーブルへ upsert。`payload` に Money Forward 側の departments/offices 情報を丸ごと保持し、UI での部門選択に使用。
-6. 成功／失敗メッセージは通常のフラッシュではなく、ダッシュボード専用のセッションキーで保持し画面内に表示する。これにより他画面への遷移後にメッセージが残留しない。
+## API and Controller Notes
+- `DashboardController@buildDashboardMetrics`
+  - 月次配列を生成し、予算/実績を同時集計。
+  - 工数集計のために `products` を参照し、`first_business` を除外（計画工数）。
+  - 仕入を「物品仕入」「工数原価」に分解集計。
+  - 返却プロップ:
+    - `basis`
+    - `capacity`
+    - `budget.current|previous`
+    - `actual.current|previous`
+    - `effort.current|previous`
+    - `forecast.months`
+- `DashboardController@buildSalesRanking`
+  - `estimates` を納期ベースで集計し、`is_order_confirmed = true` を対象にランキング作成。
 
-### OAuth Settings
-| 項目 | 値 |
-| --- | --- |
-| Start Route | `route('partners.auth.start')` (`/mf/partners/auth/start`) |
-| Callback Route | `route('partners.auth.callback')` (`/mf/partners/auth/callback`) |
-| Default Scope | `mfc/invoice/data.read mfc/invoice/data.write` |
-| ENV Override | `MONEY_FORWARD_PARTNER_AUTH_REDIRECT_URI`（未設定時は上記ルートが使用される） |
+## Environment Variables
+| Key | Purpose | Default |
+| --- | --- | --- |
+| `APP_MONTHLY_CAPACITY_PERSON_DAYS` | 当月の工数キャパ（人日） | `160` |
+| `APP_PERSON_DAYS_PER_PERSON_MONTH` | 人月→人日の換算係数 | `20` |
+| `APP_PERSON_HOURS_PER_PERSON_DAY` | 時間→人日の換算係数 | `8` |
+| `APP_LABOR_COST_PER_PERSON_DAY` | 工数原価（人日単価、明細原価未設定時の補完値） | `0` |
+| `APP_VERSION` | 画面表示用バージョン（fallback） | `v1.0.6` |
+| `XERO_PM_API_BASE` | 日報APIのベースURL | `https://api.xerographix.co.jp/api` |
+| `XERO_PM_API_TOKEN` | 日報APIのBearerトークン | empty |
 
-## UI Behaviour Details
-- **フィルタトグル**: やることリストには `ToggleGroup` を使用し「全て」「自分のみ」を切り替え。
-- **詳細表示**: `EstimateDetailSheet` コンポーネントをダッシュボードでも再利用。承認ボタンは現行承認者のみ表示。
-- **エラーハンドリング**: 同期結果は `partnerSyncFlash` プロップとして渡し、ダッシュボード内のメッセージ領域で表示。OAuth 失敗時は `error` を通知し、成功時は件数付きメッセージ。
-- **Data Fetching**: ダッシュボードはサーバサイドで `Estimate` をロードし、`approval_flow` の JSON を解析して現在の承認ステップを判定。
+## Estimate Linkage
+- 見積画面での XERO PM プロジェクト選択UIは廃止。
+- 受注確定時の `xero_project_id` 必須チェックも廃止。
+- 理由: 現運用ではプロジェクトAPI連携が安定しておらず、見積入力フローを阻害するため。
+- 既存見積の補完には `php artisan estimates:backfill-project-id` を使用する（`--apply` なしはDRY-RUN）。
+
+## Existing Partner Sync Flow
+1. ダッシュボード表示時、`attemptAutoPartnerSync` を実行。
+2. トークン有効時は即同期、無効時は OAuth へリダイレクト。
+3. 取得結果を `partners` テーブルに upsert。
+4. 結果は `partnerSyncFlash` でダッシュボードに表示。
 
 ## Troubleshooting Checklist
-- Money Forward 側で部門を持たない partner は UI で部門選択が空になるため、MF ポータルから部門を追加後に再同期する。
-- 403/422 が発生する場合は scope が不足しているか、コールバック URI が未登録の可能性あり。
-- 長時間アクセスがない場合はアクセストークンが失効する。再度ダッシュボードでボタンを押下し、OAuth を再実行する。
+- 工数が0になる場合:
+  - 明細 `unit` が人日/人月以外で、かつ商品マスタ紐付けがない可能性。
+  - `products.business_division = first_business` の明細は工数対象外。
+- 売上ランキングが空の場合:
+  - 当月に `is_order_confirmed = true` かつ納期が当月の案件が存在しない。
+- 取引先同期エラー時:
+  - `mfc/invoice/data.read mfc/invoice/data.write` スコープを確認。

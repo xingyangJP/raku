@@ -238,3 +238,69 @@
 
 ### 次アクション
 - 守部/川口で `/sales-ai-coach/settings` にアクセスし、必要ならベースプロンプトを調整。
+
+## 2026-02-16
+### 要約
+- ダッシュボードを経営者向けの予実管理へ再構成し、納期ベースで売上・粗利・仕入を集計。
+- 工数キャパに対する充足率、空き工数、生産性（粗利/人日）を追加。
+
+### 変更点
+- `app/Http/Controllers/DashboardController.php`
+  - 予算=見積、実績=受注確定見積の納期ベース集計へ変更。
+  - 月次予実（12か月）と工数指標（工数、稼働率、生産性）を返却。
+  - 売上ランキングを受注確定見積の納期ベース集計へ変更。
+- `resources/js/Pages/Dashboard.jsx`
+  - KPIカードを売上/粗利/仕入の予算実績比較に変更。
+  - 工数KPIカード（稼働率・空き工数・生産性）を追加。
+  - 月次予実テーブル（売上/粗利/仕入/工数）を追加。
+- `config/app.php`, `.env.example`
+  - `APP_MONTHLY_CAPACITY_PERSON_DAYS` を追加。
+  - バージョン fallback を `v1.0.1` へ更新。
+- `README_Dashboard.md`
+  - 新しい経営者向けダッシュボード仕様に更新。
+
+### 検証
+- ローカル動作確認は次ステップで実施（`/dashboard` 表示とカード/テーブル整合）。
+- `app/Http/Controllers/DashboardController.php`
+  - 日報API（`/api/daily-reports`）実績工数連携を追加（未設定時フォールバックあり）。
+  - 資金繰り向けに支払予定/回収予定/回収実績/ネットCFを月次計算。
+- `resources/js/Pages/Dashboard.jsx`
+  - 日報実績工数（プロジェクト別トップ5、紐付率）カードを追加。
+  - 資金繰りカードと月次キャッシュフローテーブルを追加。
+- `.env.example` / `README_Dashboard.md`
+  - `XERO_PM_API_BASE`, `XERO_PM_API_TOKEN` を追記。
+- 見積と日報の厳密紐付けを追加。
+  - `database/migrations/2026_02_16_000000_add_xero_project_fields_to_estimates_table.php` を追加。
+  - `Estimate` に `xero_project_id/xero_project_name` を追加。
+  - `ApiController@getProjects` と `GET /api/projects` を追加。
+  - `Estimates/Create.jsx` にプロジェクト選択UIを追加。
+  - `DashboardController` の日報集計をプロジェクトID突合ベースに変更。
+- 既存見積向けに `xero_project_id` 一括補完バッチを追加。
+  - `php artisan estimates:backfill-project-id`（デフォルトDRY-RUN）
+  - `AUTO_LINKED / REVIEW_REQUIRED / UNMATCHED` をCSV出力し、`--apply` 時のみ更新。
+- 必須化ポイントを調整。
+  - 見積作成時点では `xero_project_id` は任意（運用継続）。
+  - 受注確定時のみ `xero_project_id` 必須チェックに変更。
+- 工数/生産性の算出を修正。
+  - 生産性を `粗利/工数（人日）` の実数計算へ修正（%計算の誤用を解消）。
+  - 見積工数: `人月`→`20人日`、`人時/時間`→`8時間=1人日` に換算。
+  - 日報工数（時間）も人日換算して表示/集計。
+- バージョン表記 fallback を `v1.0.3` に更新。
+- ダッシュボードの次フェーズ向けにUI設定書を追加。
+  - 4セクション構成: `総合 / 開発 / 仕入れ販売 / 保守`
+  - 開発・保守に工数予実KPIを標準搭載する方針を定義。
+  - `docs/DASHBOARD_UI_SETTING.md` を新規作成。
+- 日報未連携前提に設計を切替。
+  - 工数表示は「計画工数（見積ベース）」のみ。
+  - 日報実績工数カードを廃止し、仕入内訳（物品仕入/工数原価）カードを追加。
+  - 仕入計算を「物品 + 工数原価」に統一（工数原価補完: `APP_LABOR_COST_PER_PERSON_DAY`）。
+- バージョン表記 fallback を `v1.0.4` に更新。
+- 保守売上管理に「当月を再同期」ボタンを追加。
+  - `POST /maintenance-fees/resync-current` で当月スナップショットをAPI再取得。
+  - 実行後は当月を再表示し、成功メッセージを表示。
+- バージョン表記 fallback を `v1.0.5` に更新。
+- 見積のプロジェクト選択を撤去。
+  - `Estimates/Create.jsx` のプロジェクト選択UIを削除。
+  - 受注確定時の `xero_project_id` 必須チェックを削除。
+  - 未使用の `/api/projects` と `ApiController@getProjects` を削除。
+- バージョン表記 fallback を `v1.0.6` に更新。

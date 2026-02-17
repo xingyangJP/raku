@@ -14,7 +14,7 @@ const formatCurrency = (value) => `¥${Number(value || 0).toLocaleString()}`;
 const formatNumber = (value) => Number(value || 0).toLocaleString();
 
 export default function MaintenanceFeesIndex() {
-    const { items, summary, filters, chart } = usePage().props;
+    const { items, summary, filters, chart, flash } = usePage().props;
     const [search, setSearch] = useState(filters?.search ?? '');
     const availableYears = filters?.available_years || [];
     const initialMonth = filters?.selected_month || '';
@@ -112,8 +112,24 @@ export default function MaintenanceFeesIndex() {
                             <RefreshCw className="h-4 w-4" />
                             リロード
                         </Button>
+                        <Button
+                            variant="secondary"
+                            onClick={() => {
+                                router.post(route('maintenance-fees.resyncCurrent'), {}, { preserveScroll: true });
+                            }}
+                            className="flex items-center gap-2"
+                        >
+                            <RefreshCw className="h-4 w-4" />
+                            当月を再同期
+                        </Button>
                     </div>
                 </div>
+
+            {flash?.success && (
+                <div className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
+                    {flash.success}
+                </div>
+            )}
 
             <div className="grid gap-4 sm:grid-cols-3">
                 <SummaryCard title="月額保守合計" value={formatCurrency(summary?.total_fee ?? 0)} />
