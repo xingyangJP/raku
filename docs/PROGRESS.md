@@ -83,3 +83,9 @@
 - 設定追加:
   - `APP_PERSON_DAYS_PER_PERSON_MONTH`
   - `APP_PERSON_HOURS_PER_PERSON_DAY`
+
+### Step 12: セクション分割UI設定書の作成
+- 要望に基づき、ダッシュボードを `総合 / 開発 / 仕入れ販売 / 保守` の4セクションで再設計。
+- 開発・保守セクションに工数予実（予算/実績/稼働率/空き工数/生産性）を明記。
+- UI設定書を新規作成:
+  - `docs/DASHBOARD_UI_SETTING.md`
