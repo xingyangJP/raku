@@ -284,13 +284,16 @@ class DashboardController extends Controller
                     'budget_sales' => 0.0,
                     'budget_gross_profit' => 0.0,
                     'budget_purchase' => 0.0,
+                    'budget_purchase_material' => 0.0,
+                    'budget_purchase_labor' => 0.0,
                     'actual_sales' => 0.0,
                     'actual_gross_profit' => 0.0,
                     'actual_purchase' => 0.0,
+                    'actual_purchase_material' => 0.0,
+                    'actual_purchase_labor' => 0.0,
                     'budget_count' => 0,
                     'actual_count' => 0,
                     'budget_effort' => 0.0,
-                    'actual_effort' => 0.0,
                     'budget_purchase_outflow' => 0.0,
                     'actual_purchase_outflow' => 0.0,
                     'budget_collection_inflow' => 0.0,
@@ -315,29 +318,6 @@ class DashboardController extends Controller
                 'is_order_confirmed',
             ]);
 
-        $trackedProjectIds = $estimates->pluck('xero_project_id')
-            ->filter(fn ($id) => !empty($id))
-            ->map(fn ($id) => (string) $id)
-            ->unique()
-            ->values()
-            ->all();
-        $trackedProjectNames = $estimates->pluck('xero_project_name')
-            ->filter(fn ($name) => !empty($name))
-            ->map(fn ($name) => mb_strtolower(trim((string) $name)))
-            ->unique()
-            ->values()
-            ->all();
-
-        $dailyReportSummary = $this->buildDailyReportSummary(
-            $horizonStart,
-            $horizonEnd,
-            $timezone,
-            $trackedProjectIds,
-            $trackedProjectNames
-        );
-        $dailyEffortByMonth = $dailyReportSummary['monthly_person_days'] ?? [];
-        $hasDailyEffort = (bool) ($dailyReportSummary['enabled'] ?? false);
-
         foreach ($estimates as $estimate) {
             $recognizedAt = $this->resolveRecognitionDate($estimate, $timezone);
             if (!$recognizedAt) {
@@ -350,7 +330,10 @@ class DashboardController extends Controller
             }
 
             $sales = (float) ($estimate->total_amount ?? 0);
-            $purchase = $this->sumEstimateCost($estimate->items ?? []);
+            $purchaseBreakdown = $this->sumEstimatePurchaseBreakdown($estimate->items ?? [], $productLookup);
+            $purchase = (float) ($purchaseBreakdown['total'] ?? 0.0);
+            $materialPurchase = (float) ($purchaseBreakdown['material'] ?? 0.0);
+            $laborPurchase = (float) ($purchaseBreakdown['labor'] ?? 0.0);
             $effort = $this->sumEstimateEffort($estimate->items ?? [], $productLookup);
             $grossProfit = $sales - $purchase;
 
@@ -361,6 +344,8 @@ class DashboardController extends Controller
 
             $row['budget_sales'] += $sales;
             $row['budget_purchase'] += $purchase;
+            $row['budget_purchase_material'] += $materialPurchase;
+            $row['budget_purchase_labor'] += $laborPurchase;
             $row['budget_gross_profit'] += $grossProfit;
             $row['budget_effort'] += $effort;
             $row['budget_count'] += 1;
@@ -368,6 +353,8 @@ class DashboardController extends Controller
             if ((bool) $estimate->is_order_confirmed === true) {
                 $row['actual_sales'] += $sales;
                 $row['actual_purchase'] += $purchase;
+                $row['actual_purchase_material'] += $materialPurchase;
+                $row['actual_purchase_labor'] += $laborPurchase;
                 $row['actual_gross_profit'] += $grossProfit;
                 $row['actual_count'] += 1;
             }
@@ -395,17 +382,6 @@ class DashboardController extends Controller
             }
 
             $monthly->put($monthKey, $row);
-        }
-
-        if ($hasDailyEffort) {
-            foreach ($monthKeys as $monthKey) {
-                if (!$monthly->has($monthKey)) {
-                    continue;
-                }
-                $row = $monthly->get($monthKey);
-                $row['actual_effort'] = (float) ($dailyEffortByMonth[$monthKey] ?? 0);
-                $monthly->put($monthKey, $row);
-            }
         }
 
         if (Schema::hasTable('billings')) {
@@ -438,10 +414,13 @@ class DashboardController extends Controller
             'actual_sales' => 0.0,
             'actual_gross_profit' => 0.0,
             'actual_purchase' => 0.0,
+            'budget_purchase_material' => 0.0,
+            'budget_purchase_labor' => 0.0,
+            'actual_purchase_material' => 0.0,
+            'actual_purchase_labor' => 0.0,
             'budget_count' => 0,
             'actual_count' => 0,
             'budget_effort' => 0.0,
-            'actual_effort' => 0.0,
             'budget_purchase_outflow' => 0.0,
             'actual_purchase_outflow' => 0.0,
             'budget_collection_inflow' => 0.0,
@@ -454,7 +433,6 @@ class DashboardController extends Controller
                 'sales_variance' => (float) ($row['actual_sales'] - $row['budget_sales']),
                 'gross_profit_variance' => (float) ($row['actual_gross_profit'] - $row['budget_gross_profit']),
                 'purchase_variance' => (float) ($row['actual_purchase'] - $row['budget_purchase']),
-                'effort_variance' => (float) ($row['actual_effort'] - $row['budget_effort']),
                 'budget_net_cash' => (float) ($row['budget_collection_inflow'] - $row['budget_purchase_outflow']),
                 'actual_net_cash' => (float) ($row['actual_collection_inflow'] - $row['actual_purchase_outflow']),
             ];
@@ -463,9 +441,7 @@ class DashboardController extends Controller
         })->values()->toArray();
 
         $currentBudgetEffort = (float) ($currentRow['budget_effort'] ?? 0);
-        $currentActualEffort = (float) ($currentRow['actual_effort'] ?? 0);
         $previousBudgetEffort = (float) ($previousRow['budget_effort'] ?? 0);
-        $previousActualEffort = (float) ($previousRow['actual_effort'] ?? 0);
 
         return [
             'basis' => [
@@ -473,6 +449,7 @@ class DashboardController extends Controller
                 'actual' => '注文書（受注確定済み）',
                 'recognition' => '納期ベース',
                 'recognition_fallback' => '納期未設定時は見積期限日、さらに未設定時は見積日を使用',
+                'effort' => '計画工数（見積ベース）',
             ],
             'capacity' => [
                 'monthly_person_days' => $monthlyCapacity,
@@ -494,6 +471,8 @@ class DashboardController extends Controller
                     'sales' => (float) ($currentRow['budget_sales'] ?? 0),
                     'gross_profit' => (float) ($currentRow['budget_gross_profit'] ?? 0),
                     'purchase' => (float) ($currentRow['budget_purchase'] ?? 0),
+                    'purchase_material' => (float) ($currentRow['budget_purchase_material'] ?? 0),
+                    'purchase_labor' => (float) ($currentRow['budget_purchase_labor'] ?? 0),
                     'effort' => $currentBudgetEffort,
                     'utilization_rate' => $this->calculateRate($currentBudgetEffort, $monthlyCapacity),
                     'productivity' => $this->calculateProductivity((float) ($currentRow['budget_gross_profit'] ?? 0), $currentBudgetEffort),
@@ -503,6 +482,8 @@ class DashboardController extends Controller
                     'sales' => (float) ($previousRow['budget_sales'] ?? 0),
                     'gross_profit' => (float) ($previousRow['budget_gross_profit'] ?? 0),
                     'purchase' => (float) ($previousRow['budget_purchase'] ?? 0),
+                    'purchase_material' => (float) ($previousRow['budget_purchase_material'] ?? 0),
+                    'purchase_labor' => (float) ($previousRow['budget_purchase_labor'] ?? 0),
                     'effort' => $previousBudgetEffort,
                     'utilization_rate' => $this->calculateRate($previousBudgetEffort, $monthlyCapacity),
                     'productivity' => $this->calculateProductivity((float) ($previousRow['budget_gross_profit'] ?? 0), $previousBudgetEffort),
@@ -514,48 +495,35 @@ class DashboardController extends Controller
                     'sales' => (float) ($currentRow['actual_sales'] ?? 0),
                     'gross_profit' => (float) ($currentRow['actual_gross_profit'] ?? 0),
                     'purchase' => (float) ($currentRow['actual_purchase'] ?? 0),
-                    'effort' => $currentActualEffort,
-                    'utilization_rate' => $this->calculateRate($currentActualEffort, $monthlyCapacity),
-                    'productivity' => $this->calculateProductivity((float) ($currentRow['actual_gross_profit'] ?? 0), $currentActualEffort),
+                    'purchase_material' => (float) ($currentRow['actual_purchase_material'] ?? 0),
+                    'purchase_labor' => (float) ($currentRow['actual_purchase_labor'] ?? 0),
                     'count' => (int) ($currentRow['actual_count'] ?? 0),
                 ],
                 'previous' => [
                     'sales' => (float) ($previousRow['actual_sales'] ?? 0),
                     'gross_profit' => (float) ($previousRow['actual_gross_profit'] ?? 0),
                     'purchase' => (float) ($previousRow['actual_purchase'] ?? 0),
-                    'effort' => $previousActualEffort,
-                    'utilization_rate' => $this->calculateRate($previousActualEffort, $monthlyCapacity),
-                    'productivity' => $this->calculateProductivity((float) ($previousRow['actual_gross_profit'] ?? 0), $previousActualEffort),
+                    'purchase_material' => (float) ($previousRow['actual_purchase_material'] ?? 0),
+                    'purchase_labor' => (float) ($previousRow['actual_purchase_labor'] ?? 0),
                     'count' => (int) ($previousRow['actual_count'] ?? 0),
                 ],
             ],
             'effort' => [
                 'source' => [
-                    'type' => $hasDailyEffort ? 'daily_reports' : 'estimate_fallback',
-                    'label' => $hasDailyEffort ? '日報API実績（プロジェクト紐付け）' : '日報未連携のため見積工数を代替使用',
-                    'match_rate' => (float) ($dailyReportSummary['match_rate'] ?? 0),
-                    'matched_person_days' => (float) ($dailyReportSummary['matched_person_days'] ?? 0),
-                    'unmatched_person_days' => (float) ($dailyReportSummary['unmatched_person_days'] ?? 0),
-                    'tracked_project_count' => (int) ($dailyReportSummary['tracked_project_count'] ?? 0),
+                    'type' => 'plan_only',
+                    'label' => '日報未連携のため計画工数（見積ベース）のみ表示',
                 ],
-                'top_projects' => $dailyReportSummary['top_projects'] ?? [],
                 'current' => [
                     'capacity' => $monthlyCapacity,
-                    'budget' => $currentBudgetEffort,
-                    'actual' => $currentActualEffort,
-                    'budget_remaining' => $monthlyCapacity - $currentBudgetEffort,
-                    'actual_remaining' => $monthlyCapacity - $currentActualEffort,
-                    'budget_fill_rate' => $this->calculateRate($currentBudgetEffort, $monthlyCapacity),
-                    'actual_fill_rate' => $this->calculateRate($currentActualEffort, $monthlyCapacity),
+                    'planned' => $currentBudgetEffort,
+                    'planned_remaining' => $monthlyCapacity - $currentBudgetEffort,
+                    'planned_fill_rate' => $this->calculateRate($currentBudgetEffort, $monthlyCapacity),
                 ],
                 'previous' => [
                     'capacity' => $monthlyCapacity,
-                    'budget' => $previousBudgetEffort,
-                    'actual' => $previousActualEffort,
-                    'budget_remaining' => $monthlyCapacity - $previousBudgetEffort,
-                    'actual_remaining' => $monthlyCapacity - $previousActualEffort,
-                    'budget_fill_rate' => $this->calculateRate($previousBudgetEffort, $monthlyCapacity),
-                    'actual_fill_rate' => $this->calculateRate($previousActualEffort, $monthlyCapacity),
+                    'planned' => $previousBudgetEffort,
+                    'planned_remaining' => $monthlyCapacity - $previousBudgetEffort,
+                    'planned_fill_rate' => $this->calculateRate($previousBudgetEffort, $monthlyCapacity),
                 ],
             ],
             'cash_flow' => [
@@ -623,23 +591,40 @@ class DashboardController extends Controller
         return Carbon::parse($collectionAt, $timezone);
     }
 
-    private function sumEstimateCost($items): float
+    private function sumEstimatePurchaseBreakdown($items, array $productLookup): array
     {
         if (!is_array($items)) {
-            return 0.0;
+            return ['material' => 0.0, 'labor' => 0.0, 'total' => 0.0];
         }
 
-        $cost = 0.0;
+        $material = 0.0;
+        $labor = 0.0;
+        $defaultLaborCostPerPersonDay = (float) config('app.labor_cost_per_person_day', 0.0);
+
         foreach ($items as $item) {
             $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
             if ($qty === 0.0) {
                 $qty = 1.0;
             }
             $unitCost = (float) (data_get($item, 'cost') ?? data_get($item, 'unit_cost', 0));
-            $cost += $unitCost * $qty;
+            $lineCost = $unitCost * $qty;
+
+            if ($this->isEffortItem($item, $productLookup)) {
+                if ($lineCost <= 0 && $defaultLaborCostPerPersonDay > 0) {
+                    $personDays = $this->toPersonDays($qty, (string) (data_get($item, 'unit') ?? ''));
+                    $lineCost = $personDays * $defaultLaborCostPerPersonDay;
+                }
+                $labor += $lineCost;
+            } else {
+                $material += $lineCost;
+            }
         }
 
-        return $cost;
+        return [
+            'material' => $material,
+            'labor' => $labor,
+            'total' => $material + $labor,
+        ];
     }
 
     private function sumEstimateEffort($items, array $productLookup): float
@@ -672,6 +657,11 @@ class DashboardController extends Controller
 
         $unit = mb_strtolower((string) (data_get($item, 'unit') ?? ''));
         return !($unit === '' || str_contains($unit, '人日') || str_contains($unit, '人月'));
+    }
+
+    private function isEffortItem($item, array $productLookup): bool
+    {
+        return !$this->shouldExcludeEffortItem($item, $productLookup);
     }
 
     private function resolveProductForItem($item, array $productLookup): ?array

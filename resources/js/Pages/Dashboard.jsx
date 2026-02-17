@@ -53,7 +53,6 @@ export default function Dashboard({
     const actualPrevious = dashboardMetrics?.actual?.previous ?? {};
     const effortCurrent = dashboardMetrics?.effort?.current ?? {};
     const effortSource = dashboardMetrics?.effort?.source ?? {};
-    const topProjects = Array.isArray(dashboardMetrics?.effort?.top_projects) ? dashboardMetrics.effort.top_projects : [];
     const cashCurrent = dashboardMetrics?.cash_flow?.current ?? {};
 
     const forecastMonths = Array.isArray(dashboardMetrics?.forecast?.months)
@@ -205,24 +204,23 @@ export default function Dashboard({
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     <Card className="border-slate-200">
                         <CardHeader className="pb-2">
-                            <CardTitle className="text-sm flex items-center"><Gauge className="h-4 w-4 mr-2" />工数稼働率（当月）</CardTitle>
+                            <CardTitle className="text-sm flex items-center"><Gauge className="h-4 w-4 mr-2" />計画工数（当月）</CardTitle>
+                            <CardDescription>{effortSource?.label ?? '計画工数（見積ベース）'}</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-2">
                             <div className="text-xs text-slate-500">キャパ {formatPersonDays(effortCurrent?.capacity ?? 0)}</div>
-                            <div className="text-sm">予算: {formatPercent(effortCurrent?.budget_fill_rate ?? 0)} ({formatPersonDays(effortCurrent?.budget ?? 0)})</div>
-                            <div className="text-sm">実績: {formatPercent(effortCurrent?.actual_fill_rate ?? 0)} ({formatPersonDays(effortCurrent?.actual ?? 0)})</div>
-                            <div className="text-xs text-slate-600">空き工数: 予算 {formatPersonDays(effortCurrent?.budget_remaining ?? 0)} / 実績 {formatPersonDays(effortCurrent?.actual_remaining ?? 0)}</div>
+                            <div className="text-sm">計画: {formatPercent(effortCurrent?.planned_fill_rate ?? 0)} ({formatPersonDays(effortCurrent?.planned ?? 0)})</div>
+                            <div className="text-xs text-slate-600">空き工数（計画）: {formatPersonDays(effortCurrent?.planned_remaining ?? 0)}</div>
                         </CardContent>
                     </Card>
 
                     <Card className="border-slate-200">
                         <CardHeader className="pb-2">
-                            <CardTitle className="text-sm flex items-center"><Activity className="h-4 w-4 mr-2" />生産性（粗利/工数）</CardTitle>
+                            <CardTitle className="text-sm flex items-center"><Activity className="h-4 w-4 mr-2" />計画生産性（粗利/計画工数）</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-2">
-                            <div className="text-sm">予算: {formatProductivity(budgetCurrent?.productivity ?? 0)}</div>
-                            <div className="text-sm">実績: {formatProductivity(actualCurrent?.productivity ?? 0)}</div>
-                            <div className="text-xs text-slate-600">工数: 予算 {formatPersonDays(budgetCurrent?.effort ?? 0)} / 実績 {formatPersonDays(actualCurrent?.effort ?? 0)}</div>
+                            <div className="text-sm">計画: {formatProductivity(budgetCurrent?.productivity ?? 0)}</div>
+                            <div className="text-xs text-slate-600">計画工数: {formatPersonDays(budgetCurrent?.effort ?? 0)}</div>
                         </CardContent>
                     </Card>
 
@@ -240,38 +238,25 @@ export default function Dashboard({
                 <div className="grid gap-4 md:grid-cols-2">
                     <Card className="border-slate-200">
                         <CardHeader className="pb-2">
-                            <CardTitle className="text-sm">日報実績工数（プロジェクト紐付け）</CardTitle>
-                            <CardDescription>{effortSource?.label ?? '日報データ'}</CardDescription>
+                            <CardTitle className="text-sm">仕入内訳（当月）</CardTitle>
+                            <CardDescription>物品仕入 + 工数原価</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-2">
-                            <div className="text-xs text-slate-600">
-                                紐付率: {formatPercent(effortSource?.match_rate ?? 0)} / 紐付工数: {formatPersonDays(effortSource?.matched_person_days ?? 0)} / 未紐付: {formatPersonDays(effortSource?.unmatched_person_days ?? 0)}
+                            <div className="flex items-center justify-between text-sm">
+                                <span>予算 物品仕入</span>
+                                <span className="font-semibold">{formatCurrency(budgetCurrent?.purchase_material ?? 0)}</span>
                             </div>
-                            <div className="text-xs text-slate-500">
-                                紐付対象プロジェクト数: {Number(effortSource?.tracked_project_count ?? 0)}
+                            <div className="flex items-center justify-between text-sm">
+                                <span>予算 工数原価</span>
+                                <span className="font-semibold">{formatCurrency(budgetCurrent?.purchase_labor ?? 0)}</span>
                             </div>
-                            <div className="rounded border border-slate-200">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>プロジェクト</TableHead>
-                                            <TableHead className="text-right">実績工数</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {topProjects.length === 0 && (
-                                            <TableRow>
-                                                <TableCell colSpan={2} className="text-slate-500">日報データがありません。</TableCell>
-                                            </TableRow>
-                                        )}
-                                        {topProjects.map((p) => (
-                                            <TableRow key={p.project_name}>
-                                                <TableCell>{p.project_name}</TableCell>
-                                                <TableCell className="text-right">{formatPersonDays(p.person_days)}</TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                            <div className="pt-2 border-t flex items-center justify-between text-sm">
+                                <span>予算 合計仕入</span>
+                                <span className="font-bold">{formatCurrency(budgetCurrent?.purchase ?? 0)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                                <span>実績 合計仕入</span>
+                                <span className="font-semibold">{formatCurrency(actualCurrent?.purchase ?? 0)}</span>
                             </div>
                         </CardContent>
                     </Card>
@@ -307,10 +292,10 @@ export default function Dashboard({
                 </div>
 
                 <Card>
-                    <CardHeader>
-                        <CardTitle>月次 予実一覧（納期ベース）</CardTitle>
-                        <CardDescription>売上・粗利・仕入・工数を同一月で比較</CardDescription>
-                    </CardHeader>
+                        <CardHeader>
+                            <CardTitle>月次 予実一覧（納期ベース）</CardTitle>
+                        <CardDescription>売上・粗利・仕入・計画工数を同一月で比較</CardDescription>
+                        </CardHeader>
                     <CardContent className="overflow-x-auto">
                         <Table>
                             <TableHeader>
@@ -322,14 +307,13 @@ export default function Dashboard({
                                     <TableHead className="text-right">粗利 実績</TableHead>
                                     <TableHead className="text-right">仕入 予算</TableHead>
                                     <TableHead className="text-right">仕入 実績</TableHead>
-                                    <TableHead className="text-right">工数 予算</TableHead>
-                                    <TableHead className="text-right">工数 実績</TableHead>
+                                    <TableHead className="text-right">計画工数</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {forecastMonths.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={9} className="text-slate-500">予実データがありません。</TableCell>
+                                        <TableCell colSpan={8} className="text-slate-500">予実データがありません。</TableCell>
                                     </TableRow>
                                 )}
                                 {forecastMonths.map((row) => (
@@ -351,10 +335,6 @@ export default function Dashboard({
                                             <div className={`text-[11px] ${varianceTone(row.purchase_variance)}`}>{formatCurrency(row.purchase_variance)}</div>
                                         </TableCell>
                                         <TableCell className="text-right">{formatPersonDays(row.budget_effort)}</TableCell>
-                                        <TableCell className="text-right">
-                                            {formatPersonDays(row.actual_effort)}
-                                            <div className={`text-[11px] ${varianceTone(row.effort_variance)}`}>{formatPersonDays(row.effort_variance)}</div>
-                                        </TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>

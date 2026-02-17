@@ -11,8 +11,8 @@
 - 粗利: `total_amount - items(cost * qty)`。
 - 仕入: `items(cost * qty)`。
 - 工数: `items.qty` を人日換算して集計（`人日`=そのまま、`人月`=20人日換算、`人時/時間`=8時間=1人日換算）。
-- 実績工数: 日報API（`GET /api/daily-reports`）の `actual_hours` / `hours` を人日換算して月次集計。トークン未設定時は見積工数で代替。
-- 厳密紐付け: `estimates.xero_project_id`（優先）/`xero_project_name` を使って日報の `project_id` / `project.name` を突合。紐付け対象外の日報は未紐付として分離。
+- 工数表示: 日報未連携前提のため、計画工数（見積ベース）のみ表示。
+- 仕入: 物品仕入 + 工数原価で算出（工数原価は明細原価を優先、未設定時は人日単価設定で補完）。
 - キャッシュフロー:
   - 支払予定（仕入）: 見積日（`issue_date`）月に計上（未設定時は期限日/納期で補完）。
   - 回収予定: 期限日（`due_date`）月に計上（未設定時は納期翌月）。
@@ -25,11 +25,11 @@
   - 粗利（予算・実績・差異）
   - 仕入（予算・実績・差異）
 - **工数KPI（当月）**:
-  - 工数稼働率（予算・実績）
-  - 空き工数（予算・実績）
-  - 生産性（粗利/人日）
+  - 計画工数稼働率
+  - 空き工数（計画）
+  - 計画生産性（粗利/人日）
   - 案件件数（予算・実績）
-- **日報実績工数テーブル**: プロジェクト紐付けの日報実績工数トップ5と紐付率。
+- **仕入内訳カード**: 物品仕入と工数原価の内訳を表示。
 - **月次予実テーブル**: 12か月（当月〜11か月先）の売上/粗利/仕入/工数を予算実績で比較。
 - **月次キャッシュフロー**: 支払予定・回収予定・回収実績・ネットCFを月次で表示。
 - **売上ランキング**: 当月の注文確定案件を得意先別に集計（納期ベース）したトップ5。
@@ -39,7 +39,8 @@
 ## API and Controller Notes
 - `DashboardController@buildDashboardMetrics`
   - 月次配列を生成し、予算/実績を同時集計。
-  - 工数集計のために `products` を参照し、`first_business` を除外。
+  - 工数集計のために `products` を参照し、`first_business` を除外（計画工数）。
+  - 仕入を「物品仕入」「工数原価」に分解集計。
   - 返却プロップ:
     - `basis`
     - `capacity`
@@ -56,7 +57,8 @@
 | `APP_MONTHLY_CAPACITY_PERSON_DAYS` | 当月の工数キャパ（人日） | `160` |
 | `APP_PERSON_DAYS_PER_PERSON_MONTH` | 人月→人日の換算係数 | `20` |
 | `APP_PERSON_HOURS_PER_PERSON_DAY` | 時間→人日の換算係数 | `8` |
-| `APP_VERSION` | 画面表示用バージョン（fallback） | `v1.0.3` |
+| `APP_LABOR_COST_PER_PERSON_DAY` | 工数原価（人日単価、明細原価未設定時の補完値） | `0` |
+| `APP_VERSION` | 画面表示用バージョン（fallback） | `v1.0.4` |
 | `XERO_PM_API_BASE` | 日報APIのベースURL | `https://api.xerographix.co.jp/api` |
 | `XERO_PM_API_TOKEN` | 日報APIのBearerトークン | empty |
 
