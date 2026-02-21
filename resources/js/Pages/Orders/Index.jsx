@@ -10,6 +10,12 @@ import { Search, RefreshCw, FileText, Calendar, TrendingUp, ClipboardCheck, X } 
 
 const formatCurrency = (value) => `¥${Number(value || 0).toLocaleString()}`;
 const formatPersonDays = (value) => `${Number(value || 0).toFixed(1)} 人日`;
+const formatPercent = (value) => `${Number(value || 0).toFixed(1)}%`;
+const formatMonth = (value) => {
+    if (!value || !/^\d{4}-\d{2}$/.test(value)) return '—';
+    const [year, month] = value.split('-');
+    return `${year}/${month}`;
+};
 const formatDate = (value) => {
     if (!value) return '—';
     const d = new Date(value);
@@ -25,7 +31,7 @@ const currentMonth = () => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 };
 
-export default function OrdersIndex({ auth, orders = [], summary = {}, filters = {} }) {
+export default function OrdersIndex({ auth, orders = [], summary = {}, cashflow = {}, filters = {} }) {
     const [form, setForm] = useState({
         keyword: filters.keyword ?? '',
         customer: filters.customer ?? '',
@@ -56,6 +62,18 @@ export default function OrdersIndex({ auth, orders = [], summary = {}, filters =
         if (form.delivery_to) chips.push({ key: 'delivery_to', label: `終了月: ${form.delivery_to}` });
         return chips;
     }, [form]);
+
+    const hardwareCashflow = useMemo(() => ({
+        summary: cashflow?.hardware?.summary ?? {},
+        rows: cashflow?.hardware?.rows ?? [],
+        assumption: cashflow?.hardware?.assumption ?? '',
+    }), [cashflow]);
+
+    const laborCashflow = useMemo(() => ({
+        summary: cashflow?.labor?.summary ?? {},
+        rows: cashflow?.labor?.rows ?? [],
+        assumption: cashflow?.labor?.assumption ?? '',
+    }), [cashflow]);
 
     const apply = () => {
         router.get(route('orders.index'), form, { preserveState: true, preserveScroll: true });
@@ -180,6 +198,99 @@ export default function OrdersIndex({ auth, orders = [], summary = {}, filters =
                                 ))}
                             </div>
                         )}
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>資金繰りダッシュボード（ハードウェア / 変動仕入）</CardTitle>
+                        <CardDescription>{hardwareCashflow.assumption}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">仕入支出 合計</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.outflow_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">回収入金 合計</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.inflow_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">ネット資金差</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.net_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">納期月売上</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.revenue_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">納期月粗利</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.gross_total)}</div></CardContent></Card>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>月</TableHead>
+                                        <TableHead className="text-right">仕入支出</TableHead>
+                                        <TableHead className="text-right">回収入金</TableHead>
+                                        <TableHead className="text-right">ネット</TableHead>
+                                        <TableHead className="text-right">納期月売上</TableHead>
+                                        <TableHead className="text-right">納期月粗利</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {hardwareCashflow.rows.length === 0 && (
+                                        <TableRow><TableCell colSpan={6}>データがありません。</TableCell></TableRow>
+                                    )}
+                                    {hardwareCashflow.rows.map((row) => (
+                                        <TableRow key={`hardware-${row.month}`}>
+                                            <TableCell>{formatMonth(row.month)}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(row.outflow)}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(row.inflow)}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(row.net)}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(row.revenue)}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(row.gross)}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card>
+                    <CardHeader>
+                        <CardTitle>資金繰りダッシュボード（人件費 / 固定費）</CardTitle>
+                        <CardDescription>{laborCashflow.assumption}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">固定人件費（月額）</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(laborCashflow.summary.fixed_cost_per_month)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">固定人件費（期間合計）</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(laborCashflow.summary.fixed_cost_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">回収入金 合計</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(laborCashflow.summary.inflow_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">ネット資金差</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(laborCashflow.summary.net_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">計画工数 合計</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatPersonDays(laborCashflow.summary.planned_effort_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">月間キャパ</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatPersonDays(laborCashflow.summary.capacity_per_month)}</div></CardContent></Card>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>月</TableHead>
+                                        <TableHead className="text-right">計画工数</TableHead>
+                                        <TableHead className="text-right">稼働率</TableHead>
+                                        <TableHead className="text-right">納期月売上</TableHead>
+                                        <TableHead className="text-right">回収入金</TableHead>
+                                        <TableHead className="text-right">固定人件費</TableHead>
+                                        <TableHead className="text-right">ネット</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {laborCashflow.rows.length === 0 && (
+                                        <TableRow><TableCell colSpan={7}>データがありません。</TableCell></TableRow>
+                                    )}
+                                    {laborCashflow.rows.map((row) => (
+                                        <TableRow key={`labor-${row.month}`}>
+                                            <TableCell>{formatMonth(row.month)}</TableCell>
+                                            <TableCell className="text-right">{formatPersonDays(row.planned_effort)}</TableCell>
+                                            <TableCell className="text-right">{formatPercent(row.utilization_rate)}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(row.revenue)}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(row.inflow)}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(row.fixed_cost)}</TableCell>
+                                            <TableCell className="text-right">{formatCurrency(row.net)}</TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
                     </CardContent>
                 </Card>
 

@@ -354,6 +354,9 @@ class EstimateController extends Controller
         $timezone = config('app.sales_timezone', config('app.timezone', 'Asia/Tokyo'));
         $now = Carbon::now($timezone);
         $defaultMonth = $now->format('Y-m');
+        $monthlyCapacityPersonDays = (float) config('app.monthly_capacity_person_days', 160);
+        $laborCostPerPersonDay = (float) config('app.labor_cost_per_person_day', 0);
+        $fixedLaborCostPerMonth = $monthlyCapacityPersonDays * $laborCostPerPersonDay;
 
         $parseMonth = static function (?string $month, string $tz, bool $endOfMonth = false): ?Carbon {
             if (!is_string($month) || trim($month) === '') {
@@ -376,6 +379,15 @@ class EstimateController extends Controller
             } catch (\Throwable $e) {
                 return null;
             }
+        };
+
+        $isLaborUnit = static function (string $unit): bool {
+            return str_contains($unit, '人日')
+                || str_contains($unit, '人月')
+                || str_contains($unit, '人時')
+                || str_contains($unit, '時間')
+                || $unit === 'h'
+                || $unit === 'hr';
         };
 
         $keyword = trim((string) $request->query('keyword', ''));
@@ -440,39 +452,65 @@ class EstimateController extends Controller
                 'updated_at',
             ]);
 
-        $orders = $estimates->map(function (Estimate $estimate) use ($timezone, $formatDate) {
+        $orders = $estimates->map(function (Estimate $estimate) use ($timezone, $formatDate, $isLaborUnit) {
             $recognizedAt = $estimate->delivery_date
                 ?? $estimate->due_date
                 ?? $estimate->issue_date;
             $recognizedDate = $formatDate($recognizedAt, $timezone);
 
-            $cost = collect($estimate->items ?? [])->sum(function ($item) {
+            $breakdown = collect($estimate->items ?? [])->reduce(function ($carry, $item) {
                 $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
                 if ($qty === 0.0) {
                     $qty = 1.0;
                 }
-                $unitCost = (float) (data_get($item, 'cost') ?? data_get($item, 'unit_cost', 0));
-                return $qty * $unitCost;
-            });
 
-            $effort = collect($estimate->items ?? [])->sum(function ($item) {
                 $unit = mb_strtolower((string) (data_get($item, 'unit') ?? ''));
-                if (!(str_contains($unit, '人日') || str_contains($unit, '人月') || str_contains($unit, '人時') || str_contains($unit, '時間') || $unit === 'h' || $unit === 'hr')) {
-                    return 0.0;
+                $lineSales = data_get($item, 'total_price');
+                if (!is_numeric($lineSales)) {
+                    $lineSales = data_get($item, 'amount');
                 }
-                $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 0));
-                if ($qty <= 0) {
-                    return 0.0;
+                if (!is_numeric($lineSales)) {
+                    $lineSales = $qty * (float) (data_get($item, 'price') ?? data_get($item, 'unit_price', 0));
                 }
-                if (str_contains($unit, '人月')) {
-                    return $qty * (float) config('app.person_days_per_person_month', 20);
+                $lineSales = (float) $lineSales;
+
+                $lineCost = $qty * (float) (data_get($item, 'cost') ?? data_get($item, 'unit_cost', 0));
+                $isLabor = $carry['isLaborUnit']($unit);
+
+                if ($isLabor) {
+                    $carry['labor_sales'] += $lineSales;
+                    $carry['labor_cost'] += $lineCost;
+                    $effortQty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 0));
+                    if ($effortQty > 0) {
+                        if (str_contains($unit, '人月')) {
+                            $carry['labor_effort'] += $effortQty * $carry['personDaysPerPersonMonth'];
+                        } elseif (str_contains($unit, '人時') || str_contains($unit, '時間') || $unit === 'h' || $unit === 'hr') {
+                            $carry['labor_effort'] += $carry['personHoursPerPersonDay'] > 0
+                                ? ($effortQty / $carry['personHoursPerPersonDay'])
+                                : 0.0;
+                        } else {
+                            $carry['labor_effort'] += $effortQty;
+                        }
+                    }
+                } else {
+                    $carry['hardware_sales'] += $lineSales;
+                    $carry['hardware_cost'] += $lineCost;
                 }
-                if (str_contains($unit, '人時') || str_contains($unit, '時間') || $unit === 'h' || $unit === 'hr') {
-                    $hoursPerDay = (float) config('app.person_hours_per_person_day', 8);
-                    return $hoursPerDay > 0 ? ($qty / $hoursPerDay) : 0.0;
-                }
-                return $qty;
-            });
+
+                return $carry;
+            }, [
+                'labor_sales' => 0.0,
+                'labor_cost' => 0.0,
+                'labor_effort' => 0.0,
+                'hardware_sales' => 0.0,
+                'hardware_cost' => 0.0,
+                'personDaysPerPersonMonth' => (float) config('app.person_days_per_person_month', 20),
+                'personHoursPerPersonDay' => (float) config('app.person_hours_per_person_day', 8),
+                'isLaborUnit' => $isLaborUnit,
+            ]);
+
+            $cost = (float) $breakdown['labor_cost'] + (float) $breakdown['hardware_cost'];
+            $effort = (float) $breakdown['labor_effort'];
 
             return [
                 'id' => $estimate->id,
@@ -485,12 +523,123 @@ class EstimateController extends Controller
                 'due_date' => $formatDate($estimate->due_date, $timezone),
                 'delivery_date' => $formatDate($estimate->delivery_date, $timezone),
                 'total_amount' => (float) ($estimate->total_amount ?? 0),
-                'cost_amount' => (float) $cost,
+                'cost_amount' => $cost,
                 'gross_amount' => (float) (($estimate->total_amount ?? 0) - $cost),
-                'effort_person_days' => (float) $effort,
+                'effort_person_days' => $effort,
+                'labor_sales_amount' => (float) $breakdown['labor_sales'],
+                'labor_cost_amount' => (float) $breakdown['labor_cost'],
+                'hardware_sales_amount' => (float) $breakdown['hardware_sales'],
+                'hardware_cost_amount' => (float) $breakdown['hardware_cost'],
                 'updated_at' => optional($estimate->updated_at)->toIso8601String(),
             ];
         })->values();
+
+        $filterRangeStart = $parseMonth($fromMonth, $timezone, false) ?? $now->copy()->startOfMonth();
+        $filterRangeEnd = $parseMonth($toMonth, $timezone, true) ?? $now->copy()->endOfMonth();
+        if ($filterRangeStart->gt($filterRangeEnd)) {
+            [$filterRangeStart, $filterRangeEnd] = [$filterRangeEnd->copy()->startOfMonth(), $filterRangeStart->copy()->endOfMonth()];
+        }
+
+        $dashboardStart = $filterRangeStart->copy()->startOfMonth();
+        $dashboardEnd = $filterRangeEnd->copy()->startOfMonth()->addMonth();
+        $dashboardMonths = [];
+        $cursor = $dashboardStart->copy();
+        while ($cursor->lte($dashboardEnd)) {
+            $monthKey = $cursor->format('Y-m');
+            $dashboardMonths[$monthKey] = [
+                'month' => $monthKey,
+                'hardware_outflow' => 0.0,
+                'hardware_inflow' => 0.0,
+                'hardware_revenue' => 0.0,
+                'hardware_gross' => 0.0,
+                'labor_inflow' => 0.0,
+                'labor_revenue' => 0.0,
+                'labor_effort' => 0.0,
+            ];
+            $cursor->addMonth();
+        }
+
+        foreach ($orders as $order) {
+            if (empty($order['recognized_date'])) {
+                continue;
+            }
+
+            $recognizedMonth = Carbon::parse($order['recognized_date'], $timezone)->startOfMonth()->format('Y-m');
+            $procurementBase = $order['issue_date'] ?: $order['recognized_date'];
+            $procurementMonth = Carbon::parse($procurementBase, $timezone)->startOfMonth()->format('Y-m');
+            $collectionMonth = Carbon::parse($order['recognized_date'], $timezone)->startOfMonth()->addMonth()->format('Y-m');
+
+            if (isset($dashboardMonths[$recognizedMonth])) {
+                $dashboardMonths[$recognizedMonth]['hardware_revenue'] += (float) ($order['hardware_sales_amount'] ?? 0);
+                $dashboardMonths[$recognizedMonth]['hardware_gross'] += (float) (($order['hardware_sales_amount'] ?? 0) - ($order['hardware_cost_amount'] ?? 0));
+                $dashboardMonths[$recognizedMonth]['labor_revenue'] += (float) ($order['labor_sales_amount'] ?? 0);
+                $dashboardMonths[$recognizedMonth]['labor_effort'] += (float) ($order['effort_person_days'] ?? 0);
+            }
+
+            if (isset($dashboardMonths[$procurementMonth])) {
+                $dashboardMonths[$procurementMonth]['hardware_outflow'] += (float) ($order['hardware_cost_amount'] ?? 0);
+            }
+
+            if (isset($dashboardMonths[$collectionMonth])) {
+                $dashboardMonths[$collectionMonth]['hardware_inflow'] += (float) ($order['hardware_sales_amount'] ?? 0);
+                $dashboardMonths[$collectionMonth]['labor_inflow'] += (float) ($order['labor_sales_amount'] ?? 0);
+            }
+        }
+
+        $cashflowRows = collect($dashboardMonths)->values()->map(function ($row) use ($fixedLaborCostPerMonth, $monthlyCapacityPersonDays) {
+            $row['labor_fixed_cost'] = $fixedLaborCostPerMonth;
+            $row['hardware_net'] = (float) $row['hardware_inflow'] - (float) $row['hardware_outflow'];
+            $row['labor_net'] = (float) $row['labor_inflow'] - (float) $fixedLaborCostPerMonth;
+            $row['labor_utilization_rate'] = $monthlyCapacityPersonDays > 0
+                ? ((float) $row['labor_effort'] / $monthlyCapacityPersonDays) * 100
+                : 0.0;
+
+            return $row;
+        });
+
+        $hardwareCashflow = [
+            'summary' => [
+                'outflow_total' => (float) $cashflowRows->sum('hardware_outflow'),
+                'inflow_total' => (float) $cashflowRows->sum('hardware_inflow'),
+                'net_total' => (float) $cashflowRows->sum('hardware_net'),
+                'revenue_total' => (float) $cashflowRows->sum('hardware_revenue'),
+                'gross_total' => (float) $cashflowRows->sum('hardware_gross'),
+            ],
+            'rows' => $cashflowRows->map(function ($row) {
+                return [
+                    'month' => $row['month'],
+                    'outflow' => (float) $row['hardware_outflow'],
+                    'inflow' => (float) $row['hardware_inflow'],
+                    'net' => (float) $row['hardware_net'],
+                    'revenue' => (float) $row['hardware_revenue'],
+                    'gross' => (float) $row['hardware_gross'],
+                ];
+            })->values(),
+            'assumption' => '変動仕入（ハード）は受注月に支出、売上回収は納期月の翌月入金として試算',
+        ];
+
+        $laborCashflow = [
+            'summary' => [
+                'fixed_cost_per_month' => (float) $fixedLaborCostPerMonth,
+                'fixed_cost_total' => (float) ($fixedLaborCostPerMonth * $cashflowRows->count()),
+                'inflow_total' => (float) $cashflowRows->sum('labor_inflow'),
+                'net_total' => (float) $cashflowRows->sum('labor_net'),
+                'planned_effort_total' => (float) $cashflowRows->sum('labor_effort'),
+                'capacity_per_month' => (float) $monthlyCapacityPersonDays,
+            ],
+            'rows' => $cashflowRows->map(function ($row) use ($fixedLaborCostPerMonth) {
+                return [
+                    'month' => $row['month'],
+                    'planned_effort' => (float) $row['labor_effort'],
+                    'utilization_rate' => (float) $row['labor_utilization_rate'],
+                    'revenue' => (float) $row['labor_revenue'],
+                    'inflow' => (float) $row['labor_inflow'],
+                    'fixed_cost' => (float) $fixedLaborCostPerMonth,
+                    'net' => (float) $row['labor_net'],
+                ];
+            })->values(),
+            'assumption' => '人件費は固定費（月額）として計上し、受注売上の回収は納期翌月入金として試算',
+        ];
 
         $recognizedStart = $now->copy()->startOfMonth()->toDateString();
         $recognizedEnd = $now->copy()->endOfMonth()->toDateString();
@@ -510,6 +659,10 @@ class EstimateController extends Controller
                 'total_effort' => (float) $orders->sum('effort_person_days'),
                 'current_month_count' => $currentMonthOrders->count(),
                 'current_month_total' => (float) $currentMonthOrders->sum('total_amount'),
+            ],
+            'cashflow' => [
+                'hardware' => $hardwareCashflow,
+                'labor' => $laborCashflow,
             ],
             'filters' => [
                 'keyword' => $keyword,
