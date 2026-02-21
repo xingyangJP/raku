@@ -6,6 +6,7 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 ## Documentation
 - ドキュメント索引: `docs/INDEX.md`
 - 進捗ログ: `docs/PROGRESS.md`
+- 旧機能別README群: `docs/reference/`
 
 ## Tech Stack
 - PHP 8.2 / Laravel 12

@@ -1,11 +1,12 @@
 # ドキュメント索引
 
-このリポジトリの Markdown ドキュメントは、`README*` を除き `docs/` に集約しています。
+このリポジトリの Markdown ドキュメントは、`README.md` を除き `docs/` に集約しています。
 
 ## 正本（運用で参照）
 - `docs/PROGRESS.md`: 変更進捗ログ（最新）
 - `docs/DASHBOARD_UI_SETTING.md`: ダッシュボードUI設定
 - `docs/MAINTENANCE_FEE.md`: 保守売上管理の運用メモ
+- `docs/reference/`: 旧 `README_*` ドキュメント群
 
 ## 仕様/設計メモ
 - `docs/RDD.md`: UX要件定義（参考）
@@ -20,5 +21,5 @@
 - `docs/TEST_LOG.md`: テストスニペット
 
 ## 補足
-- `README*` は機能別ガイドとしてルートに残しています。
-- `test-results/**.md` はテスト生成物のため、ドキュメント管理対象外です。
+- ルートに残す Markdown は `README.md` のみです。
+- 旧 `README_*` は `docs/reference/` へ移設済みです。

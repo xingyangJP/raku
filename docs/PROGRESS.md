@@ -201,6 +201,15 @@
 - `docs/INDEX.md` を新設し、用途別に文書を整理。
 - 参照更新:
   - `README.md` にドキュメント索引リンクを追加。
-  - `README_Debug.md` の進捗記録先を `docs/PROGRESS.md` に変更。
+  - `docs/reference/README_Debug.md` の進捗記録先を `docs/PROGRESS.md` に変更。
   - `RequirementChatController` のプロンプト内参照を `docs/AI_ESTIMATE.md` へ更新。
   - `docs/LP.md` / `docs/PROGRESS*.md` の旧パス参照を更新。
+
+### Step 23: ドキュメント配置ポリシー修正（README.mdのみルート残置）
+- ルールを `README.md` のみルート残置に再設定。
+- `README_*` を含む残存Markdownをすべて `docs/` 配下へ移動:
+  - `README_*.md` → `docs/reference/README_*.md`
+  - `database/seeders/README_SEERDER.md` → `docs/reference/README_SEERDER.md`
+  - `test-results/pdf-display-PDF-display-test/error-context.md` → `docs/test-results/pdf-display-PDF-display-test/error-context.md`
+- `docs/INDEX.md` の記載を新ポリシーに合わせて更新。
+- `README.md` のドキュメント導線を `docs/reference/` へ更新。
