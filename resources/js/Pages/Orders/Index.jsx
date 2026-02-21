@@ -208,9 +208,9 @@ export default function OrdersIndex({ auth, orders = [], summary = {}, cashflow 
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">仕入支出 合計</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.outflow_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">注文月支出 合計</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.outflow_total)}</div></CardContent></Card>
                             <Card><CardHeader className="pb-2"><CardTitle className="text-xs">回収入金 合計</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.inflow_total)}</div></CardContent></Card>
-                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">ネット資金差</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.net_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">資金収支（入金-支出）</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.net_total)}</div></CardContent></Card>
                             <Card><CardHeader className="pb-2"><CardTitle className="text-xs">納期月売上</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.revenue_total)}</div></CardContent></Card>
                             <Card><CardHeader className="pb-2"><CardTitle className="text-xs">納期月粗利</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(hardwareCashflow.summary.gross_total)}</div></CardContent></Card>
                         </div>
@@ -219,9 +219,9 @@ export default function OrdersIndex({ auth, orders = [], summary = {}, cashflow 
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>月</TableHead>
-                                        <TableHead className="text-right">仕入支出</TableHead>
+                                        <TableHead className="text-right">注文月支出</TableHead>
                                         <TableHead className="text-right">回収入金</TableHead>
-                                        <TableHead className="text-right">ネット</TableHead>
+                                        <TableHead className="text-right">資金収支（入金-支出）</TableHead>
                                         <TableHead className="text-right">納期月売上</TableHead>
                                         <TableHead className="text-right">納期月粗利</TableHead>
                                     </TableRow>
@@ -256,7 +256,7 @@ export default function OrdersIndex({ auth, orders = [], summary = {}, cashflow 
                             <Card><CardHeader className="pb-2"><CardTitle className="text-xs">固定人件費（月額）</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(laborCashflow.summary.fixed_cost_per_month)}</div></CardContent></Card>
                             <Card><CardHeader className="pb-2"><CardTitle className="text-xs">固定人件費（期間合計）</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(laborCashflow.summary.fixed_cost_total)}</div></CardContent></Card>
                             <Card><CardHeader className="pb-2"><CardTitle className="text-xs">回収入金 合計</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(laborCashflow.summary.inflow_total)}</div></CardContent></Card>
-                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">ネット資金差</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(laborCashflow.summary.net_total)}</div></CardContent></Card>
+                            <Card><CardHeader className="pb-2"><CardTitle className="text-xs">資金収支（回収-固定費）</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatCurrency(laborCashflow.summary.net_total)}</div></CardContent></Card>
                             <Card><CardHeader className="pb-2"><CardTitle className="text-xs">計画工数 合計</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatPersonDays(laborCashflow.summary.planned_effort_total)}</div></CardContent></Card>
                             <Card><CardHeader className="pb-2"><CardTitle className="text-xs">月間キャパ</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatPersonDays(laborCashflow.summary.capacity_per_month)}</div></CardContent></Card>
                         </div>
@@ -270,7 +270,7 @@ export default function OrdersIndex({ auth, orders = [], summary = {}, cashflow 
                                         <TableHead className="text-right">納期月売上</TableHead>
                                         <TableHead className="text-right">回収入金</TableHead>
                                         <TableHead className="text-right">固定人件費</TableHead>
-                                        <TableHead className="text-right">ネット</TableHead>
+                                        <TableHead className="text-right">資金収支（回収-固定費）</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>

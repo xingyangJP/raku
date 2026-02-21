@@ -354,8 +354,8 @@ class EstimateController extends Controller
         $timezone = config('app.sales_timezone', config('app.timezone', 'Asia/Tokyo'));
         $now = Carbon::now($timezone);
         $defaultMonth = $now->format('Y-m');
-        $monthlyCapacityPersonDays = (float) config('app.monthly_capacity_person_days', 160);
-        $laborCostPerPersonDay = (float) config('app.labor_cost_per_person_day', 0);
+        $monthlyCapacityPersonDays = (float) config('app.monthly_capacity_person_days', 80);
+        $laborCostPerPersonDay = (float) config('app.labor_cost_per_person_day', 22000);
         $fixedLaborCostPerMonth = $monthlyCapacityPersonDays * $laborCostPerPersonDay;
 
         $parseMonth = static function (?string $month, string $tz, bool $endOfMonth = false): ?Carbon {
@@ -615,7 +615,7 @@ class EstimateController extends Controller
                     'gross' => (float) $row['hardware_gross'],
                 ];
             })->values(),
-            'assumption' => '変動仕入（ハード）は受注月に支出、売上回収は納期月の翌月入金として試算',
+            'assumption' => '変動仕入（ハード）は注文日（月次はissue_date基準）に支出、売上回収は納期月の翌月入金として試算',
         ];
 
         $laborCashflow = [
@@ -638,7 +638,7 @@ class EstimateController extends Controller
                     'net' => (float) $row['labor_net'],
                 ];
             })->values(),
-            'assumption' => '人件費は固定費（月額）として計上し、受注売上の回収は納期翌月入金として試算',
+            'assumption' => '人件費は固定費（月額）として計上し、売上回収は納期翌月入金として試算',
         ];
 
         $recognizedStart = $now->copy()->startOfMonth()->toDateString();
