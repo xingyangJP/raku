@@ -304,3 +304,10 @@
   - 受注確定時の `xero_project_id` 必須チェックを削除。
   - 未使用の `/api/projects` と `ApiController@getProjects` を削除。
 - バージョン表記 fallback を `v1.0.6` に更新。
+- `MAINTENANCE_FEE.md` に運用説明を追記。
+  - 変動前提での再同期→差分確認→手動修正手順。
+  - キーワード `変更前` `変更後` `変更忘れの場合は` `編集モードで` を明記。
+- サイドメニューから「請求・売掛管理」を非表示化。
+  - `resources/js/Layouts/AuthenticatedLayout.jsx` のメニュー配列から対象を削除。
+  - `/billing` ルートは残し、必要時の直接アクセスは維持。
+- バージョン表記 fallback を `v1.0.7` に更新。

@@ -76,6 +76,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/callback', [App\Http\Controllers\BillingController::class, 'fetchInvoices'])->name('money-forward.callback');
 
     Route::get('/quotes', [App\Http\Controllers\EstimateController::class, 'index'])->name('quotes.index');
+    Route::get('/orders', [App\Http\Controllers\EstimateController::class, 'ordersIndex'])->name('orders.index');
     Route::post('/quotes/sync', [App\Http\Controllers\EstimateController::class, 'syncQuotes'])->name('quotes.sync');
     Route::get('/quotes/mf/auth/start', [App\Http\Controllers\EstimateController::class, 'redirectToAuthForQuoteSync'])->name('quotes.auth.start');
     Route::get('/quotes/mf/auth/callback', [App\Http\Controllers\EstimateController::class, 'handleQuoteSyncCallback'])->name('quotes.auth.callback');
