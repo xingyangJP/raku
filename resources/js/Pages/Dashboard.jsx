@@ -53,6 +53,7 @@ export default function Dashboard({
     const actualPrevious = dashboardMetrics?.actual?.previous ?? {};
     const effortCurrent = dashboardMetrics?.effort?.current ?? {};
     const effortSource = dashboardMetrics?.effort?.source ?? {};
+    const effortSummary = dashboardMetrics?.effort?.summary ?? {};
     const cashCurrent = dashboardMetrics?.cash_flow?.current ?? {};
 
     const forecastMonths = Array.isArray(dashboardMetrics?.forecast?.months)
@@ -159,7 +160,8 @@ export default function Dashboard({
                         </div>
                     </CardHeader>
                     <CardContent className="pt-0 text-xs text-slate-500">
-                        {basis.recognition_fallback ?? ''}
+                        <div>{basis.recognition_fallback ?? ''}</div>
+                        <div className="mt-1">{basis.effort_rule ?? ''}</div>
                     </CardContent>
                 </Card>
 
@@ -211,6 +213,7 @@ export default function Dashboard({
                             <div className="text-xs text-slate-500">キャパ {formatPersonDays(effortCurrent?.capacity ?? 0)}</div>
                             <div className="text-sm">計画: {formatPercent(effortCurrent?.planned_fill_rate ?? 0)} ({formatPersonDays(effortCurrent?.planned ?? 0)})</div>
                             <div className="text-xs text-slate-600">空き工数（計画）: {formatPersonDays(effortCurrent?.planned_remaining ?? 0)}</div>
+                            <div className="text-xs text-amber-700">未配賦（納期未設定）: {formatPersonDays(effortSummary?.unscheduled_total ?? 0)}</div>
                         </CardContent>
                     </Card>
 
@@ -294,7 +297,7 @@ export default function Dashboard({
                 <Card>
                         <CardHeader>
                             <CardTitle>月次 予実一覧（納期ベース）</CardTitle>
-                        <CardDescription>売上・粗利・仕入・計画工数を同一月で比較</CardDescription>
+                        <CardDescription>売上・粗利・仕入は納期ベース。計画工数は納期設定された見積のみを月配賦</CardDescription>
                         </CardHeader>
                     <CardContent className="overflow-x-auto">
                         <Table>

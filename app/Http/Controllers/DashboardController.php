@@ -273,8 +273,10 @@ class DashboardController extends Controller
             ->map(fn (int $offset) => $currentStart->copy()->addMonthsNoOverflow($offset)->startOfMonth()->toDateString())
             ->values()
             ->all();
-        $monthlyCapacity = (float) config('app.monthly_capacity_person_days', 160);
+        $monthlyCapacity = (float) config('app.monthly_capacity_person_days', 80);
         $productLookup = $this->buildProductLookup();
+        $effortAssignedTotal = 0.0;
+        $effortUnscheduledTotal = 0.0;
         $monthly = collect($monthKeys)->mapWithKeys(function (string $monthKey) use ($timezone) {
             $month = Carbon::parse($monthKey, $timezone);
             return [
@@ -347,7 +349,18 @@ class DashboardController extends Controller
             $row['budget_purchase_material'] += $materialPurchase;
             $row['budget_purchase_labor'] += $laborPurchase;
             $row['budget_gross_profit'] += $grossProfit;
-            $row['budget_effort'] += $effort;
+            $deliveryAt = $estimate->delivery_date ? Carbon::parse($estimate->delivery_date, $timezone) : null;
+            if ($deliveryAt) {
+                $deliveryMonthKey = $deliveryAt->copy()->startOfMonth()->toDateString();
+                if ($monthly->has($deliveryMonthKey)) {
+                    $deliveryRow = $monthly->get($deliveryMonthKey);
+                    $deliveryRow['budget_effort'] += $effort;
+                    $monthly->put($deliveryMonthKey, $deliveryRow);
+                }
+                $effortAssignedTotal += $effort;
+            } else {
+                $effortUnscheduledTotal += $effort;
+            }
             $row['budget_count'] += 1;
 
             if ((bool) $estimate->is_order_confirmed === true) {
@@ -450,6 +463,7 @@ class DashboardController extends Controller
                 'recognition' => '納期ベース',
                 'recognition_fallback' => '納期未設定時は見積期限日、さらに未設定時は見積日を使用',
                 'effort' => '計画工数（見積ベース）',
+                'effort_rule' => '納期あり見積のみ月次計画工数に配賦（納期未設定は未配賦として別管理）',
             ],
             'capacity' => [
                 'monthly_person_days' => $monthlyCapacity,
@@ -511,7 +525,7 @@ class DashboardController extends Controller
             'effort' => [
                 'source' => [
                     'type' => 'plan_only',
-                    'label' => '日報未連携のため計画工数（見積ベース）のみ表示',
+                    'label' => '計画工数は納期が設定された見積のみを月次集計',
                 ],
                 'current' => [
                     'capacity' => $monthlyCapacity,
@@ -524,6 +538,10 @@ class DashboardController extends Controller
                     'planned' => $previousBudgetEffort,
                     'planned_remaining' => $monthlyCapacity - $previousBudgetEffort,
                     'planned_fill_rate' => $this->calculateRate($previousBudgetEffort, $monthlyCapacity),
+                ],
+                'summary' => [
+                    'assigned_total' => $effortAssignedTotal,
+                    'unscheduled_total' => $effortUnscheduledTotal,
                 ],
             ],
             'cash_flow' => [
