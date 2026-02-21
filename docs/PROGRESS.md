@@ -125,3 +125,22 @@
 - `AuthenticatedLayout` のサイドメニュー定義から「請求・売掛管理」を削除。
 - ルート自体（`/billing`）は残し、直接URLアクセスは維持。
 - バージョンを `v1.0.7` に更新。
+
+### Step 18: 注文書一覧画面の新規追加（検索UX強化）
+- 新規画面 `Orders/Index` を追加し、受注確定済み見積を注文書一覧として表示。
+- 新規ルートを追加:
+  - `GET /orders` (`orders.index`)
+- サイドメニューに「注文書一覧」を追加。
+- 検索UXを強化:
+  - キーワード（見積番号/件名/顧客）・顧客・担当・納期月範囲・ソート
+  - Enterキー検索
+  - クイック絞り込み（今月/直近3ヶ月）
+  - アクティブフィルタチップ（ワンクリック解除）
+- 集計カードを追加:
+  - 受注件数、受注総額、粗利総額、平均受注単価、当月納期件数/金額、計画工数（人日）
+- 注文書データは `EstimateController@ordersIndex` で納期ベース（`delivery_date` 優先、未設定時 `due_date`/`issue_date`）で集計。
+- バージョンを `v1.0.8` に更新。
+- 動作確認:
+  - `php -l app/Http/Controllers/EstimateController.php`
+  - `php -l routes/web.php`
+  - `npm run build`

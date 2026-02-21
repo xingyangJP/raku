@@ -349,6 +349,180 @@ class EstimateController extends Controller
         return redirect()->route('quotes.index')->with('success', 'Money Forwardの見積書を同期しました。');
     }
 
+    public function ordersIndex(Request $request)
+    {
+        $timezone = config('app.sales_timezone', config('app.timezone', 'Asia/Tokyo'));
+        $now = Carbon::now($timezone);
+        $defaultMonth = $now->format('Y-m');
+
+        $parseMonth = static function (?string $month, string $tz, bool $endOfMonth = false): ?Carbon {
+            if (!is_string($month) || trim($month) === '') {
+                return null;
+            }
+            try {
+                $date = Carbon::createFromFormat('Y-m', trim($month), $tz);
+                return $endOfMonth ? $date->endOfMonth() : $date->startOfMonth();
+            } catch (\Throwable $e) {
+                return null;
+            }
+        };
+
+        $formatDate = static function ($value, string $tz): ?string {
+            if (empty($value)) {
+                return null;
+            }
+            try {
+                return Carbon::parse($value, $tz)->toDateString();
+            } catch (\Throwable $e) {
+                return null;
+            }
+        };
+
+        $keyword = trim((string) $request->query('keyword', ''));
+        $customer = trim((string) $request->query('customer', ''));
+        $staff = trim((string) $request->query('staff', ''));
+        $fromMonth = trim((string) $request->query('delivery_from', $defaultMonth));
+        $toMonth = trim((string) $request->query('delivery_to', $defaultMonth));
+        $sort = trim((string) $request->query('sort', 'delivery_desc'));
+
+        $query = Estimate::query()
+            ->whereNull('mf_deleted_at')
+            ->where('is_order_confirmed', true);
+
+        if ($keyword !== '') {
+            $query->where(function ($q) use ($keyword) {
+                $q->where('estimate_number', 'like', '%' . $keyword . '%')
+                    ->orWhere('title', 'like', '%' . $keyword . '%')
+                    ->orWhere('customer_name', 'like', '%' . $keyword . '%');
+            });
+        }
+
+        if ($customer !== '') {
+            $query->where('customer_name', 'like', '%' . $customer . '%');
+        }
+
+        if ($staff !== '') {
+            $query->where('staff_name', 'like', '%' . $staff . '%');
+        }
+
+        if ($from = $parseMonth($fromMonth, $timezone, false)) {
+            $query->whereDate(DB::raw('COALESCE(delivery_date, due_date, issue_date)'), '>=', $from->toDateString());
+        }
+
+        if ($to = $parseMonth($toMonth, $timezone, true)) {
+            $query->whereDate(DB::raw('COALESCE(delivery_date, due_date, issue_date)'), '<=', $to->toDateString());
+        }
+
+        $orderByMap = [
+            'delivery_desc' => ['column' => DB::raw('COALESCE(delivery_date, due_date, issue_date)'), 'dir' => 'desc'],
+            'delivery_asc' => ['column' => DB::raw('COALESCE(delivery_date, due_date, issue_date)'), 'dir' => 'asc'],
+            'amount_desc' => ['column' => 'total_amount', 'dir' => 'desc'],
+            'amount_asc' => ['column' => 'total_amount', 'dir' => 'asc'],
+            'updated_desc' => ['column' => 'updated_at', 'dir' => 'desc'],
+        ];
+        $order = $orderByMap[$sort] ?? $orderByMap['delivery_desc'];
+
+        $estimates = $query
+            ->orderBy($order['column'], $order['dir'])
+            ->orderByDesc('id')
+            ->get([
+                'id',
+                'estimate_number',
+                'customer_name',
+                'title',
+                'staff_name',
+                'issue_date',
+                'due_date',
+                'delivery_date',
+                'total_amount',
+                'tax_amount',
+                'items',
+                'updated_at',
+            ]);
+
+        $orders = $estimates->map(function (Estimate $estimate) use ($timezone, $formatDate) {
+            $recognizedAt = $estimate->delivery_date
+                ?? $estimate->due_date
+                ?? $estimate->issue_date;
+            $recognizedDate = $formatDate($recognizedAt, $timezone);
+
+            $cost = collect($estimate->items ?? [])->sum(function ($item) {
+                $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
+                if ($qty === 0.0) {
+                    $qty = 1.0;
+                }
+                $unitCost = (float) (data_get($item, 'cost') ?? data_get($item, 'unit_cost', 0));
+                return $qty * $unitCost;
+            });
+
+            $effort = collect($estimate->items ?? [])->sum(function ($item) {
+                $unit = mb_strtolower((string) (data_get($item, 'unit') ?? ''));
+                if (!(str_contains($unit, '人日') || str_contains($unit, '人月') || str_contains($unit, '人時') || str_contains($unit, '時間') || $unit === 'h' || $unit === 'hr')) {
+                    return 0.0;
+                }
+                $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 0));
+                if ($qty <= 0) {
+                    return 0.0;
+                }
+                if (str_contains($unit, '人月')) {
+                    return $qty * (float) config('app.person_days_per_person_month', 20);
+                }
+                if (str_contains($unit, '人時') || str_contains($unit, '時間') || $unit === 'h' || $unit === 'hr') {
+                    $hoursPerDay = (float) config('app.person_hours_per_person_day', 8);
+                    return $hoursPerDay > 0 ? ($qty / $hoursPerDay) : 0.0;
+                }
+                return $qty;
+            });
+
+            return [
+                'id' => $estimate->id,
+                'estimate_number' => (string) $estimate->estimate_number,
+                'customer_name' => (string) ($estimate->customer_name ?? ''),
+                'title' => (string) ($estimate->title ?? ''),
+                'staff_name' => (string) ($estimate->staff_name ?? ''),
+                'recognized_date' => $recognizedDate,
+                'issue_date' => $formatDate($estimate->issue_date, $timezone),
+                'due_date' => $formatDate($estimate->due_date, $timezone),
+                'delivery_date' => $formatDate($estimate->delivery_date, $timezone),
+                'total_amount' => (float) ($estimate->total_amount ?? 0),
+                'cost_amount' => (float) $cost,
+                'gross_amount' => (float) (($estimate->total_amount ?? 0) - $cost),
+                'effort_person_days' => (float) $effort,
+                'updated_at' => optional($estimate->updated_at)->toIso8601String(),
+            ];
+        })->values();
+
+        $recognizedStart = $now->copy()->startOfMonth()->toDateString();
+        $recognizedEnd = $now->copy()->endOfMonth()->toDateString();
+        $currentMonthOrders = $orders->filter(function ($o) use ($recognizedStart, $recognizedEnd) {
+            if (empty($o['recognized_date'])) {
+                return false;
+            }
+            return $o['recognized_date'] >= $recognizedStart && $o['recognized_date'] <= $recognizedEnd;
+        });
+
+        return Inertia::render('Orders/Index', [
+            'orders' => $orders,
+            'summary' => [
+                'count' => $orders->count(),
+                'total_amount' => (float) $orders->sum('total_amount'),
+                'total_gross' => (float) $orders->sum('gross_amount'),
+                'total_effort' => (float) $orders->sum('effort_person_days'),
+                'current_month_count' => $currentMonthOrders->count(),
+                'current_month_total' => (float) $currentMonthOrders->sum('total_amount'),
+            ],
+            'filters' => [
+                'keyword' => $keyword,
+                'customer' => $customer,
+                'staff' => $staff,
+                'delivery_from' => $fromMonth,
+                'delivery_to' => $toMonth,
+                'sort' => $sort,
+                'default_month' => $defaultMonth,
+            ],
+        ]);
+    }
+
     public function redirectToAuthForQuoteSync(Request $request)
     {
         $request->session()->put('mf_redirect_action', 'sync_quotes');
