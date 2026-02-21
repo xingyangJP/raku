@@ -114,7 +114,7 @@
 - バージョンを `v1.0.6` に更新。
 
 ### Step 16: 保守売上管理の運用説明追記
-- `MAINTENANCE_FEE.md` に運用説明セクションを追加。
+- `docs/MAINTENANCE_FEE.md` に運用説明セクションを追加。
 - 指定キーワードを反映:
   - `変更前`
   - `変更後`
@@ -183,3 +183,24 @@
   - 工数カードに `未配賦（納期未設定）` を追加。
   - 月次予実一覧の説明文を工数配賦ルールに合わせて更新。
 - バージョンを `v1.0.11` に更新。
+
+### Step 22: Markdownドキュメント再編（README以外をdocsへ集約）
+- ルート直下の `README*` 以外の Markdown を `docs/` へ移設。
+  - `AI_ESTIMATE.md` → `docs/AI_ESTIMATE.md`
+  - `BACKLOG_HOWTO.md` → `docs/BACKLOG_HOWTO.md`
+  - `LP.md` → `docs/LP.md`
+  - `MAINTENANCE_FEE.md` → `docs/MAINTENANCE_FEE.md`
+  - `NEW_FUNCTION.md` → `docs/NEW_FUNCTION.md`
+  - `RDD.md` → `docs/RDD.md`
+  - `SEEDER.md` → `docs/SEEDER.md`
+  - `TEST_LOG.md` → `docs/TEST_LOG.md`
+  - `progress.md` → `docs/PROGRESS_LEGACY.md`
+- 重複整理:
+  - 進捗の正本を `docs/PROGRESS.md` に統一。
+  - 旧履歴は `docs/PROGRESS_LEGACY.md` としてアーカイブ。
+- `docs/INDEX.md` を新設し、用途別に文書を整理。
+- 参照更新:
+  - `README.md` にドキュメント索引リンクを追加。
+  - `README_Debug.md` の進捗記録先を `docs/PROGRESS.md` に変更。
+  - `RequirementChatController` のプロンプト内参照を `docs/AI_ESTIMATE.md` へ更新。
+  - `docs/LP.md` / `docs/PROGRESS*.md` の旧パス参照を更新。

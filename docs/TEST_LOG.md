@@ -1,3 +1,8 @@
+# テストログ（サンプル）
+
+> ステータス: 参考スニペット。正式なE2Eシナリオは `tests/` 配下を優先。
+
+```ts
 import { test, expect } from '@playwright/test';
 
 test('test', async ({ page }) => {
@@ -12,3 +17,4 @@ test('test', async ({ page }) => {
   await page.getByRole('row', { name: 'EST-4-CRM-111-251409-001' }).getByRole('button').click();
   await page.getByRole('menuitem', { name: 'PDF表示' }).click();
 });
+```

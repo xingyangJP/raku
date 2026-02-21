@@ -3,6 +3,10 @@
 RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forward クラウド請求書と連携させる Laravel 12 + Inertia(React) アプリケーションです。  
 ローカルでの承認フロー、商品／商品分類マスタ、Money Forward 側の各 API との同期機能をひとつの UI に集約しています。
 
+## Documentation
+- ドキュメント索引: `docs/INDEX.md`
+- 進捗ログ: `docs/PROGRESS.md`
+
 ## Tech Stack
 - PHP 8.2 / Laravel 12
 - Inertia.js + React + shadcn/ui + Tailwind CSS

@@ -32,7 +32,7 @@ https://invoice.moneyforward.com/docs/api/v3/index.html#/operations/get-items-id
 
 
 # 進捗記録
-progress.mdに１ステップ毎進捗を記載して。
+docs/PROGRESS.md に1ステップ毎進捗を記載して。
 記載前に一度読む
 結果は「結果を書いて」と言った時だけ記入
 
