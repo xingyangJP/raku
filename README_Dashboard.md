@@ -58,7 +58,7 @@
 | `APP_PERSON_DAYS_PER_PERSON_MONTH` | 人月→人日の換算係数 | `20` |
 | `APP_PERSON_HOURS_PER_PERSON_DAY` | 時間→人日の換算係数 | `8` |
 | `APP_LABOR_COST_PER_PERSON_DAY` | 工数原価（人日単価、明細原価未設定時の補完値） | `0` |
-| `APP_VERSION` | 画面表示用バージョン（fallback） | `v1.0.6` |
+| `APP_VERSION` | 画面表示用バージョン（fallback） | `v1.0.7` |
 | `XERO_PM_API_BASE` | 日報APIのベースURL | `https://api.xerographix.co.jp/api` |
 | `XERO_PM_API_TOKEN` | 日報APIのBearerトークン | empty |
 

@@ -29,7 +29,6 @@ export default function AuthenticatedLayout({ header, children }) {
     const menuItems = [
         { name: 'ダッシュボード', href: route('dashboard'), icon: Home, current: route().current('dashboard') },
         { name: '見積管理', href: route('quotes.index'), icon: FileText, current: route().current('quotes.index') },
-        { name: '請求・売掛管理', href: route('billing.index'), icon: FileText, current: route().current('billing.index') },
         { name: '保守売上管理', href: route('maintenance-fees.index'), icon: LineChart, current: route().current('maintenance-fees.index') },
         // { name: '在庫管理', href: route('inventory.index'), icon: Boxes, current: route().current('inventory.index') },
         { name: '商品管理', href: route('products.index'), icon: Package, current: route().current('products.index') },

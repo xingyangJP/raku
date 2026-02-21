@@ -136,7 +136,7 @@ return [
         'environments' => ['local', 'testing'],
     ],
 
-    'version' => env('APP_VERSION', 'v1.0.6'),
+    'version' => env('APP_VERSION', 'v1.0.7'),
 
     'monthly_capacity_person_days' => (float) env('APP_MONTHLY_CAPACITY_PERSON_DAYS', 160),
     'person_days_per_person_month' => (float) env('APP_PERSON_DAYS_PER_PERSON_MONTH', 20),
