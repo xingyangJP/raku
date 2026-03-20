@@ -66,6 +66,7 @@ return [
     */
 
     'timezone' => 'UTC',
+    'sales_timezone' => env('APP_SALES_TIMEZONE', 'Asia/Tokyo'),
 
     /*
     |--------------------------------------------------------------------------

@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Estimate;
 use App\Models\EstimateAiLog;
+use App\Models\CompanySetting;
 use App\Models\Partner;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\EstimateItemAssignmentNormalizer;
 use App\Services\MoneyForwardApiService;
 use App\Services\MoneyForwardQuoteSynchronizer;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -46,7 +48,7 @@ class EstimateController extends Controller
                     $builder->leftJoin('categories', 'products.category_id', '=', 'categories.id');
                 })
                 ->where('is_active', true)
-                ->orderBy('name')
+                ->orderBy('products.name')
                 ->get($columns);
 
             return $query;
@@ -354,7 +356,7 @@ class EstimateController extends Controller
         $timezone = config('app.sales_timezone', config('app.timezone', 'Asia/Tokyo'));
         $now = Carbon::now($timezone);
         $defaultMonth = $now->format('Y-m');
-        $monthlyCapacityPersonDays = (float) config('app.monthly_capacity_person_days', 80);
+        $monthlyCapacityPersonDays = CompanySetting::current()->resolveMonthlyCapacityPersonDays();
         $laborCostPerPersonDay = (float) config('app.labor_cost_per_person_day', 22000);
         $fixedLaborCostPerMonth = $monthlyCapacityPersonDays * $laborCostPerPersonDay;
 
@@ -765,6 +767,10 @@ class EstimateController extends Controller
                 'google_docs_url' => 'nullable|url|max:2048',
                 'delivery_location' => 'nullable|string',
                 'items' => 'required|array|min:1',
+                'items.*.assignees' => 'nullable|array',
+                'items.*.assignees.*.user_id' => 'nullable|string|max:255',
+                'items.*.assignees.*.user_name' => 'nullable|string|max:255',
+                'items.*.assignees.*.share_percent' => 'nullable|numeric|min:0|max:100',
                 'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
                 'staff_id' => 'nullable|integer',
                 'staff_name' => 'required|string|max:255',
@@ -778,6 +784,7 @@ class EstimateController extends Controller
 
             $validated = $request->validate($rules);
             $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
+            $validated['items'] = app(EstimateItemAssignmentNormalizer::class)->normalizeItems($validated['items'] ?? []);
             $estimate->update(array_merge($validated, ['status' => 'draft']));
             $this->updatePartnerContactCache(
                 $validated['client_id'] ?? $estimate->client_id,
@@ -805,6 +812,10 @@ class EstimateController extends Controller
                 'google_docs_url' => 'nullable|url|max:2048',
                 'delivery_location' => 'nullable|string',
                 'items' => 'required|array|min:1',
+                'items.*.assignees' => 'nullable|array',
+                'items.*.assignees.*.user_id' => 'nullable|string|max:255',
+                'items.*.assignees.*.user_name' => 'nullable|string|max:255',
+                'items.*.assignees.*.share_percent' => 'nullable|numeric|min:0|max:100',
                 'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
                 'staff_id' => 'nullable|integer',
                 'staff_name' => 'required|string|max:255',
@@ -813,6 +824,7 @@ class EstimateController extends Controller
             ]);
 
             $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
+            $validated['items'] = app(EstimateItemAssignmentNormalizer::class)->normalizeItems($validated['items'] ?? []);
 
             if (empty($validated['estimate_number'])) {
                 $validated['estimate_number'] = Estimate::generateReadableEstimateNumber(
@@ -859,6 +871,10 @@ class EstimateController extends Controller
             'google_docs_url' => 'nullable|url|max:2048',
             'delivery_location' => 'nullable|string',
             'items' => 'required|array',
+            'items.*.assignees' => 'nullable|array',
+            'items.*.assignees.*.user_id' => 'nullable|string|max:255',
+            'items.*.assignees.*.user_name' => 'nullable|string|max:255',
+            'items.*.assignees.*.share_percent' => 'nullable|numeric|min:0|max:100',
             'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
             'staff_id' => 'nullable|integer',
             'staff_name' => 'nullable|string|max:255',
@@ -875,6 +891,7 @@ class EstimateController extends Controller
 
         $validated = $request->validate($rules);
         $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
+        $validated['items'] = app(EstimateItemAssignmentNormalizer::class)->normalizeItems($validated['items'] ?? []);
 
         if (!empty($validated['issue_date'])) {
             $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
@@ -1022,6 +1039,10 @@ class EstimateController extends Controller
             'google_docs_url' => 'nullable|url|max:2048',
             'delivery_location' => 'nullable|string',
             'items' => 'required|array',
+            'items.*.assignees' => 'nullable|array',
+            'items.*.assignees.*.user_id' => 'nullable|string|max:255',
+            'items.*.assignees.*.user_name' => 'nullable|string|max:255',
+            'items.*.assignees.*.share_percent' => 'nullable|numeric|min:0|max:100',
             'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
             'staff_id' => 'nullable|integer',
             'staff_name' => 'nullable|string|max:255',
@@ -1033,6 +1054,7 @@ class EstimateController extends Controller
         ]);
 
         $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
+        $validated['items'] = app(EstimateItemAssignmentNormalizer::class)->normalizeItems($validated['items'] ?? []);
 
         if (!empty($validated['issue_date'])) {
             $validated['issue_date'] = date('Y-m-d', strtotime($validated['issue_date']));
