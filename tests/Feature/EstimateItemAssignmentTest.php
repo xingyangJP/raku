@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Estimate;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
 
 class EstimateItemAssignmentTest extends TestCase
@@ -118,6 +119,103 @@ class EstimateItemAssignmentTest extends TestCase
             ['user_id' => 'u2', 'user_name' => '担当者B', 'share_percent' => 20.0],
             ['user_id' => 'u3', 'user_name' => '担当者C', 'share_percent' => 60.0],
         ], $estimate->items[0]['assignees']);
+    }
+
+    public function test_create_page_includes_workload_simulation_context(): void
+    {
+        $user = User::factory()->create();
+
+        Estimate::factory()->create([
+            'status' => 'pending',
+            'delivery_date' => '2026-04-25',
+            'items' => [
+                [
+                    'name' => '設計',
+                    'qty' => 5,
+                    'unit' => '人日',
+                    'price' => 50000,
+                    'cost' => 20000,
+                    'tax_category' => 'standard',
+                    'assignees' => [
+                        ['user_id' => 'u1', 'user_name' => '担当者A', 'share_percent' => 100],
+                    ],
+                ],
+            ],
+        ]);
+
+        $response = $this->actingAs($user)->get(route('estimates.create'));
+
+        $response->assertOk();
+        $response->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Estimates/Create')
+                ->where('workloadSimulation.capacity_per_person_days', 20)
+                ->where('workloadSimulation.months', function ($months) {
+                    return collect($months)->contains(function ($month) {
+                        return ($month['month_key'] ?? null) === '2026-04'
+                            && collect($month['rows'] ?? [])->contains(function ($row) {
+                                return ($row['user_key'] ?? null) === 'u1'
+                                    && (float) ($row['planned_person_days'] ?? 0) === 5.0;
+                            });
+                    });
+                });
+        });
+    }
+
+    public function test_edit_page_workload_simulation_excludes_current_estimate(): void
+    {
+        $user = User::factory()->create();
+
+        Estimate::factory()->create([
+            'status' => 'pending',
+            'delivery_date' => '2026-04-25',
+            'items' => [
+                [
+                    'name' => '既存案件',
+                    'qty' => 5,
+                    'unit' => '人日',
+                    'price' => 50000,
+                    'cost' => 20000,
+                    'tax_category' => 'standard',
+                    'assignees' => [
+                        ['user_id' => 'u1', 'user_name' => '担当者A', 'share_percent' => 100],
+                    ],
+                ],
+            ],
+        ]);
+
+        $currentEstimate = Estimate::factory()->create([
+            'status' => 'draft',
+            'delivery_date' => '2026-04-28',
+            'items' => [
+                [
+                    'name' => '編集中案件',
+                    'qty' => 3,
+                    'unit' => '人日',
+                    'price' => 30000,
+                    'cost' => 10000,
+                    'tax_category' => 'standard',
+                    'assignees' => [
+                        ['user_id' => 'u1', 'user_name' => '担当者A', 'share_percent' => 100],
+                    ],
+                ],
+            ],
+        ]);
+
+        $response = $this->actingAs($user)->get(route('estimates.edit', $currentEstimate));
+
+        $response->assertOk();
+        $response->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Estimates/Create')
+                ->where('workloadSimulation.months', function ($months) {
+                    return collect($months)->contains(function ($month) {
+                        return ($month['month_key'] ?? null) === '2026-04'
+                            && collect($month['rows'] ?? [])->contains(function ($row) {
+                                return ($row['user_key'] ?? null) === 'u1'
+                                    && (float) ($row['planned_person_days'] ?? 0) === 5.0;
+                            });
+                    });
+                });
+        });
     }
 
     private function payload(array $overrides = []): array

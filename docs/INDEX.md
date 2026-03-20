@@ -11,6 +11,7 @@
 ## 仕様/設計メモ
 - `docs/RDD.md`: UX要件定義（参考）
 - `docs/DASHBOARD_RENEWAL_PROPOSAL.md`: 新ダッシュボード提案書
+- `docs/QUOTE_MANAGEMENT_BRUSHUP_PROPOSAL.md`: 見積管理画面ブラッシュアップ提案書
 - `docs/LP.md`: LP設計ドラフト（参考）
 - `docs/AI_ESTIMATE.md`: AI見積計画ドラフト
 - `docs/NEW_FUNCTION.md`: 将来機能アイデア

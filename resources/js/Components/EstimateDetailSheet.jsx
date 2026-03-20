@@ -4,9 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/Com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/Components/ui/table";
 import { Badge } from "@/Components/ui/badge";
 import { Button } from "@/Components/ui/button";
+import { Input } from "@/Components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/Components/ui/tabs";
 import { Textarea } from "@/Components/ui/textarea";
 import { Checkbox } from "@/Components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/Components/ui/dialog";
 import {
     FileText,
     TrendingUp,
@@ -25,6 +27,13 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
     const { auth } = usePage().props; // Get auth user from usePage
     const [isRejecting, setIsRejecting] = useState(false);
     const [rejectReason, setRejectReason] = useState('');
+    const [isSubmittingLost, setIsSubmittingLost] = useState(false);
+    const [isLostDialogOpen, setIsLostDialogOpen] = useState(false);
+    const [lostForm, setLostForm] = useState({
+        lost_reason: '',
+        lost_note: '',
+        lost_at: new Date().toISOString().slice(0, 10),
+    });
     const [approvalFlow, setApprovalFlow] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
     const estimateItems = Array.isArray(estimate?.items) ? estimate.items : [];
     const requiresRequirementDoc = useMemo(() => {
@@ -45,12 +54,22 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
         if (!isOpen) {
             setIsRejecting(false);
             setRejectReason('');
+            setIsLostDialogOpen(false);
+            setIsSubmittingLost(false);
         }
     }, [isOpen]);
 
     useEffect(() => {
         setApprovalFlow(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
     }, [estimate?.approval_flow]);
+
+    useEffect(() => {
+        setLostForm({
+            lost_reason: estimate?.lost_reason ?? '',
+            lost_note: estimate?.lost_note ?? '',
+            lost_at: estimate?.lost_at ? String(estimate.lost_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
+        });
+    }, [estimate?.id, estimate?.lost_reason, estimate?.lost_note, estimate?.lost_at]);
 
     const getStatusBadge = (status) => {
         const configs = {
@@ -77,6 +96,12 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                 className: 'bg-red-500 hover:bg-red-600 text-white',
                 icon: CheckCircle, // Changed from AlertCircle to CheckCircle for consistency
                 label: '却下'
+            },
+            'lost': {
+                variant: 'secondary',
+                className: 'bg-slate-600 hover:bg-slate-700 text-white',
+                icon: XCircle,
+                label: '失注'
             }
         };
 
@@ -189,6 +214,27 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
         });
     };
 
+    const handleLostSubmit = () => {
+        if (!lostForm.lost_reason.trim()) {
+            alert('失注理由を選択してください。');
+            return;
+        }
+        if (!confirm('この見積を失注として登録しますか？')) return;
+
+        setIsSubmittingLost(true);
+        router.patch(route('estimates.markLost', estimate.id), lostForm, {
+            preserveScroll: true,
+            onSuccess: () => {
+                setIsSubmittingLost(false);
+                setIsLostDialogOpen(false);
+            },
+            onError: (errors) => {
+                setIsSubmittingLost(false);
+                alert(errors?.lost || errors?.lost_reason || '失注登録に失敗しました。');
+            },
+        });
+    };
+
     if (!estimate) {
         return null;
     }
@@ -216,6 +262,25 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                 </Badge>
                             )}
                         </div>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                        {estimate.status === 'lost' ? (
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                                失注登録済み
+                                {estimate.lost_at ? ` / ${formatDate(estimate.lost_at)}` : ''}
+                                {estimate.lost_reason ? ` / ${estimate.lost_reason}` : ''}
+                            </div>
+                        ) : !estimate.is_order_confirmed ? (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="border-slate-300 text-slate-700"
+                                onClick={() => setIsLostDialogOpen(true)}
+                            >
+                                <XCircle className="mr-2 h-4 w-4" />
+                                失注にする
+                            </Button>
+                        ) : null}
                     </div>
                 </SheetHeader>
 
@@ -292,6 +357,24 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                                                 <p className="text-sm text-slate-500">備考（社内メモ）</p>
                                                 <p className="mt-1 text-sm whitespace-pre-wrap">{estimate.internal_memo}</p>
                                             </div>
+                                        )}
+                                        {estimate.status === 'lost' && (
+                                            <>
+                                                <div>
+                                                    <p className="text-sm text-slate-500">失注日</p>
+                                                    <p className="mt-1 text-sm whitespace-pre-wrap">{formatDate(estimate.lost_at)}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm text-slate-500">失注理由</p>
+                                                    <p className="mt-1 text-sm whitespace-pre-wrap">{estimate.lost_reason || '—'}</p>
+                                                </div>
+                                                {estimate.lost_note && (
+                                                    <div className="col-span-2">
+                                                        <p className="text-sm text-slate-500">失注メモ</p>
+                                                        <p className="mt-1 text-sm whitespace-pre-wrap">{estimate.lost_note}</p>
+                                                    </div>
+                                                )}
+                                            </>
                                         )}
                                     </div>
                                 </div>
@@ -699,6 +782,65 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                         })()}
                     </TabsContent>
                 </Tabs>
+
+                <Dialog open={isLostDialogOpen} onOpenChange={setIsLostDialogOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>失注登録</DialogTitle>
+                            <DialogDescription>
+                                失注にすると、期限超過や要フォローの対象から外れます。
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-700">失注理由</label>
+                                <select
+                                    value={lostForm.lost_reason}
+                                    onChange={(event) => setLostForm((prev) => ({ ...prev, lost_reason: event.target.value }))}
+                                    className="block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-900 focus:outline-none"
+                                >
+                                    <option value="">選択してください</option>
+                                    <option value="価格">価格</option>
+                                    <option value="競合">競合</option>
+                                    <option value="時期見送り">時期見送り</option>
+                                    <option value="要件未確定">要件未確定</option>
+                                    <option value="予算未確保">予算未確保</option>
+                                    <option value="その他">その他</option>
+                                </select>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-700">失注日</label>
+                                <Input
+                                    type="date"
+                                    value={lostForm.lost_at}
+                                    onChange={(event) => setLostForm((prev) => ({ ...prev, lost_at: event.target.value }))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-700">補足メモ</label>
+                                <Textarea
+                                    rows={4}
+                                    value={lostForm.lost_note}
+                                    onChange={(event) => setLostForm((prev) => ({ ...prev, lost_note: event.target.value }))}
+                                    placeholder="失注理由の補足や再提案の余地があれば記録"
+                                />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setIsLostDialogOpen(false)}>
+                                キャンセル
+                            </Button>
+                            <Button
+                                type="button"
+                                variant="destructive"
+                                onClick={handleLostSubmit}
+                                disabled={isSubmittingLost}
+                            >
+                                {isSubmittingLost ? '登録中…' : '失注登録する'}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </SheetContent>
         </Sheet>
     );

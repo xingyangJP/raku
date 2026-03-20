@@ -8,6 +8,7 @@ use App\Models\CompanySetting;
 use App\Models\Estimate;
 use App\Models\Partner;
 use App\Models\Billing;
+use App\Services\BusinessDivisionAnalysisService;
 use App\Services\ManagementMetricsService;
 use App\Services\MoneyForwardApiService;
 use Inertia\Inertia;
@@ -21,7 +22,7 @@ class DashboardController extends Controller
     private const PARTNER_SYNC_COOLDOWN_HOURS = 3;
     private const PARTNER_SYNC_META_CACHE_KEY = 'dashboard:partner-sync-meta';
 
-    public function index(Request $request, MoneyForwardApiService $apiService, ManagementMetricsService $managementMetrics)
+    public function index(Request $request, MoneyForwardApiService $apiService, ManagementMetricsService $managementMetrics, BusinessDivisionAnalysisService $businessDivisionAnalysis)
     {
         $user = Auth::user();
 
@@ -144,6 +145,12 @@ class DashboardController extends Controller
         $selectedYear = $request->filled('year') ? (int) $request->query('year') : null;
         $selectedMonth = $request->filled('month') ? (int) $request->query('month') : null;
         $metrics = $managementMetrics->build($selectedYear, $selectedMonth);
+        $displayTimezone = config('app.sales_timezone', config('app.timezone', 'Asia/Tokyo'));
+        $businessDivisionReport = $businessDivisionAnalysis->buildForYear(
+            (int) ($metrics['filters']['selected_year'] ?? Carbon::now($displayTimezone)->year),
+            (int) ($metrics['filters']['selected_month'] ?? Carbon::now($displayTimezone)->month),
+            $displayTimezone
+        );
         $salesRanking = $this->buildSalesRanking(
             Carbon::parse($metrics['periods']['current']['start']),
             Carbon::parse($metrics['periods']['current']['end'])
@@ -156,6 +163,7 @@ class DashboardController extends Controller
             'partnerSyncFlash' => $partnerSyncFlash,
             'partnerSyncMeta' => $partnerSyncMeta,
             'dashboardMetrics' => $metrics,
+            'businessDivisionReport' => $businessDivisionReport,
             'salesRanking' => $salesRanking,
         ]);
     }

@@ -106,6 +106,7 @@ class DashboardDemoSeeder extends Seeder
                 'price' => $laborUnitPrice,
                 'cost' => $laborUnitCost,
                 'business_division' => 'fifth_business',
+                'assignees' => $this->buildDevelopmentAssignees($staffNames, $staffIndex, false),
             ],
             [
                 'name' => '実装・検証',
@@ -115,6 +116,7 @@ class DashboardDemoSeeder extends Seeder
                 'price' => $laborUnitPrice + 4000,
                 'cost' => $laborUnitCost + 1000,
                 'business_division' => 'fifth_business',
+                'assignees' => $this->buildDevelopmentAssignees($staffNames, $staffIndex, true),
             ],
             [
                 'name' => 'クラウド・ライセンス',
@@ -302,6 +304,46 @@ class DashboardDemoSeeder extends Seeder
                 'name' => $staffName . ' マネージャー',
                 'approved_at' => $isApproved ? now()->subDay()->toDateTimeString() : null,
                 'status' => $isApproved ? 'approved' : 'pending',
+            ],
+        ];
+    }
+
+    private function buildDevelopmentAssignees(array $staffNames, int $staffIndex, bool $isImplementation): array
+    {
+        $primaryIndex = $staffIndex % count($staffNames);
+        $secondaryIndex = ($staffIndex + 1) % count($staffNames);
+        $thirdIndex = ($staffIndex + 2) % count($staffNames);
+
+        if ($isImplementation) {
+            return [
+                [
+                    'user_id' => 'demo-user-' . ($primaryIndex + 1),
+                    'user_name' => $staffNames[$primaryIndex],
+                    'share_percent' => 45.0,
+                ],
+                [
+                    'user_id' => 'demo-user-' . ($secondaryIndex + 1),
+                    'user_name' => $staffNames[$secondaryIndex],
+                    'share_percent' => 35.0,
+                ],
+                [
+                    'user_id' => 'demo-user-' . ($thirdIndex + 1),
+                    'user_name' => $staffNames[$thirdIndex],
+                    'share_percent' => 20.0,
+                ],
+            ];
+        }
+
+        return [
+            [
+                'user_id' => 'demo-user-' . ($primaryIndex + 1),
+                'user_name' => $staffNames[$primaryIndex],
+                'share_percent' => 60.0,
+            ],
+            [
+                'user_id' => 'demo-user-' . ($secondaryIndex + 1),
+                'user_name' => $staffNames[$secondaryIndex],
+                'share_percent' => 40.0,
             ],
         ];
     }

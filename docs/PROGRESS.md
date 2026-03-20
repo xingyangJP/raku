@@ -448,3 +448,136 @@
   - `php artisan test tests/Feature/EstimateItemAssignmentTest.php tests/Feature/DashboardTest.php`
   - `php -l app/Services/EstimateItemAssignmentNormalizer.php`
   - `php -l app/Http/Controllers/EstimateController.php`
+
+### Step 47: ダッシュボードへ担当者別の空き状況を追加
+- `ManagementMetricsService` で、見積明細の `assignees` を使った担当者別予定工数の月次集計を追加した。対象月はダッシュボードの年/月フィルタに連動し、明細工数を担当割合で按分して `総合 / 開発 / 仕入れ販売` へ配賦する。
+- 担当者別集計は `予定工数 / 残余人日 / 稼働率 / 案件数` を返し、担当者未設定の明細は `未割当工数` として別計上するようにした。全員一覧に加えて、`空きが多い順` と `高稼働順` の上位も同時に返す。
+- `Dashboard.jsx` では、各セクションに `担当者別の空き状況` と `担当者別稼働一覧` を追加し、追跡対象人数、未割当工数、高稼働人数、空き人数をカードで見せるようにした。
+- ローカル確認用の `DashboardDemoSeeder` にも担当者按分入りの開発明細を追加し、シード後に担当者別工数が画面で確認できるようにした。
+- 回帰防止として `DashboardTest` に担当者按分から `planned_person_days` と `unassigned_person_days` が返るケースを追加した。
+- 確認:
+  - `php -l app/Services/ManagementMetricsService.php`
+  - `php -l database/seeders/DashboardDemoSeeder.php`
+  - `php -l tests/Feature/DashboardTest.php`
+  - `php artisan test tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php`
+  - `npm run build`
+  - `php artisan db:seed --class=DashboardDemoSeeder`
+
+### Step 48: 見積明細入力をカードレイアウトへ再設計
+- 見積作成画面の明細入力を横長テーブルからカード型レイアウトへ切り替え、品目・詳細・数量・単位・単価・税区分・原価を折り返して表示できるようにした。
+- 各明細の上部に `明細 n` ヘッダと金額サマリ、移動・削除ボタンをまとめ、担当者按分も同じカード内に収めて横スクロールを減らした。
+- 大画面では補助的な列見出しを残しつつ、実入力はグリッドで自動折返しする形にして、左右切れが起きにくい構成へ変更した。
+- 確認:
+  - `npm run build`
+  - Playwright で `/estimates/create` を開き、品目選択とレイアウト崩れを確認
+
+### Step 49: 見積の基本計算ロジックを切り出して自動テスト化
+- 明細金額・原価金額・粗利・粗利率・小計・税額・合計の計算を `resources/js/lib/estimateCalculations.js` へ切り出し、見積作成画面がその共通関数を使うようにした。
+- `tests/js/estimateCalculations.test.js` を追加し、単明細計算、標準/軽減/非課税の混在税計算、見積全体サマリを `node --test` で固定した。
+- フロント計算の回帰と、既存の保存・担当者按分・ダッシュボード連携の回帰を分けて確認できるよう、`package.json` に `test:js` を追加した。
+- 確認:
+  - `npm run test:js`
+  - `php artisan test tests/Feature/EstimateItemAssignmentTest.php tests/Feature/DashboardTest.php`
+  - `npm run build`
+
+### Step 50: 見積管理画面(/quotes)の役割確認とブラッシュアップ方針整理
+- `/quotes` は現在、検索・一覧・詳細導線に加えて、予算/実績/粗利/工数のKPIカードまで持っており、`/dashboard` の経営サマリと役割が重複していることを確認した。
+- 一方で、見積管理画面として本来重要な「承認待ち優先表示」「自分の案件」「期限超過」「MF未発行」「一括操作」などの実務導線は弱く、一覧操作画面としての役割が不足している。
+- 改善方針は、`/dashboard` を経営判断用、`/quotes` を営業・見積運用の作業台に分離し、`/quotes` では作業優先度・アクション・一覧可読性を強化する方向で整理した。
+- 提案軸:
+  - 上部KPIは経営値から作業値へ寄せる（承認待ち件数、今月発行予定、MF未同期/未発行、期限超過、自分担当件数）。
+  - フィルタは保存ビュー化し、「承認待ち」「今月発行」「自分の案件」「要フォロー」をワンクリック化する。
+  - 一覧はデスクトップ表＋モバイルカードの2系統にし、主要操作をケバブメニュー依存から脱却する。
+  - 明細詳細は右シート継続でよいが、次アクション（編集、MF発行、PDF、請求変換、承認状況確認）を上部固定に寄せる。
+
+### Step 51: 見積管理画面(/quotes)の Phase 1 ブラッシュアップを開始
+- `/quotes` の上部を経営KPIから作業KPIへ寄せ、承認待ち / MF未発行 / 自分担当 / 期限超過 を優先表示する方向へ変更した。
+- 保存ビューを追加し、`全件 / 承認待ち / 自分の案件 / MF未発行 / 期限超過 / 要フォロー` をワンクリックで切り替えられるようにした。
+- `QuoteOperationsSummaryService` を追加し、受注ベースで今月・来月の稼働率、残余人日、受注件数を返すようにして、`/quotes` に判断用の最小限工数情報だけを載せた。
+- `/quotes` 上部には「見積運用ワークスペース」ヘッダと `経営ダッシュボードを見る` 導線を追加し、分析は `/dashboard`、運用は `/quotes` という役割を画面上でも分かるようにした。
+- 確認:
+  - `php -l app/Services/QuoteOperationsSummaryService.php`
+  - `php -l app/Http/Controllers/EstimateController.php`
+  - `npm run build`
+  - Playwright で `/quotes` 表示確認
+
+### Step 52: 見積一覧へ工数注意と期限列を追加
+- `/quotes` 一覧に `工数注意` 列と `期限` 列を追加し、今月/来月の受注ベース逼迫状況と見積期限の超過を行単位で把握できるようにした。
+- `期限超過` の基準は `due_date` のみへ変更し、これまで混在していた `delivery_date(納期)` は判定から外した。見積期限切れと納期遅れは意味が違うため、営業判断の軸を見積期限に寄せた。
+- 主要操作は `詳細 / 編集 / PDF` を行内へ前出しし、複製・削除などは従来どおりその他メニューに残した。
+- 確認:
+  - `npm run build`
+  - Playwright で `/quotes` を開き、保存ビュー・工数注意列・期限列・主要操作表示を確認
+
+### Step 53: 失注登録を /quotes 詳細シートから行えるようにした
+- 見積へ `lost_at / lost_reason / lost_note` を追加する migration を作成し、`status=lost` を正式に扱えるようにした。
+- `/quotes` の詳細シート上部に `失注にする` ボタンと失注登録ダイアログを追加し、理由・失注日・メモを入力して即時登録できるようにした。
+- `期限超過` と `要フォロー` の判定から `lost` を除外し、失注済み案件が永続的に期限超過へ残る状態を解消した。
+- 一覧フィルタと保存ビューにも `失注` を追加し、営業追跡対象と失注済みを分けて管理できるようにした。
+- 確認:
+  - `php artisan migrate --force`
+  - `php artisan test tests/Feature/EstimateLostStatusTest.php tests/Feature/EstimateItemAssignmentTest.php tests/Feature/DashboardTest.php`
+  - `npm run build`
+  - Playwright で `/quotes` 詳細シートから失注登録し、一覧の表示変化を確認
+
+### Step 54: 期限超過案件にアクセス時フォローモーダルを追加
+- `/quotes` アクセス時に、失注でも受注済みでもなく、追跡期限を過ぎた案件がある場合は1件だけ判断モーダルを出すようにした。
+- `まだ追う` を選んだ場合は `follow_up_due_date` を更新し、見積期限 `due_date` とは別に営業追跡期限で管理するようにした。
+- モーダル表示済みの案件は `overdue_prompted_at` を記録し、同日に毎回出続けないようにした。翌日以降にまだ期限超過なら再度対象になる。
+- 追跡期限の判定は `follow_up_due_date ?? due_date` に切り替え、一覧の `期限` 列・`期限超過`・`要フォロー` も同じ基準で動くように揃えた。
+- 確認:
+  - `php artisan migrate --force`
+  - `php artisan test tests/Feature/EstimateLostStatusTest.php tests/Feature/EstimateItemAssignmentTest.php tests/Feature/DashboardTest.php`
+  - `npm run build`
+  - Playwright で `/quotes` アクセス時にモーダル表示、失注登録、追跡期限保存を確認
+
+### Step 55: 資金繰りで使える入金予定日の根拠を調査
+- `billings` / `local_invoices` / `estimates` と、`DashboardController` / `ManagementMetricsService` の資金繰り集計ロジックを確認した。
+- 現状、ダッシュボードの入金実績は `billings.due_date` と `payment_status` を使っており、厳密な `actual_paid_at` や `planned_payment_date` は持っていないことを確認した。
+- `estimates` 側にも `入金予定日` 専用カラムはなく、資金繰りの見込み入金は `estimate.due_date` を回収日代用として扱っていることを確認した。
+- `local_invoices` と `billings` には `billing_date / due_date / sales_date / payment_status` はあるが、将来の入金予定を別軸で持つ設計にはなっていない。
+- 結論として、現状の「資金繰り」は `due_date` ベースの近似であり、正確な資金繰りへ上げるには `請求予定日 / 入金予定日 / 支払予定日` の専用管理が追加で必要。
+
+### Step 56: ダッシュボード資金繰りを受注確定案件の納期翌月入金へ補正
+- `ManagementMetricsService` の回収予定日ロジックを修正し、`is_order_confirmed=true` の案件は `delivery_date ?? due_date ?? issue_date` を基準に翌月入金として集計するようにした。
+- 未受注案件は従来どおり `due_date` を仮の回収予定として扱い、見込み資金繰りを壊さないようにした。
+- ダッシュボード上部の集計ルールにも `cash_rule` を追加し、受注済みと未受注で回収根拠が違うことを画面上で説明できるようにした。
+- `DashboardTest` に、受注確定案件の `delivery_date=2026-04-20` が `2026年5月` の回収見込みへ入ることを固定するテストを追加した。
+
+### Step 57: /business-divisions の不具合と画面責務の重複を調査
+- `/business-divisions` は壊れた画面というより、集計元が `billings` / `local_invoices` に限定されており、`quotes` / `orders` / `dashboard` が使っている `estimates` 系の受注・見積データと分断されていることを確認した。
+- そのため、請求データが無い、または同期が薄い環境では `/business-divisions` が実質空画面になりやすく、「動いていない」ように見える構造になっている。
+- `/dashboard` は経営分析、`/quotes` は見積運用、`/orders` は受注一覧として役割が見え始めている一方で、`/business-divisions` は請求実績の事業区分集計に寄り過ぎており、同じ事業区分を別軸で複数画面に散らしているのが根本問題。
+- 方針としては、`/business-divisions` を独立した主画面として育てるより、請求実績ベースの「事業区分実績レポート」に役割を限定するか、`/dashboard` へ吸収して `/quotes` `/orders` と二重集計しない形へ寄せるべきと整理した。
+
+### Step 58: 事業区分集計をダッシュボードへ統合
+- `BusinessDivisionAnalysisService` をダッシュボードへ接続し、Money Forward請求と自社請求の `billing_date` ベースで年次の事業区分分析データを返すようにした。
+- `/dashboard` に `事業区分分析` セクションを追加し、事業区分別の構成比、月別推移、選択月の請求明細を1画面で見られるようにした。事業区分の修正導線は商品管理へ寄せた。
+- `/business-divisions` は独立画面をやめ、`/dashboard` へリダイレクトするように変更した。サイドメニューの `事業区分集計` も削除した。
+- `DashboardTest` に、請求データから事業区分分析が返ることと、旧 `/business-divisions` が `/dashboard` へ転送されることを固定するテストを追加した。
+- 確認:
+  - `php artisan test tests/Feature/DashboardTest.php`
+  - `npm run build`
+  - `tail -n 20 storage/logs/laravel.log`
+
+### Step 59: 事業区分分析のグラフ化と見積作成中の負荷シミュレーションを追加
+- `/dashboard` の `事業区分分析` に、上位事業区分の請求実績を月別に比較するグラフを追加した。表だけでなく推移でも判断できるようにした。
+- `EstimateWorkloadSimulationService` を追加し、既存案件の納期月ベース予定工数を担当者別に集計して、見積作成/編集画面へ `workloadSimulation` として渡すようにした。失注・却下案件は集計から除外した。
+- 見積作成/編集画面に `担当者負荷シミュレーション` を追加し、対象月、追加工数、未割当工数、担当者ごとの `既存予定 / この見積 / シミュ後 / 残余 / 稼働率` を表示するようにした。
+- `EstimateItemAssignmentTest` に、作成画面で負荷シミュレーションが返ることと、編集画面では編集中の見積自身を二重計上しないことを固定するテストを追加した。
+- 品質補正として `ManagementMetricsService` のダッシュボード集計から `lost` を除外し、失注案件が工数や予実へ残らないようにした。
+- 確認:
+  - `php artisan test tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php`
+  - `npm run build`
+  - `tail -n 20 storage/logs/laravel.log`
+
+## Step 60: 見積負荷シミュレーションの対象月キー不一致を修正
+- 再点検で、見積画面の `simulationTargetMonthKey` が `YYYY-MM` 形式、バックエンドの `workloadSimulation.months[*].month_key` が `YYYY-MM-01` 形式で不一致になっており、既存案件の担当者負荷が対象月に正しく重ならない不具合を確認した。
+- `resources/js/lib/estimateWorkloadSimulation.js` を追加し、対象日付を月初キーへ正規化する `toMonthStartKey()` と表示用 `formatMonthLabelFromKey()` を実装した。
+- `resources/js/Pages/Estimates/Create.jsx` では上記 helper を使うように変更し、`simulationMonthBaseline?.month_label` を正しく参照するよう修正した。
+- `tests/js/estimateWorkloadSimulation.test.js` を追加し、月初キー変換と表示ラベル生成を固定した。
+- 確認:
+  - `npm run test:js`
+  - `php artisan test tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php`
+  - `npm run build`
+  - `tail -n 20 storage/logs/laravel.log`

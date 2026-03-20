@@ -17,6 +17,16 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog'
 import { Badge } from '@/Components/ui/badge';
+import {
+    calculateEstimateTax,
+    calculateEstimateTotal,
+    calculateEstimateSubtotal,
+    calculateLineAmount,
+    calculateLineCostAmount,
+    calculateLineGrossMargin,
+    calculateLineGrossProfit,
+} from '@/lib/estimateCalculations';
+import { formatMonthLabelFromKey, toMonthStartKey } from '@/lib/estimateWorkloadSimulation';
 import axios from 'axios';
 
 const REQUIRED_FIELD_LABELS = {
@@ -354,7 +364,7 @@ const mapStructuredRequirements = (payload) => {
     };
 };
 
-export default function EstimateCreate({ auth, products, users = [], estimate = null, is_fully_approved = false }) {
+export default function EstimateCreate({ auth, products, users = [], estimate = null, is_fully_approved = false, workloadSimulation = null }) {
     const isEditMode = estimate !== null;
 
     const [isInternalView, setIsInternalView] = useState(true);
@@ -844,13 +854,10 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     // It's better to manage form state directly with setData in onChange handlers.
     // For simplicity, we will bind the inputs directly to useForm's data object.
 
-    const calculateAmount = (item) => normalizeNumber(item.qty, 0) * normalizeNumber(item.price, 0);
-    const calculateCostAmount = (item) => normalizeNumber(item.qty, 0) * normalizeNumber(item.cost, 0);
-    const calculateGrossProfit = (item) => calculateAmount(item) - calculateCostAmount(item);
-    const calculateGrossMargin = (item) => {
-        const amount = calculateAmount(item);
-        return amount !== 0 ? (calculateGrossProfit(item) / amount) * 100 : 0;
-    };
+    const calculateAmount = (item) => calculateLineAmount(item);
+    const calculateCostAmount = (item) => calculateLineCostAmount(item);
+    const calculateGrossProfit = (item) => calculateLineGrossProfit(item);
+    const calculateGrossMargin = (item) => calculateLineGrossMargin(item);
 
     const productDivisionMaps = useMemo(() => {
         const byId = new Map();
@@ -930,7 +937,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return null;
     };
 
-    const subtotal = lineItems.reduce((acc, item) => acc + calculateAmount(item), 0);
+    const subtotal = calculateEstimateSubtotal(lineItems);
     const totalCost = lineItems.reduce((acc, item) => acc + calculateCostAmount(item), 0);
     const totalGrossProfit = subtotal - totalCost;
     const totalGrossMargin = subtotal !== 0 ? (totalGrossProfit / subtotal) * 100 : 0;
@@ -989,13 +996,173 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }, { type1: { revenue: 0, cost: 0 }, type5: { revenue: 0, cost: 0 }, other: { revenue: 0, cost: 0 } });
 
     const calcRate = (revenue, cost) => revenue > 0 ? ((revenue - cost) / revenue) * 100 : 0;
-    // 税区分ごとの税率（必要なら拡張）
-    const taxRates = { standard: 0.1, reduced: 0.08 };
-    const tax = lineItems.reduce((acc, item) => {
-        const rate = taxRates[item.tax_category || 'standard'] || 0;
-        return acc + (item.qty * item.price * rate);
-    }, 0);
-    const total = subtotal + tax;
+    const formatPersonDaysDisplay = (value) => `${roundToOneDecimal(normalizeNumber(value, 0)).toFixed(1)}人日`;
+    const tax = calculateEstimateTax(lineItems);
+    const total = calculateEstimateTotal(lineItems);
+    const productBusinessDivisionById = useMemo(() => Object.fromEntries(
+        (products || []).map((product) => [String(product.id), product.business_division ?? null])
+    ), [products]);
+    const workloadSimulationMonths = Array.isArray(workloadSimulation?.months) ? workloadSimulation.months : [];
+    const workloadSimulationMonthMap = useMemo(() => Object.fromEntries(
+        workloadSimulationMonths.map((month) => [month.month_key, month])
+    ), [workloadSimulationMonths]);
+    const workloadSimulationCapacityPerPersonDays = normalizeNumber(workloadSimulation?.capacity_per_person_days, 20);
+
+    const normalizeAssigneesForSimulation = (assignees = []) => {
+        const normalized = (Array.isArray(assignees) ? assignees : [])
+            .map((assignee) => {
+                const userId = assignee?.user_id != null && assignee?.user_id !== '' ? String(assignee.user_id) : null;
+                const userName = String(assignee?.user_name ?? '').trim();
+                const sharePercent = assignee?.share_percent;
+
+                return {
+                    user_id: userId,
+                    user_name: userName !== '' ? userName : null,
+                    share_percent: sharePercent === null || sharePercent === undefined || sharePercent === ''
+                        ? null
+                        : normalizeNumber(sharePercent, 0),
+                };
+            })
+            .filter((assignee) => assignee.user_id || assignee.user_name);
+
+        if (normalized.length === 0) {
+            return [];
+        }
+
+        let weights = normalized.map((assignee) => assignee.share_percent && assignee.share_percent > 0 ? assignee.share_percent : 0);
+        let totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+        if (totalWeight <= 0) {
+            weights = normalized.map(() => 1);
+            totalWeight = weights.length;
+        }
+
+        let remaining = 100;
+        return normalized.map((assignee, index) => {
+            const sharePercent = index === normalized.length - 1
+                ? roundToOneDecimal(Math.max(0, remaining))
+                : roundToOneDecimal((weights[index] / totalWeight) * 100);
+            remaining = roundToOneDecimal(remaining - sharePercent);
+
+            return {
+                ...assignee,
+                share_percent: sharePercent,
+            };
+        });
+    };
+
+    const toSimulationPersonDays = (item) => {
+        const division = item?.business_division
+            ?? (item?.product_id != null ? productBusinessDivisionById[String(item.product_id)] : null)
+            ?? null;
+        if (division === 'first_business') {
+            return 0;
+        }
+
+        const qty = normalizeNumber(item?.qty, 0);
+        const unit = String(item?.unit ?? '').trim().toLowerCase();
+        if (!(unit === '' || unit.includes('人日') || unit.includes('人月') || unit.includes('人時') || unit.includes('時間') || unit === 'h' || unit === 'hr')) {
+            return 0;
+        }
+        if (unit.includes('人月')) {
+            return qty * normalizeNumber(workloadSimulation?.capacity_per_person_days, 20);
+        }
+        if (unit.includes('人時') || unit.includes('時間') || unit === 'h' || unit === 'hr') {
+            return qty / 8;
+        }
+
+        return qty;
+    };
+
+    const simulationTargetMonthKey = useMemo(() => {
+        const candidate = data.delivery_date || data.due_date || data.issue_date;
+        return toMonthStartKey(candidate);
+    }, [data.delivery_date, data.due_date, data.issue_date]);
+    const simulationMonthBaseline = simulationTargetMonthKey ? workloadSimulationMonthMap[simulationTargetMonthKey] ?? null : null;
+    const workloadImpact = useMemo(() => {
+        const baselineRows = Array.isArray(simulationMonthBaseline?.rows) ? simulationMonthBaseline.rows : [];
+        const merged = new Map(
+            baselineRows.map((row) => [
+                row.user_key || row.name,
+                {
+                    ...row,
+                    baseline_person_days: normalizeNumber(row.planned_person_days, 0),
+                    draft_person_days: 0,
+                },
+            ])
+        );
+
+        let draftPersonDays = 0;
+        let draftUnassignedPersonDays = 0;
+
+        lineItems.forEach((item) => {
+            const personDays = toSimulationPersonDays(item);
+            if (personDays <= 0) {
+                return;
+            }
+
+            draftPersonDays += personDays;
+            const assignees = normalizeAssigneesForSimulation(item.assignees);
+            if (assignees.length === 0) {
+                draftUnassignedPersonDays += personDays;
+                return;
+            }
+
+            assignees.forEach((assignee) => {
+                const key = assignee.user_id || assignee.user_name || '未設定担当';
+                const existing = merged.get(key) ?? {
+                    user_key: key,
+                    name: assignee.user_name || key,
+                    baseline_person_days: 0,
+                    planned_person_days: 0,
+                    estimate_count: 0,
+                    latest_titles: [],
+                    draft_person_days: 0,
+                };
+                existing.draft_person_days = normalizeNumber(existing.draft_person_days, 0) + (personDays * (normalizeNumber(assignee.share_percent, 0) / 100));
+                existing.name = existing.name || assignee.user_name || key;
+                merged.set(key, existing);
+            });
+        });
+
+        const rows = Array.from(merged.values())
+            .map((row) => {
+                const baselinePersonDays = roundToOneDecimal(normalizeNumber(row.baseline_person_days ?? row.planned_person_days, 0));
+                const addedPersonDays = roundToOneDecimal(normalizeNumber(row.draft_person_days, 0));
+                const simulatedPersonDays = roundToOneDecimal(baselinePersonDays + addedPersonDays);
+                const availablePersonDays = roundToOneDecimal(workloadSimulationCapacityPerPersonDays - simulatedPersonDays);
+                const utilizationRate = workloadSimulationCapacityPerPersonDays > 0
+                    ? roundToOneDecimal((simulatedPersonDays / workloadSimulationCapacityPerPersonDays) * 100)
+                    : 0;
+
+                return {
+                    ...row,
+                    baseline_person_days: baselinePersonDays,
+                    draft_person_days: addedPersonDays,
+                    simulated_person_days: simulatedPersonDays,
+                    simulated_available_person_days: availablePersonDays,
+                    simulated_utilization_rate: utilizationRate,
+                };
+            })
+            .filter((row) => row.baseline_person_days > 0 || row.draft_person_days > 0)
+            .sort((a, b) => {
+                if (b.simulated_utilization_rate !== a.simulated_utilization_rate) {
+                    return b.simulated_utilization_rate - a.simulated_utilization_rate;
+                }
+                return b.simulated_person_days - a.simulated_person_days;
+            });
+
+        return {
+            rows,
+            impactedRows: rows.filter((row) => row.draft_person_days > 0),
+            overloadedRows: rows.filter((row) => row.simulated_utilization_rate > 100),
+            cautionRows: rows.filter((row) => row.simulated_utilization_rate >= 85 && row.simulated_utilization_rate <= 100),
+            summary: {
+                draft_person_days: roundToOneDecimal(draftPersonDays),
+                draft_unassigned_person_days: roundToOneDecimal(draftUnassignedPersonDays),
+                tracked_people_count: rows.length,
+            },
+        };
+    }, [lineItems, simulationMonthBaseline, simulationTargetMonthKey, workloadSimulationCapacityPerPersonDays]);
 
 useEffect(() => {
         const payloadItems = lineItems.map(item => ({
@@ -2093,262 +2260,295 @@ useEffect(() => {
                                     <span className="text-red-500 leading-none">*</span>
                                 </CardTitle>
                             </CardHeader>
-                            <CardContent>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-12"></TableHead>
-                                            <TableHead>品目名</TableHead>
-                                            <TableHead>詳細</TableHead>
-                                            <TableHead className="text-right">数量</TableHead>
-                                            <TableHead>単位</TableHead>
-                                            <TableHead className="text-right">単価</TableHead>
-                                            <TableHead className="text-right">金額</TableHead>
-                                            <TableHead>税区分</TableHead>
-                                            {isInternalView && <TableHead className="text-right">原価</TableHead>}
-                                            {isInternalView && <TableHead className="text-right">原価金額</TableHead>}
-                                            {isInternalView && <TableHead className="text-right">粗利</TableHead>}
-                                            {isInternalView && <TableHead className="text-right">粗利率</TableHead>}
-                                            <TableHead className="w-24"></TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {lineItems.map(item => (
-                                            <Fragment key={item.id}>
-                                            <TableRow>
-                                                <TableCell></TableCell>
-                                                <TableCell>
-                                                    <Select
-                                                        key={`${item.id}-${item.product_id ?? 'none'}`}
-                                                        value={item.product_id != null ? String(item.product_id) : undefined}
-                                                        defaultValue={item.product_id != null ? String(item.product_id) : undefined}
-                                                        onValueChange={(value) => handleProductSelect(item.id, value)}
-                                                    >
-                                                        <SelectTrigger className="w-[180px]">
-                                                            <SelectValue placeholder="品目を選択" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {products.map(product => (
-                                                                <SelectItem key={product.id} value={String(product.id)}>
-                                                                    {product.name}
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Textarea
-                                                        className="mt-2 w-full min-w-[500px]"
-                                                        placeholder="詳細（項目）"
-                                                        value={item.description}
-                                                        onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Input
-                                                        type="number"
-                                                        step="0.1"
-                                                        min="0"
-                                                        inputMode="decimal"
-                                                        value={item.qty}
-                                                        onChange={(e) => handleItemChange(item.id, 'qty', e.target.value)}
-                                                        className="w-20 text-right appearance-none"
-                                                        onWheel={(e) => e.currentTarget.blur()}
-                                                        onKeyDown={preventArrowKeyChange}
-                                                    />
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="space-y-2">
-                                                        <Input
-                                                            value={item.unit}
-                                                            onChange={(e) => {
-                                                                const val = e.target.value.slice(0, 3);
-                                                                handleItemChange(item.id, 'unit', val);
-                                                            }}
-                                                            className="w-16"
-                                                            maxLength="3"
-                                                        />
-                                                        <div className="flex items-center gap-2">
-                                                            <Select
-                                                                value={item.display_mode}
-                                                                onValueChange={(value) => handleItemChange(item.id, 'display_mode', value)}
-                                                            >
-                                                                <SelectTrigger className="w-28 h-8 text-xs">
-                                                                    <SelectValue placeholder="表示形式" />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    {displayModeOptions.map(option => (
-                                                                        <SelectItem key={option.value} value={option.value}>
-                                                                            {option.label}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                        {item.display_mode === 'lump' && (
-                                                            <div className="flex items-center gap-2 text-xs">
-                                                                <Input
-                                                                    type="number"
-                                                                    step="0.1"
-                                                                    className="w-16 text-right"
-                                                                    value={item.display_qty}
-                                                                    min="0"
-                                                                    inputMode="decimal"
-                                                                    onChange={(e) => handleItemChange(item.id, 'display_qty', e.target.value)}
-                                                                    onKeyDown={preventArrowKeyChange}
-                                                                />
-                                                                <Input
-                                                                    value={item.display_unit}
-                                                                    onChange={(e) => handleItemChange(item.id, 'display_unit', e.target.value.slice(0, 3))}
-                                                                    className="w-16"
-                                                                    maxLength="3"
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Input
-                                                        type="number"
-                                                        step="1"
-                                                        min="0"
-                                                        inputMode="numeric"
-                                                        value={item.price}
-                                                        onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
-                                                        className="w-24 text-right appearance-none"
-                                                        onWheel={(e) => e.currentTarget.blur()}
-                                                        onKeyDown={preventArrowKeyChange}
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="text-right font-medium">
-                                                    {calculateAmount(item).toLocaleString()}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Select
-                                                        value={item.tax_category || 'standard'}
-                                                        onValueChange={(value) => handleItemChange(item.id, 'tax_category', value)}
-                                                    >
-                                                        <SelectTrigger className="w-[120px]">
-                                                            <SelectValue placeholder="税区分" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="standard">標準</SelectItem>
-                                                            <SelectItem value="reduced">軽減</SelectItem>
-                                                            <SelectItem value="exempt">非課税</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </TableCell>
-                                                {isInternalView && (
-                                                    <TableCell className="text-right text-gray-500">
-                                                    <Input
-                                                        type="number"
-                                                        step="1"
-                                                        min="0"
-                                                        inputMode="numeric"
-                                                        value={item.cost}
-                                                        onChange={(e) => handleItemChange(item.id, 'cost', e.target.value)}
-                                                        className="w-24 text-right appearance-none"
-                                                        onWheel={(e) => e.currentTarget.blur()}
-                                                        onKeyDown={preventArrowKeyChange}
-                                                    />
-                                                </TableCell>
-                                                )}
-                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateCostAmount(item).toLocaleString()}</TableCell>}
-                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossProfit(item).toLocaleString()}</TableCell>}
-                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossMargin(item).toFixed(1)}%</TableCell>}
-                                                <TableCell className="flex items-center justify-center space-x-1">
+                            <CardContent className="space-y-4">
+                                <div className="hidden xl:grid xl:grid-cols-[180px_minmax(0,1.8fr)_90px_170px_130px_120px_120px_110px_110px_90px] xl:gap-4 xl:px-3 xl:text-sm xl:text-slate-500">
+                                    <div>品目名</div>
+                                    <div>詳細</div>
+                                    <div className="text-right">数量</div>
+                                    <div>単位 / 数量表示</div>
+                                    <div className="text-right">単価</div>
+                                    <div className="text-right">金額</div>
+                                    <div>税区分</div>
+                                    {isInternalView && <div className="text-right">原価</div>}
+                                    {isInternalView && <div className="text-right">粗利</div>}
+                                    <div className="text-right">操作</div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {lineItems.map((item, index) => (
+                                        <div key={item.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                                            <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                                                <div>
+                                                    <div className="text-sm font-semibold text-slate-900">明細 {index + 1}</div>
+                                                    <div className="text-xs text-slate-500">品目と数量、金額、担当者按分をここで入力します。</div>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <Badge variant="outline">金額 {calculateAmount(item).toLocaleString()}円</Badge>
+                                                    {isInternalView && <Badge variant="outline">粗利 {calculateGrossProfit(item).toLocaleString()}円</Badge>}
                                                     <Button type="button" variant="ghost" size="icon" onClick={() => moveLineItem(item.id, 'up')}>
                                                         <ArrowUp className="h-4 w-4" />
                                                     </Button>
                                                     <Button type="button" variant="ghost" size="icon" onClick={() => moveLineItem(item.id, 'down')}>
                                                         <ArrowDown className="h-4 w-4" />
                                                     </Button>
-                                                    <Button type="button" variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
-                                                </TableCell>
-                                            </TableRow>
-                                            {isInternalView && (
-                                                <TableRow>
-                                                    <TableCell colSpan={13} className="bg-slate-50/60 px-4 py-3">
-                                                        <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-                                                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                                                                <div>
-                                                                    <div className="text-sm font-semibold text-slate-900">担当者按分</div>
-                                                                    <div className="text-xs text-slate-500">
-                                                                        空き状況集計の土台です。保存時に合計100%へ正規化します。
-                                                                    </div>
-                                                                </div>
-                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                    <Badge variant="outline">入力合計 {formatDecimalForDisplay(sumAssigneeShares(item.assignees))}%</Badge>
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={() => rebalanceLineItemAssignees(item.id)}
-                                                                    >
-                                                                        均等按分
-                                                                    </Button>
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="outline"
-                                                                        size="sm"
-                                                                        onClick={() => addAssigneeToLineItem(item.id)}
-                                                                    >
-                                                                        <PlusCircle className="mr-2 h-4 w-4" />
-                                                                        担当者追加
-                                                                    </Button>
-                                                                </div>
-                                                            </div>
+                                                    <Button type="button" variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            </div>
 
-                                                            {(item.assignees || []).length === 0 ? (
-                                                                <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                                                                    まだ担当者が未設定です。複数人で分担する場合はここで追加してください。
-                                                                </div>
-                                                            ) : (
-                                                                <div className="space-y-2">
-                                                                    {(item.assignees || []).map((assignee) => (
-                                                                        <div key={assignee.id} className="grid gap-2 rounded-md border border-slate-200 px-3 py-3 md:grid-cols-[minmax(0,1fr)_120px_auto] md:items-center">
-                                                                            <UserSearchCombobox
-                                                                                selectedUser={assignee.user_id || assignee.user_name ? {
-                                                                                    id: assignee.user_id,
-                                                                                    name: assignee.user_name || '担当者未設定',
-                                                                                } : null}
-                                                                                onUserChange={(selectedUser) => handleAssigneeSelect(item.id, assignee.id, selectedUser)}
-                                                                                placeholder="担当者を選択..."
-                                                                            />
-                                                                            <div className="flex items-center gap-2">
-                                                                                <Input
-                                                                                    type="number"
-                                                                                    step="0.1"
-                                                                                    min="0"
-                                                                                    max="100"
-                                                                                    value={assignee.share_percent}
-                                                                                    onChange={(e) => handleAssigneeShareChange(item.id, assignee.id, e.target.value)}
-                                                                                    className="text-right"
-                                                                                />
-                                                                                <span className="text-sm text-slate-500">%</span>
-                                                                            </div>
-                                                                            <div className="flex justify-end">
-                                                                                <Button
-                                                                                    type="button"
-                                                                                    variant="ghost"
-                                                                                    size="icon"
-                                                                                    onClick={() => removeAssigneeFromLineItem(item.id, assignee.id)}
-                                                                                >
-                                                                                    <Trash2 className="h-4 w-4" />
-                                                                                </Button>
-                                                                            </div>
-                                                                        </div>
+                                            <div className="space-y-4 p-4">
+                                                <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">品目名</Label>
+                                                        <Select
+                                                            key={`${item.id}-${item.product_id ?? 'none'}`}
+                                                            value={item.product_id != null ? String(item.product_id) : undefined}
+                                                            defaultValue={item.product_id != null ? String(item.product_id) : undefined}
+                                                            onValueChange={(value) => handleProductSelect(item.id, value)}
+                                                        >
+                                                            <SelectTrigger className="w-full">
+                                                                <SelectValue placeholder="品目を選択" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {products.map((product) => (
+                                                                    <SelectItem key={product.id} value={String(product.id)}>
+                                                                        {product.name}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">詳細</Label>
+                                                        <Textarea
+                                                            className="min-h-[112px] w-full resize-y"
+                                                            placeholder="詳細（項目）"
+                                                            value={item.description}
+                                                            onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className={`grid gap-4 ${isInternalView ? 'md:grid-cols-2 xl:grid-cols-6' : 'md:grid-cols-2 xl:grid-cols-5'}`}>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">数量</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="0.1"
+                                                            min="0"
+                                                            inputMode="decimal"
+                                                            value={item.qty}
+                                                            onChange={(e) => handleItemChange(item.id, 'qty', e.target.value)}
+                                                            className="text-right appearance-none"
+                                                            onWheel={(e) => e.currentTarget.blur()}
+                                                            onKeyDown={preventArrowKeyChange}
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">単位 / 数量表示</Label>
+                                                        <div className="space-y-2">
+                                                            <Input
+                                                                value={item.unit}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value.slice(0, 3);
+                                                                    handleItemChange(item.id, 'unit', val);
+                                                                }}
+                                                                maxLength="3"
+                                                            />
+                                                            <Select
+                                                                value={item.display_mode}
+                                                                onValueChange={(value) => handleItemChange(item.id, 'display_mode', value)}
+                                                            >
+                                                                <SelectTrigger className="h-9 text-xs">
+                                                                    <SelectValue placeholder="表示形式" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {displayModeOptions.map((option) => (
+                                                                        <SelectItem key={option.value} value={option.value}>
+                                                                            {option.label}
+                                                                        </SelectItem>
                                                                     ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                            {item.display_mode === 'lump' && (
+                                                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                                                    <Input
+                                                                        type="number"
+                                                                        step="0.1"
+                                                                        value={item.display_qty}
+                                                                        min="0"
+                                                                        inputMode="decimal"
+                                                                        onChange={(e) => handleItemChange(item.id, 'display_qty', e.target.value)}
+                                                                        onKeyDown={preventArrowKeyChange}
+                                                                        className="text-right"
+                                                                    />
+                                                                    <Input
+                                                                        value={item.display_unit}
+                                                                        onChange={(e) => handleItemChange(item.id, 'display_unit', e.target.value.slice(0, 3))}
+                                                                        maxLength="3"
+                                                                    />
                                                                 </div>
                                                             )}
                                                         </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            )}
-                                            </Fragment>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">単価</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="1"
+                                                            min="0"
+                                                            inputMode="numeric"
+                                                            value={item.price}
+                                                            onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
+                                                            className="text-right appearance-none"
+                                                            onWheel={(e) => e.currentTarget.blur()}
+                                                            onKeyDown={preventArrowKeyChange}
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">税区分</Label>
+                                                        <Select
+                                                            value={item.tax_category || 'standard'}
+                                                            onValueChange={(value) => handleItemChange(item.id, 'tax_category', value)}
+                                                        >
+                                                            <SelectTrigger className="w-full">
+                                                                <SelectValue placeholder="税区分" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="standard">標準</SelectItem>
+                                                                <SelectItem value="reduced">軽減</SelectItem>
+                                                                <SelectItem value="exempt">非課税</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+
+                                                    {isInternalView && (
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-medium text-slate-500">原価</Label>
+                                                            <Input
+                                                                type="number"
+                                                                step="1"
+                                                                min="0"
+                                                                inputMode="numeric"
+                                                                value={item.cost}
+                                                                onChange={(e) => handleItemChange(item.id, 'cost', e.target.value)}
+                                                                className="text-right appearance-none"
+                                                                onWheel={(e) => e.currentTarget.blur()}
+                                                                onKeyDown={preventArrowKeyChange}
+                                                            />
+                                                        </div>
+                                                    )}
+
+                                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                                        <div className="text-xs font-medium text-slate-500">集計</div>
+                                                        <div className="mt-2 space-y-1 text-sm">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-slate-500">金額</span>
+                                                                <span className="font-semibold text-slate-900">{calculateAmount(item).toLocaleString()}円</span>
+                                                            </div>
+                                                            {isInternalView && (
+                                                                <>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-slate-500">原価金額</span>
+                                                                        <span className="text-slate-700">{calculateCostAmount(item).toLocaleString()}円</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-slate-500">粗利</span>
+                                                                        <span className="font-semibold text-slate-900">{calculateGrossProfit(item).toLocaleString()}円</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-slate-500">粗利率</span>
+                                                                        <span className="font-semibold text-slate-900">{calculateGrossMargin(item).toFixed(1)}%</span>
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {isInternalView && (
+                                                    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+                                                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                                            <div>
+                                                                <div className="text-sm font-semibold text-slate-900">担当者按分</div>
+                                                                <div className="text-xs text-slate-500">
+                                                                    空き状況集計の土台です。保存時に合計100%へ正規化します。
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <Badge variant="outline">入力合計 {formatDecimalForDisplay(sumAssigneeShares(item.assignees))}%</Badge>
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => rebalanceLineItemAssignees(item.id)}
+                                                                >
+                                                                    均等按分
+                                                                </Button>
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    onClick={() => addAssigneeToLineItem(item.id)}
+                                                                >
+                                                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                                                    担当者追加
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+
+                                                        {(item.assignees || []).length === 0 ? (
+                                                            <div className="rounded-md border border-dashed border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
+                                                                まだ担当者が未設定です。複数人で分担する場合はここで追加してください。
+                                                            </div>
+                                                        ) : (
+                                                            <div className="space-y-2">
+                                                                {(item.assignees || []).map((assignee) => (
+                                                                    <div key={assignee.id} className="grid gap-2 rounded-md border border-slate-200 bg-white px-3 py-3 lg:grid-cols-[minmax(0,1fr)_140px_auto] lg:items-center">
+                                                                        <UserSearchCombobox
+                                                                            selectedUser={assignee.user_id || assignee.user_name ? {
+                                                                                id: assignee.user_id,
+                                                                                name: assignee.user_name || '担当者未設定',
+                                                                            } : null}
+                                                                            onUserChange={(selectedUser) => handleAssigneeSelect(item.id, assignee.id, selectedUser)}
+                                                                            placeholder="担当者を選択..."
+                                                                        />
+                                                                        <div className="flex items-center gap-2">
+                                                                            <Input
+                                                                                type="number"
+                                                                                step="0.1"
+                                                                                min="0"
+                                                                                max="100"
+                                                                                value={assignee.share_percent}
+                                                                                onChange={(e) => handleAssigneeShareChange(item.id, assignee.id, e.target.value)}
+                                                                                className="text-right"
+                                                                            />
+                                                                            <span className="text-sm text-slate-500">%</span>
+                                                                        </div>
+                                                                        <div className="flex justify-end">
+                                                                            <Button
+                                                                                type="button"
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                onClick={() => removeAssigneeFromLineItem(item.id, assignee.id)}
+                                                                            >
+                                                                                <Trash2 className="h-4 w-4" />
+                                                                            </Button>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
                                 <div className="mt-4 flex items-center space-x-2">
                                     <Button type="button" variant="outline" size="sm" onClick={addLineItem}><PlusCircle className="mr-2 h-4 w-4" />行を追加</Button>
                                 </div>
@@ -2362,6 +2562,123 @@ useEffect(() => {
                         </Card>
 
                         <div className="space-y-6">
+                            {isInternalView && (
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>担当者負荷シミュレーション</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                                            <div className="font-medium text-slate-900">{workloadSimulation?.basis?.label ?? '納期月ベース'}</div>
+                                            <div className="mt-1">{workloadSimulation?.basis?.detail ?? '納期月の既存予定工数に、この見積の担当者按分を重ねて確認します。'}</div>
+                                        </div>
+
+                                        <div className="grid gap-3 md:grid-cols-4">
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">対象月</div>
+                                                <div className="mt-1 text-sm font-semibold text-slate-900">
+                                                    {simulationMonthBaseline?.month_label ?? formatMonthLabelFromKey(simulationTargetMonthKey)}
+                                                </div>
+                                            </div>
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">1人あたり月間キャパ</div>
+                                                <div className="mt-1 text-sm font-semibold text-slate-900">{formatPersonDaysDisplay(workloadSimulationCapacityPerPersonDays)}</div>
+                                            </div>
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">この見積の追加工数</div>
+                                                <div className="mt-1 text-sm font-semibold text-slate-900">{formatPersonDaysDisplay(workloadImpact.summary.draft_person_days)}</div>
+                                            </div>
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">未割当工数</div>
+                                                <div className={`mt-1 text-sm font-semibold ${workloadImpact.summary.draft_unassigned_person_days > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+                                                    {formatPersonDaysDisplay(workloadImpact.summary.draft_unassigned_person_days)}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {!simulationTargetMonthKey ? (
+                                            <div className="rounded-md border border-dashed border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+                                                納期日、見積期限日、発行日のいずれかが入ると、対象月の負荷を表示します。
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {(workloadImpact.overloadedRows.length > 0 || workloadImpact.cautionRows.length > 0) && (
+                                                    <div className="grid gap-3 md:grid-cols-2">
+                                                        {workloadImpact.overloadedRows.length > 0 && (
+                                                            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                                                                <div className="text-sm font-semibold text-red-700">過負荷候補</div>
+                                                                <div className="mt-2 space-y-1 text-sm text-red-700">
+                                                                    {workloadImpact.overloadedRows.map((row) => (
+                                                                        <div key={`over-${row.user_key}`} className="flex items-center justify-between gap-2">
+                                                                            <span>{row.name}</span>
+                                                                            <span>{row.simulated_utilization_rate.toFixed(1)}%</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {workloadImpact.cautionRows.length > 0 && (
+                                                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                                                                <div className="text-sm font-semibold text-amber-700">高稼働候補</div>
+                                                                <div className="mt-2 space-y-1 text-sm text-amber-700">
+                                                                    {workloadImpact.cautionRows.map((row) => (
+                                                                        <div key={`warn-${row.user_key}`} className="flex items-center justify-between gap-2">
+                                                                            <span>{row.name}</span>
+                                                                            <span>{row.simulated_utilization_rate.toFixed(1)}%</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                <div className="overflow-x-auto">
+                                                    <Table>
+                                                        <TableHeader>
+                                                            <TableRow>
+                                                                <TableHead>担当者</TableHead>
+                                                                <TableHead className="text-right">既存予定</TableHead>
+                                                                <TableHead className="text-right">この見積</TableHead>
+                                                                <TableHead className="text-right">シミュ後</TableHead>
+                                                                <TableHead className="text-right">残余</TableHead>
+                                                                <TableHead className="text-right">稼働率</TableHead>
+                                                            </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {workloadImpact.rows.length === 0 && (
+                                                                <TableRow>
+                                                                    <TableCell colSpan={6} className="text-slate-500">
+                                                                        対象月の担当者予定はありません。担当者按分を入れるとここに反映されます。
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            )}
+                                                            {workloadImpact.rows.map((row) => (
+                                                                <TableRow key={`sim-${row.user_key}`} className={row.draft_person_days > 0 ? 'bg-indigo-50/40' : ''}>
+                                                                    <TableCell>
+                                                                        <div className="font-medium text-slate-900">{row.name}</div>
+                                                                        {row.draft_person_days > 0 && <div className="text-xs text-indigo-600">この見積で変動</div>}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-right">{formatPersonDaysDisplay(row.baseline_person_days)}</TableCell>
+                                                                    <TableCell className="text-right font-medium text-indigo-700">{formatPersonDaysDisplay(row.draft_person_days)}</TableCell>
+                                                                    <TableCell className="text-right">{formatPersonDaysDisplay(row.simulated_person_days)}</TableCell>
+                                                                    <TableCell className={`text-right ${row.simulated_available_person_days < 0 ? 'text-red-600' : row.simulated_available_person_days <= 2 ? 'text-amber-600' : 'text-slate-900'}`}>
+                                                                        {formatPersonDaysDisplay(row.simulated_available_person_days)}
+                                                                    </TableCell>
+                                                                    <TableCell className={`text-right font-semibold ${row.simulated_utilization_rate > 100 ? 'text-red-600' : row.simulated_utilization_rate >= 85 ? 'text-amber-600' : 'text-slate-900'}`}>
+                                                                        {row.simulated_utilization_rate.toFixed(1)}%
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </div>
+                                            </>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            )}
+
                             <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
                                 {isInternalView && (
                                     <div className="w-full lg:w-2/3">

@@ -16,6 +16,8 @@ export const getStatusColor = (status: string) => {
       return 'bg-green-200 text-green-800';
     case 'rejected':
       return 'bg-red-200 text-red-800';
+    case 'lost':
+      return 'bg-slate-200 text-slate-700';
     default:
       return 'bg-gray-200 text-gray-800';
   }
@@ -31,6 +33,8 @@ export const getStatusText = (status: string) => {
       return '承認済み';
     case 'rejected':
       return '差し戻し';
+    case 'lost':
+      return '失注';
     default:
       return '不明';
   }

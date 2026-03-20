@@ -9,8 +9,12 @@ use App\Models\Partner;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\EstimateItemAssignmentNormalizer;
+use App\Services\EstimateWorkloadSimulationService;
+use App\Services\MarkEstimateLostService;
 use App\Services\MoneyForwardApiService;
 use App\Services\MoneyForwardQuoteSynchronizer;
+use App\Services\QuoteOverdueFollowUpService;
+use App\Services\QuoteOperationsSummaryService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Http\Client\PendingRequest;
@@ -216,7 +220,12 @@ class EstimateController extends Controller
             );
         }
     }
-    public function index(Request $request, MoneyForwardQuoteSynchronizer $quoteSynchronizer)
+    public function index(
+        Request $request,
+        MoneyForwardQuoteSynchronizer $quoteSynchronizer,
+        QuoteOperationsSummaryService $quoteOperationsSummaryService,
+        QuoteOverdueFollowUpService $quoteOverdueFollowUpService
+    )
     {
         $syncStatus = $quoteSynchronizer->syncIfStale($request->user()?->id);
 
@@ -311,6 +320,15 @@ class EstimateController extends Controller
         $maintenanceTargetMonth = $fromMonth ?? $toMonth ?? $currentMonth->format('Y-m');
         $maintenanceMonthCarbon = Carbon::createFromFormat('Y-m', $maintenanceTargetMonth, $timezone) ?: $currentMonth;
         $maintenanceFee = $this->fetchMaintenanceTotal($maintenanceMonthCarbon);
+        $quoteOperationsSummary = $quoteOperationsSummaryService->summarize($timezone);
+        $overduePromptSource = Estimate::query()
+            ->whereNull('mf_deleted_at')
+            ->orderByDesc('issue_date')
+            ->orderByDesc('estimate_number')
+            ->orderByDesc('id')
+            ->get();
+
+        $overdueFollowUpPrompt = $quoteOverdueFollowUpService->findPromptCandidate($overduePromptSource, $timezone);
 
         return Inertia::render('Quotes/Index', [
             'estimates' => $estimates,
@@ -325,6 +343,8 @@ class EstimateController extends Controller
             'customerPortalBase' => rtrim(config('services.customer_portal.base_url', 'https://pm.xerographix.co.jp/customers'), '/'),
             'maintenance_fee_total' => $maintenanceFee,
             'maintenance_month' => $maintenanceMonthCarbon->format('Y-m'),
+            'quoteOperationsSummary' => $quoteOperationsSummary,
+            'overdueFollowUpPrompt' => $overdueFollowUpPrompt,
         ]);
     }
 
@@ -729,11 +749,12 @@ class EstimateController extends Controller
         }
     }
 
-    public function create()
+    public function create(EstimateWorkloadSimulationService $workloadSimulation)
     {
         $products = $this->loadProducts();
         return Inertia::render('Estimates/Create', [
             'products' => $products,
+            'workloadSimulation' => $workloadSimulation->build(),
         ]);
     }
 
@@ -879,7 +900,7 @@ class EstimateController extends Controller
             'staff_id' => 'nullable|integer',
             'staff_name' => 'nullable|string|max:255',
             'approval_flow' => 'nullable|array',
-            'status' => 'nullable|string|in:draft,pending,sent,rejected',
+            'status' => 'nullable|string|in:draft,pending,sent,rejected,lost',
             'is_order_confirmed' => 'sometimes|boolean',
             'requirement_summary' => 'nullable|string|max:4000',
             'structured_requirements' => 'nullable|array',
@@ -997,7 +1018,7 @@ class EstimateController extends Controller
             ->with('approval_success_message', '承認申請を開始しました。');
     }
 
-    public function edit(Estimate $estimate)
+    public function edit(Estimate $estimate, EstimateWorkloadSimulationService $workloadSimulation)
     {
         $products = $this->loadProducts();
         $is_fully_approved = $estimate->status === 'sent';
@@ -1012,6 +1033,10 @@ class EstimateController extends Controller
             'estimate' => $estimate,
             'products' => $products,
             'is_fully_approved' => $is_fully_approved,
+            'workloadSimulation' => $workloadSimulation->build(
+                $estimate,
+                $estimate->delivery_date ?? $estimate->due_date ?? $estimate->issue_date
+            ),
         ]);
     }
 
@@ -1047,7 +1072,7 @@ class EstimateController extends Controller
             'staff_id' => 'nullable|integer',
             'staff_name' => 'nullable|string|max:255',
             'approval_flow' => 'nullable|array',
-            'status' => 'nullable|string|in:draft,pending,sent,rejected',
+            'status' => 'nullable|string|in:draft,pending,sent,rejected,lost',
             'is_order_confirmed' => 'sometimes|boolean',
             'requirement_summary' => 'nullable|string|max:4000',
             'structured_requirements' => 'nullable|array',
@@ -1240,6 +1265,53 @@ class EstimateController extends Controller
         }
 
         return redirect()->back()->with('success', '受注確定を解除しました。');
+    }
+
+    public function markLost(Request $request, Estimate $estimate, MarkEstimateLostService $markEstimateLostService)
+    {
+        if ($estimate->is_order_confirmed) {
+            return redirect()->back()->withErrors(['lost' => '受注確定済みの見積は失注にできません。']);
+        }
+
+        $validated = $request->validate([
+            'lost_reason' => 'required|string|max:100',
+            'lost_note' => 'nullable|string|max:2000',
+            'lost_at' => 'nullable|date',
+        ]);
+
+        $markEstimateLostService->execute($estimate, $validated);
+
+        return redirect()->back()->with('success', '見積を失注として登録しました。');
+    }
+
+    public function acknowledgeOverduePrompt(Estimate $estimate, QuoteOverdueFollowUpService $quoteOverdueFollowUpService)
+    {
+        if ($estimate->status === 'lost' || $estimate->is_order_confirmed) {
+            return response()->json(['ok' => true]);
+        }
+
+        $quoteOverdueFollowUpService->acknowledgePrompt($estimate);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function extendOverdueFollowUp(
+        Request $request,
+        Estimate $estimate,
+        QuoteOverdueFollowUpService $quoteOverdueFollowUpService
+    ) {
+        if ($estimate->status === 'lost' || $estimate->is_order_confirmed) {
+            return redirect()->back()->withErrors(['follow_up' => 'この見積は追跡延長できません。']);
+        }
+
+        $validated = $request->validate([
+            'follow_up_due_date' => 'required|date|after:today',
+            'overdue_decision_note' => 'nullable|string|max:2000',
+        ]);
+
+        $quoteOverdueFollowUpService->extendFollowUp($estimate, $validated);
+
+        return redirect()->back()->with('success', '追跡期限を延長しました。');
     }
 
     public function previewPdf(Request $request)
@@ -2880,7 +2952,7 @@ class EstimateController extends Controller
         return null;
     }
 
-    private function fetchMaintenanceTotal(Carbon $month = null): float
+    private function fetchMaintenanceTotal(?Carbon $month = null): float
     {
         $month = $month ?? Carbon::now();
         $monthKey = $month->copy()->startOfMonth()->toDateString();

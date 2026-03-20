@@ -95,6 +95,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/estimates', [App\Http\Controllers\EstimateController::class, 'store'])->name('estimates.store');
     Route::post('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'update'])->whereNumber('estimate')->name('estimates.update');
     Route::patch('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'update'])->whereNumber('estimate');
+    Route::patch('/estimates/{estimate}/lost', [App\Http\Controllers\EstimateController::class, 'markLost'])->whereNumber('estimate')->name('estimates.markLost');
+    Route::patch('/estimates/{estimate}/overdue-prompt', [App\Http\Controllers\EstimateController::class, 'acknowledgeOverduePrompt'])->whereNumber('estimate')->name('estimates.acknowledgeOverduePrompt');
+    Route::patch('/estimates/{estimate}/follow-up', [App\Http\Controllers\EstimateController::class, 'extendOverdueFollowUp'])->whereNumber('estimate')->name('estimates.extendOverdueFollowUp');
     Route::post('/estimates/{estimate}/order-confirmation', [App\Http\Controllers\EstimateController::class, 'updateOrderConfirmation'])->whereNumber('estimate')->name('estimates.orderConfirmation');
     Route::patch('estimates/{estimate}/cancel', [App\Http\Controllers\EstimateController::class, 'cancel'])->name('estimates.cancel');
     Route::delete('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'destroy'])->whereNumber('estimate')->name('estimates.destroy');
