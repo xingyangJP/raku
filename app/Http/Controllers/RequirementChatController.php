@@ -146,7 +146,7 @@ class RequirementChatController extends Controller
         $systemPrompt = "あなたは要件整理を行うアシスタントです。重要ルール:\n"
             . "1) 入力が不足していれば、最初に確認したい質問リストを箇条書きで提示する。\n"
             . "2) 既知情報だけで仮に整理する場合は「これは仮の前提です」「今後要確認」と明示する。\n"
-            . "3) 出力は指定のMarkdown章立てに沿うこと（AI_ESTIMATE.mdのフォーマット）。\n"
+            . "3) 出力は指定のMarkdown章立てに沿うこと（docs/AI_ESTIMATE.mdのフォーマット）。\n"
             . "Markdownは章立てを守り、各章に不足情報・仮置きを必ず明示してください。";
 
         $messages = array_merge([

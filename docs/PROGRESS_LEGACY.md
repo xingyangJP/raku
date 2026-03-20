@@ -167,7 +167,7 @@
 - `DashboardController@index` でダッシュボード表示直後に取引先同期を自動実行し、結果メッセージを専用プロップ `partnerSyncFlash` で表示。
 - `ProductController@index` で `/products` 表示時に Money Forward の品目 API へ自動差分同期（作成・更新・削除）を実行し、手動同期と共通化。
 - Money Forward API クライアントに `deleteItem` を追加して不要品を削除できるようにした。
-- `README.md` / `README_Dashboard.md` / `README_ITEM_MASTER.md` / `README_MF_Implementation_Points.md` / `RDD.md` を現行仕様へ更新（自動同期・トークン要求スコープ・UI 表示仕様など）。
+- `README.md` / `README_Dashboard.md` / `README_ITEM_MASTER.md` / `README_MF_Implementation_Points.md` / `docs/RDD.md` を現行仕様へ更新（自動同期・トークン要求スコープ・UI 表示仕様など）。
 
 ### 検証
 - `/dashboard` 表示時に OAuth 済みであれば即座に同期メッセージが表示されることを確認予定。
@@ -304,7 +304,7 @@
   - 受注確定時の `xero_project_id` 必須チェックを削除。
   - 未使用の `/api/projects` と `ApiController@getProjects` を削除。
 - バージョン表記 fallback を `v1.0.6` に更新。
-- `MAINTENANCE_FEE.md` に運用説明を追記。
+- `docs/MAINTENANCE_FEE.md` に運用説明を追記。
   - 変動前提での再同期→差分確認→手動修正手順。
   - キーワード `変更前` `変更後` `変更忘れの場合は` `編集モードで` を明記。
 - サイドメニューから「請求・売掛管理」を非表示化。

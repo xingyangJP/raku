@@ -4,18 +4,24 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Models\CompanySetting;
 use App\Models\Estimate;
 use App\Models\Partner;
 use App\Models\Billing;
+use App\Services\ManagementMetricsService;
 use App\Services\MoneyForwardApiService;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class DashboardController extends Controller
 {
-    public function index(Request $request, MoneyForwardApiService $apiService)
+    private const PARTNER_SYNC_COOLDOWN_HOURS = 3;
+    private const PARTNER_SYNC_META_CACHE_KEY = 'dashboard:partner-sync-meta';
+
+    public function index(Request $request, MoneyForwardApiService $apiService, ManagementMetricsService $managementMetrics)
     {
         $user = Auth::user();
 
@@ -135,16 +141,20 @@ class DashboardController extends Controller
             return strtotime($b['issue_date']) - strtotime($a['issue_date']);
         });
 
-        $metrics = $this->buildDashboardMetrics();
+        $selectedYear = $request->filled('year') ? (int) $request->query('year') : null;
+        $selectedMonth = $request->filled('month') ? (int) $request->query('month') : null;
+        $metrics = $managementMetrics->build($selectedYear, $selectedMonth);
         $salesRanking = $this->buildSalesRanking(
             Carbon::parse($metrics['periods']['current']['start']),
             Carbon::parse($metrics['periods']['current']['end'])
         );
+        $partnerSyncMeta = $this->formatPartnerSyncMeta();
 
         return Inertia::render('Dashboard', [
             'toDoEstimates' => $toDoEstimates,
             'partnerSyncStatus' => $partnerSyncStatus,
             'partnerSyncFlash' => $partnerSyncFlash,
+            'partnerSyncMeta' => $partnerSyncMeta,
             'dashboardMetrics' => $metrics,
             'salesRanking' => $salesRanking,
         ]);
@@ -205,6 +215,13 @@ class DashboardController extends Controller
 
     private function attemptAutoPartnerSync(Request $request, MoneyForwardApiService $apiService): array|string|null
     {
+        if ($this->isPartnerAutoSyncCoolingDown()) {
+            return [
+                'status' => 'skipped',
+                'message' => null,
+            ];
+        }
+
         $token = $apiService->getValidAccessToken(null, ['mfc/invoice/data.read', 'mfc/invoice/data.write']);
         if (!$token) {
             $request->session()->put('mf_redirect_action', 'sync_partners');
@@ -251,10 +268,60 @@ class DashboardController extends Controller
             $count++;
         }
 
+        $this->storePartnerSyncMeta($count);
+
         return [
             'status' => 'success',
             'message' => "{$count}件の顧客情報を更新しました",
             'count' => $count,
+        ];
+    }
+
+    private function isPartnerAutoSyncCoolingDown(): bool
+    {
+        $meta = Cache::get(self::PARTNER_SYNC_META_CACHE_KEY);
+        if (!is_array($meta) || empty($meta['cooldown_until'])) {
+            return false;
+        }
+
+        try {
+            return Carbon::parse($meta['cooldown_until'])->isFuture();
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    private function storePartnerSyncMeta(int $count): void
+    {
+        $lastSyncedAt = now();
+        $cooldownUntil = $lastSyncedAt->copy()->addHours(self::PARTNER_SYNC_COOLDOWN_HOURS);
+
+        Cache::forever(self::PARTNER_SYNC_META_CACHE_KEY, [
+            'last_synced_at' => $lastSyncedAt->toIso8601String(),
+            'cooldown_until' => $cooldownUntil->toIso8601String(),
+            'count' => $count,
+        ]);
+    }
+
+    private function formatPartnerSyncMeta(): array
+    {
+        $displayTimezone = config('app.sales_timezone', 'Asia/Tokyo');
+        $meta = Cache::get(self::PARTNER_SYNC_META_CACHE_KEY, []);
+        $lastSyncedAt = !empty($meta['last_synced_at'])
+            ? Carbon::parse($meta['last_synced_at'])->setTimezone($displayTimezone)
+            : null;
+        $cooldownUntil = !empty($meta['cooldown_until'])
+            ? Carbon::parse($meta['cooldown_until'])->setTimezone($displayTimezone)
+            : null;
+
+        return [
+            'cooldown_hours' => self::PARTNER_SYNC_COOLDOWN_HOURS,
+            'last_synced_at' => $lastSyncedAt?->toIso8601String(),
+            'last_synced_at_label' => $lastSyncedAt?->format('Y年n月j日 H:i'),
+            'next_auto_sync_available_at' => $cooldownUntil?->toIso8601String(),
+            'next_auto_sync_available_at_label' => $cooldownUntil?->format('H:i') ? $cooldownUntil->format('H:i') . '以降' : null,
+            'last_count' => (int) ($meta['count'] ?? 0),
+            'is_cooling_down' => $cooldownUntil?->isFuture() ?? false,
         ];
     }
 
@@ -273,8 +340,10 @@ class DashboardController extends Controller
             ->map(fn (int $offset) => $currentStart->copy()->addMonthsNoOverflow($offset)->startOfMonth()->toDateString())
             ->values()
             ->all();
-        $monthlyCapacity = (float) config('app.monthly_capacity_person_days', 160);
+        $monthlyCapacity = CompanySetting::current()->resolveMonthlyCapacityPersonDays();
         $productLookup = $this->buildProductLookup();
+        $effortAssignedTotal = 0.0;
+        $effortUnscheduledTotal = 0.0;
         $monthly = collect($monthKeys)->mapWithKeys(function (string $monthKey) use ($timezone) {
             $month = Carbon::parse($monthKey, $timezone);
             return [
@@ -347,7 +416,18 @@ class DashboardController extends Controller
             $row['budget_purchase_material'] += $materialPurchase;
             $row['budget_purchase_labor'] += $laborPurchase;
             $row['budget_gross_profit'] += $grossProfit;
-            $row['budget_effort'] += $effort;
+            $deliveryAt = $estimate->delivery_date ? Carbon::parse($estimate->delivery_date, $timezone) : null;
+            if ($deliveryAt) {
+                $deliveryMonthKey = $deliveryAt->copy()->startOfMonth()->toDateString();
+                if ($monthly->has($deliveryMonthKey)) {
+                    $deliveryRow = $monthly->get($deliveryMonthKey);
+                    $deliveryRow['budget_effort'] += $effort;
+                    $monthly->put($deliveryMonthKey, $deliveryRow);
+                }
+                $effortAssignedTotal += $effort;
+            } else {
+                $effortUnscheduledTotal += $effort;
+            }
             $row['budget_count'] += 1;
 
             if ((bool) $estimate->is_order_confirmed === true) {
@@ -450,6 +530,7 @@ class DashboardController extends Controller
                 'recognition' => '納期ベース',
                 'recognition_fallback' => '納期未設定時は見積期限日、さらに未設定時は見積日を使用',
                 'effort' => '計画工数（見積ベース）',
+                'effort_rule' => '納期あり見積のみ月次計画工数に配賦（納期未設定は未配賦として別管理）',
             ],
             'capacity' => [
                 'monthly_person_days' => $monthlyCapacity,
@@ -511,7 +592,7 @@ class DashboardController extends Controller
             'effort' => [
                 'source' => [
                     'type' => 'plan_only',
-                    'label' => '日報未連携のため計画工数（見積ベース）のみ表示',
+                    'label' => '計画工数は納期が設定された見積のみを月次集計',
                 ],
                 'current' => [
                     'capacity' => $monthlyCapacity,
@@ -524,6 +605,10 @@ class DashboardController extends Controller
                     'planned' => $previousBudgetEffort,
                     'planned_remaining' => $monthlyCapacity - $previousBudgetEffort,
                     'planned_fill_rate' => $this->calculateRate($previousBudgetEffort, $monthlyCapacity),
+                ],
+                'summary' => [
+                    'assigned_total' => $effortAssignedTotal,
+                    'unscheduled_total' => $effortUnscheduledTotal,
                 ],
             ],
             'cash_flow' => [

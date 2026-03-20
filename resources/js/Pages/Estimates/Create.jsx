@@ -1,6 +1,6 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, useForm, router } from '@inertiajs/react';
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Fragment, useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Button } from '@/Components/ui/button';
 import { Input } from '@/Components/ui/input';
 import { Textarea } from '@/Components/ui/textarea';
@@ -243,7 +243,13 @@ function DepartmentCombobox({ partnerId, selectedDepartment, onDepartmentChange,
     );
 }
 
-function StaffCombobox({ selectedStaff, onStaffChange }) {
+function UserSearchCombobox({
+    selectedUser,
+    onUserChange,
+    placeholder = "担当者を選択...",
+    emptyMessage = "担当者が見つかりません。",
+    className = "w-full justify-between",
+}) {
     const [open, setOpen] = useState(false);
     const [staff, setStaff] = useState([]);
     const [search, setSearch] = useState("");
@@ -267,32 +273,32 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
                     variant="outline"
                     role="combobox"
                     aria-expanded={open}
-                    className="w-full justify-between"
+                    className={className}
                 >
-                    {selectedStaff
-                        ? selectedStaff.name
-                        : "担当者を選択..."}
+                    {selectedUser
+                        ? selectedUser.name
+                        : placeholder}
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-full p-0">
                 <Command>
                     <CommandInput placeholder="担当者を検索..." onValueChange={setSearch} />
-                    <CommandEmpty>担当者が見つかりません。</CommandEmpty>
+                    <CommandEmpty>{emptyMessage}</CommandEmpty>
                     <CommandGroup>
                         {staff.map((s) => (
                             <CommandItem
                                 key={s.id}
                                 value={`${s.name ?? ''} ${s.id ?? ''}`}
                                 onSelect={() => {
-                                    onStaffChange(s);
+                                    onUserChange(s);
                                     setOpen(false);
                                 }}
                             >
                                 <Check
                                     className={cn(
                                         "mr-2 h-4 w-4",
-                                        selectedStaff?.id === s.id ? "opacity-100" : "opacity-0"
+                                        String(selectedUser?.id ?? '') === String(s.id ?? '') ? "opacity-100" : "opacity-0"
                                     )}
                                 />
                                 {s.name}
@@ -303,6 +309,15 @@ function StaffCombobox({ selectedStaff, onStaffChange }) {
             </PopoverContent>
         </Popover>
     )
+}
+
+function StaffCombobox({ selectedStaff, onStaffChange }) {
+    return (
+        <UserSearchCombobox
+            selectedUser={selectedStaff}
+            onUserChange={onStaffChange}
+        />
+    );
 }
 
 // --- Main Component ---
@@ -410,6 +425,63 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
 
     const normalizeDecimalForPayload = (value) => roundToOneDecimal(normalizeNumber(value, 0));
 
+    const createTempAssigneeId = () => `assignee-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const normalizeIncomingAssignees = (assignees = []) => {
+        if (!Array.isArray(assignees)) {
+            return [];
+        }
+
+        return assignees
+            .map((assignee, index) => {
+                const userId = assignee?.user_id ?? assignee?.id ?? null;
+                const userName = String(assignee?.user_name ?? assignee?.name ?? '').trim();
+                const sharePercent = assignee?.share_percent;
+
+                if (userId == null && userName === '') {
+                    return null;
+                }
+
+                return {
+                    id: assignee?.id ?? createTempAssigneeId() + index,
+                    user_id: userId != null && userId !== '' ? String(userId) : null,
+                    user_name: userName,
+                    share_percent: sharePercent === null || sharePercent === undefined || sharePercent === ''
+                        ? ''
+                        : formatDecimalForDisplay(sharePercent),
+                };
+            })
+            .filter(Boolean);
+    };
+
+    const normalizeAssigneesForPayload = (assignees = []) => {
+        if (!Array.isArray(assignees)) {
+            return [];
+        }
+
+        return assignees
+            .map((assignee) => {
+                const userName = String(assignee?.user_name ?? '').trim();
+                const userId = assignee?.user_id;
+                if ((userId === null || userId === undefined || userId === '') && userName === '') {
+                    return null;
+                }
+
+                const sanitizedShare = sanitizeDecimalInput(assignee?.share_percent ?? '');
+
+                return {
+                    user_id: userId != null && userId !== '' ? String(userId) : null,
+                    user_name: userName || null,
+                    share_percent: sanitizedShare === '' ? null : normalizeDecimalForPayload(sanitizedShare),
+                };
+            })
+            .filter(Boolean);
+    };
+
+    const sumAssigneeShares = (assignees = []) => roundToOneDecimal(
+        (assignees || []).reduce((total, assignee) => total + normalizeNumber(assignee?.share_percent, 0), 0)
+    );
+
     const transformIncomingItems = (items = []) => items.map((item, index) => {
         const incomingQty = roundToOneDecimal(normalizeNumber(item.qty ?? item.quantity, 1));
         const incomingDisplayQty = roundToOneDecimal(normalizeNumber(item.display_qty, 1));
@@ -428,6 +500,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
             display_qty: formatDecimalForDisplay(incomingDisplayQty > 0 ? incomingDisplayQty : 1),
             display_unit: item.display_unit ?? '式',
             business_division: item.business_division ?? null,
+            assignees: normalizeIncomingAssignees(item.assignees),
         };
     });
 
@@ -943,6 +1016,7 @@ useEffect(() => {
             display_unit: item.display_mode === 'lump'
                 ? (item.display_unit || '式')
                 : null,
+            assignees: normalizeAssigneesForPayload(item.assignees),
         }));
 
     setData(prevData => ({
@@ -1040,6 +1114,7 @@ useEffect(() => {
                 display_mode: 'calculated',
                 display_qty: '1',
                 display_unit: '式',
+                assignees: [],
             }
         ]);
     };
@@ -1113,6 +1188,99 @@ useEffect(() => {
                 item.id === id ? { ...item, [field]: normalizedValue } : item
             )
         );
+    };
+
+    const addAssigneeToLineItem = (itemId) => {
+        setLineItems((prevItems) => prevItems.map((item) => {
+            if (item.id !== itemId) {
+                return item;
+            }
+
+            return {
+                ...item,
+                assignees: [
+                    ...(Array.isArray(item.assignees) ? item.assignees : []),
+                    {
+                        id: createTempAssigneeId(),
+                        user_id: null,
+                        user_name: '',
+                        share_percent: '',
+                    },
+                ],
+            };
+        }));
+    };
+
+    const updateLineItemAssignee = (itemId, assigneeId, updater) => {
+        setLineItems((prevItems) => prevItems.map((item) => {
+            if (item.id !== itemId) {
+                return item;
+            }
+
+            return {
+                ...item,
+                assignees: (item.assignees || []).map((assignee) => (
+                    assignee.id === assigneeId ? updater(assignee) : assignee
+                )),
+            };
+        }));
+    };
+
+    const removeAssigneeFromLineItem = (itemId, assigneeId) => {
+        setLineItems((prevItems) => prevItems.map((item) => {
+            if (item.id !== itemId) {
+                return item;
+            }
+
+            return {
+                ...item,
+                assignees: (item.assignees || []).filter((assignee) => assignee.id !== assigneeId),
+            };
+        }));
+    };
+
+    const rebalanceLineItemAssignees = (itemId) => {
+        setLineItems((prevItems) => prevItems.map((item) => {
+            if (item.id !== itemId) {
+                return item;
+            }
+
+            const assignees = item.assignees || [];
+            if (assignees.length === 0) {
+                return item;
+            }
+
+            const shareValues = assignees.map((_, index) => {
+                if (index === assignees.length - 1) {
+                    return formatDecimalForDisplay(100 - roundToOneDecimal((100 / assignees.length) * (assignees.length - 1)));
+                }
+                return formatDecimalForDisplay(100 / assignees.length);
+            });
+
+            return {
+                ...item,
+                assignees: assignees.map((assignee, index) => ({
+                    ...assignee,
+                    share_percent: shareValues[index],
+                })),
+            };
+        }));
+    };
+
+    const handleAssigneeSelect = (itemId, assigneeId, selectedUser) => {
+        updateLineItemAssignee(itemId, assigneeId, (assignee) => ({
+            ...assignee,
+            user_id: selectedUser?.id != null ? String(selectedUser.id) : null,
+            user_name: selectedUser?.name ?? '',
+        }));
+    };
+
+    const handleAssigneeShareChange = (itemId, assigneeId, rawValue) => {
+        const sanitized = sanitizeDecimalInput(rawValue);
+        updateLineItemAssignee(itemId, assigneeId, (assignee) => ({
+            ...assignee,
+            share_percent: sanitized,
+        }));
     };
 
     const handleProductSelect = (itemId, productId) => {
@@ -1217,6 +1385,7 @@ useEffect(() => {
             display_qty: '1',
             display_unit: '式',
             business_division: item.business_division ?? null,
+            assignees: normalizeIncomingAssignees(item.assignees),
         };
         });
 
@@ -1945,7 +2114,8 @@ useEffect(() => {
                                     </TableHeader>
                                     <TableBody>
                                         {lineItems.map(item => (
-                                            <TableRow key={item.id}>
+                                            <Fragment key={item.id}>
+                                            <TableRow>
                                                 <TableCell></TableCell>
                                                 <TableCell>
                                                     <Select
@@ -2096,6 +2266,86 @@ useEffect(() => {
                                                     <Button type="button" variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
                                                 </TableCell>
                                             </TableRow>
+                                            {isInternalView && (
+                                                <TableRow>
+                                                    <TableCell colSpan={13} className="bg-slate-50/60 px-4 py-3">
+                                                        <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+                                                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                                                <div>
+                                                                    <div className="text-sm font-semibold text-slate-900">担当者按分</div>
+                                                                    <div className="text-xs text-slate-500">
+                                                                        空き状況集計の土台です。保存時に合計100%へ正規化します。
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <Badge variant="outline">入力合計 {formatDecimalForDisplay(sumAssigneeShares(item.assignees))}%</Badge>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => rebalanceLineItemAssignees(item.id)}
+                                                                    >
+                                                                        均等按分
+                                                                    </Button>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => addAssigneeToLineItem(item.id)}
+                                                                    >
+                                                                        <PlusCircle className="mr-2 h-4 w-4" />
+                                                                        担当者追加
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+
+                                                            {(item.assignees || []).length === 0 ? (
+                                                                <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                                                                    まだ担当者が未設定です。複数人で分担する場合はここで追加してください。
+                                                                </div>
+                                                            ) : (
+                                                                <div className="space-y-2">
+                                                                    {(item.assignees || []).map((assignee) => (
+                                                                        <div key={assignee.id} className="grid gap-2 rounded-md border border-slate-200 px-3 py-3 md:grid-cols-[minmax(0,1fr)_120px_auto] md:items-center">
+                                                                            <UserSearchCombobox
+                                                                                selectedUser={assignee.user_id || assignee.user_name ? {
+                                                                                    id: assignee.user_id,
+                                                                                    name: assignee.user_name || '担当者未設定',
+                                                                                } : null}
+                                                                                onUserChange={(selectedUser) => handleAssigneeSelect(item.id, assignee.id, selectedUser)}
+                                                                                placeholder="担当者を選択..."
+                                                                            />
+                                                                            <div className="flex items-center gap-2">
+                                                                                <Input
+                                                                                    type="number"
+                                                                                    step="0.1"
+                                                                                    min="0"
+                                                                                    max="100"
+                                                                                    value={assignee.share_percent}
+                                                                                    onChange={(e) => handleAssigneeShareChange(item.id, assignee.id, e.target.value)}
+                                                                                    className="text-right"
+                                                                                />
+                                                                                <span className="text-sm text-slate-500">%</span>
+                                                                            </div>
+                                                                            <div className="flex justify-end">
+                                                                                <Button
+                                                                                    type="button"
+                                                                                    variant="ghost"
+                                                                                    size="icon"
+                                                                                    onClick={() => removeAssigneeFromLineItem(item.id, assignee.id)}
+                                                                                >
+                                                                                    <Trash2 className="h-4 w-4" />
+                                                                                </Button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                            </Fragment>
                                         ))}
                                     </TableBody>
                                 </Table>

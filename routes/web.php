@@ -13,6 +13,7 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\RequirementChatController;
 use App\Http\Controllers\SalesAiCoachController;
+use App\Http\Controllers\AdminController;
 
 Route::get('/', function () {
     return redirect()->route('login');
@@ -145,7 +146,8 @@ Route::middleware('auth')->group(function () {
 
     // API routes moved outside auth for login page access
 
-    Route::get('/admin', fn () => Inertia::render('Admin/Index'))->name('admin.index');
+    Route::get('/admin', [AdminController::class, 'index'])->name('admin.index');
+    Route::post('/admin', [AdminController::class, 'update'])->name('admin.update');
 
     // Money Forward partners sync (Dashboard)
     Route::get('/mf/partners/sync', [DashboardController::class, 'syncPartners'])->name('partners.sync');

@@ -66,6 +66,7 @@ return [
     */
 
     'timezone' => 'UTC',
+    'sales_timezone' => env('APP_SALES_TIMEZONE', 'Asia/Tokyo'),
 
     /*
     |--------------------------------------------------------------------------
@@ -136,11 +137,11 @@ return [
         'environments' => ['local', 'testing'],
     ],
 
-    'version' => env('APP_VERSION', 'v1.0.8'),
+    'version' => env('APP_VERSION', 'v1.0.12'),
 
-    'monthly_capacity_person_days' => (float) env('APP_MONTHLY_CAPACITY_PERSON_DAYS', 160),
+    'monthly_capacity_person_days' => (float) env('APP_MONTHLY_CAPACITY_PERSON_DAYS', 80),
     'person_days_per_person_month' => (float) env('APP_PERSON_DAYS_PER_PERSON_MONTH', 20),
     'person_hours_per_person_day' => (float) env('APP_PERSON_HOURS_PER_PERSON_DAY', 8),
-    'labor_cost_per_person_day' => (float) env('APP_LABOR_COST_PER_PERSON_DAY', 0),
+    'labor_cost_per_person_day' => (float) env('APP_LABOR_COST_PER_PERSON_DAY', 22000),
 
 ];

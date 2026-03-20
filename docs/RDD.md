@@ -1,5 +1,7 @@
 # 💼 RAKUSHIRU Cloud UX要件定義書（RDD）
 
+> ステータス: 参考資料（初期のUX要件定義）。最新仕様は各 `README_*.md` と `docs/PROGRESS.md` を優先。
+
 ---
 
 ## 1. プロダクト概要
@@ -185,4 +187,3 @@ RAKUSHIRU Cloud は、**見積・請求業務を Money Forward クラウド請�
 - 日報管理システムとの双方向同期（顧客・担当者・案件情報の統合化）  
 
 ---
-

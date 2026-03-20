@@ -1,0 +1,160 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e5]:
+    - link "ラクシルcloud" [ref=e7] [cursor=pointer]:
+      - /url: /
+      - img [ref=e8] [cursor=pointer]
+      - generic [ref=e10] [cursor=pointer]: ラクシルcloud
+    - navigation [ref=e12]:
+      - link "ダッシュボード" [ref=e13] [cursor=pointer]:
+        - /url: http://localhost:8000/dashboard
+        - img [ref=e14] [cursor=pointer]
+        - text: ダッシュボード
+      - link "見積管理" [ref=e17] [cursor=pointer]:
+        - /url: http://localhost:8000/quotes
+        - img [ref=e18] [cursor=pointer]
+        - text: 見積管理
+      - link "売上管理" [ref=e21] [cursor=pointer]:
+        - /url: http://localhost:8000/sales
+        - img [ref=e22] [cursor=pointer]
+        - text: 売上管理
+      - link "入金管理" [ref=e26] [cursor=pointer]:
+        - /url: http://localhost:8000/deposits
+        - img [ref=e27] [cursor=pointer]
+        - text: 入金管理
+      - link "請求・売掛管理" [ref=e29] [cursor=pointer]:
+        - /url: http://localhost:8000/billing
+        - img [ref=e30] [cursor=pointer]
+        - text: 請求・売掛管理
+      - link "商品管理" [ref=e33] [cursor=pointer]:
+        - /url: http://localhost:8000/products
+        - img [ref=e34] [cursor=pointer]
+        - text: 商品管理
+      - link "各種設定" [ref=e38] [cursor=pointer]:
+        - /url: ""
+        - img [ref=e39] [cursor=pointer]
+        - text: 各種設定
+    - generic [ref=e42]: "Version: v1.0.54"
+  - generic [ref=e43]:
+    - banner [ref=e44]:
+      - generic [ref=e47]:
+        - heading "見積管理" [level=2] [ref=e48]:
+          - img [ref=e49]
+          - text: 見積管理
+        - generic [ref=e52]: "最終更新: 2025/9/14 19:37:19"
+      - button "Toggle user menu" [ref=e53] [cursor=pointer]:
+        - img
+        - generic [ref=e54] [cursor=pointer]: Toggle user menu
+    - main [ref=e55]:
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - generic [ref=e58]:
+            - generic [ref=e59]:
+              - generic [ref=e60]: 総見積金額
+              - img [ref=e62]
+            - generic [ref=e64]:
+              - generic [ref=e65]: ¥330,000
+              - paragraph [ref=e66]:
+                - img [ref=e67]
+                - text: 今月の合計
+          - generic [ref=e71]:
+            - generic [ref=e72]:
+              - generic [ref=e73]: 承認済み
+              - img [ref=e75]
+            - generic [ref=e78]:
+              - generic [ref=e79]: 1件
+              - paragraph [ref=e80]: 全体の 50%
+          - generic [ref=e82]:
+            - generic [ref=e83]:
+              - generic [ref=e84]: ドラフト
+              - img [ref=e86]
+            - generic [ref=e89]:
+              - generic [ref=e90]: 0件
+              - paragraph [ref=e91]: 要対応案件
+          - generic [ref=e93]:
+            - generic [ref=e94]:
+              - generic [ref=e95]: 総件数
+              - img [ref=e97]
+            - generic [ref=e101]:
+              - generic [ref=e102]: 2件
+              - paragraph [ref=e103]: 管理中の見積書
+        - generic [ref=e106]:
+          - heading "検索・フィルタ 見積書の検索と絞り込み" [level=3] [ref=e107]:
+            - button "検索・フィルタ 見積書の検索と絞り込み" [expanded] [ref=e108] [cursor=pointer]:
+              - generic [ref=e109] [cursor=pointer]:
+                - img [ref=e111] [cursor=pointer]
+                - generic [ref=e113] [cursor=pointer]:
+                  - generic [ref=e114] [cursor=pointer]: 検索・フィルタ
+                  - generic [ref=e115] [cursor=pointer]: 見積書の検索と絞り込み
+              - img [ref=e116] [cursor=pointer]
+          - region "検索・フィルタ 見積書の検索と絞り込み" [ref=e118]:
+            - generic [ref=e121]:
+              - textbox "見積番号, 件名, 顧客名..." [ref=e122]
+              - button "検索" [ref=e123] [cursor=pointer]:
+                - img
+                - text: 検索
+        - generic [ref=e124]:
+          - generic [ref=e126]:
+            - generic [ref=e127]:
+              - generic [ref=e128]:
+                - img [ref=e129]
+                - text: 見積一覧
+              - generic [ref=e132]: "全 2 件 | 選択中: 0 件"
+            - generic [ref=e133]:
+              - button "承認申請 (0)" [disabled]:
+                - img
+                - text: 承認申請 (0)
+              - button "担当者付替" [disabled]:
+                - img
+                - text: 担当者付替
+              - link "新規見積" [ref=e134] [cursor=pointer]:
+                - /url: http://localhost:8000/estimates/create
+                - button "新規見積" [ref=e135] [cursor=pointer]:
+                  - img
+                  - text: 新規見積
+          - table [ref=e139]:
+            - rowgroup [ref=e140]:
+              - row "見積番号 件名 顧客名 税込合計 ステータス 自社担当者 操作" [ref=e141]:
+                - cell [ref=e142]:
+                  - checkbox [ref=e143] [cursor=pointer]
+                - cell "見積番号" [ref=e144]
+                - cell "件名" [ref=e145]
+                - cell "顧客名" [ref=e146]
+                - cell "税込合計" [ref=e147]
+                - cell "ステータス" [ref=e148]
+                - cell "自社担当者" [ref=e149]
+                - cell "操作" [ref=e150]
+            - rowgroup [ref=e151]:
+              - row "EST-4-CRM-111-251409-001 開発プロジェクト-001 株式会社ゼログラフィックス ¥110,000 承認待ち KCS湯原" [ref=e152]:
+                - cell [ref=e153]:
+                  - checkbox [ref=e154] [cursor=pointer]
+                - cell "EST-4-CRM-111-251409-001" [ref=e155]
+                - cell "開発プロジェクト-001" [ref=e156]
+                - cell "株式会社ゼログラフィックス" [ref=e157]
+                - cell "¥110,000" [ref=e158]
+                - cell "承認待ち" [ref=e159]:
+                  - generic [ref=e160]:
+                    - img [ref=e161]
+                    - text: 承認待ち
+                - cell "KCS湯原" [ref=e164]
+                - cell [ref=e165]:
+                  - button [ref=e166] [cursor=pointer]:
+                    - img
+              - row "EST-3-CRM-111-251409-001 在庫管理システム保守 1 株式会社ゼログラフィックス ¥220,000 承認済 守部幸洋" [ref=e167]:
+                - cell [ref=e168]:
+                  - checkbox [ref=e169] [cursor=pointer]
+                - cell "EST-3-CRM-111-251409-001" [ref=e170]
+                - cell "在庫管理システム保守 1" [ref=e171]
+                - cell "株式会社ゼログラフィックス" [ref=e172]
+                - cell "¥220,000" [ref=e173]
+                - cell "承認済" [ref=e174]:
+                  - generic [ref=e175]:
+                    - img [ref=e176]
+                    - text: 承認済
+                - cell "守部幸洋" [ref=e179]
+                - cell [ref=e180]:
+                  - button [ref=e181] [cursor=pointer]:
+                    - img
+```

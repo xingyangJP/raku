@@ -11,9 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('estimates', function (Blueprint $table) {
-            $table->date('delivery_date')->nullable()->after('due_date');
-        });
+        if (!Schema::hasColumn('estimates', 'delivery_date')) {
+            Schema::table('estimates', function (Blueprint $table) {
+                $table->date('delivery_date')->nullable()->after('due_date');
+            });
+        }
     }
 
     /**
@@ -21,8 +23,10 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('estimates', function (Blueprint $table) {
-            $table->dropColumn('delivery_date');
-        });
+        if (Schema::hasColumn('estimates', 'delivery_date')) {
+            Schema::table('estimates', function (Blueprint $table) {
+                $table->dropColumn('delivery_date');
+            });
+        }
     }
 };
