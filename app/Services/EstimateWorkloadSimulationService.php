@@ -27,8 +27,9 @@ class EstimateWorkloadSimulationService
             ->all();
 
         $productLookup = $this->buildProductLookup();
-        $capacityPerPersonDays = (float) config('app.person_days_per_person_month', 20.0);
         $staffSetting = CompanySetting::current();
+        $defaultCapacityPerPersonDays = $staffSetting->resolveDefaultCapacityPerPersonDays();
+        $capacityMap = $staffSetting->resolveUserCapacityMap();
 
         $query = Estimate::query()
             ->whereNull('mf_deleted_at')
@@ -112,9 +113,12 @@ class EstimateWorkloadSimulationService
                     }
 
                     if (!isset($buckets[$monthKey]['rows'][$key])) {
+                        $capacityPersonDays = $this->resolveAssigneeCapacityPersonDays($assignee, $capacityMap, $defaultCapacityPerPersonDays);
                         $buckets[$monthKey]['rows'][$key] = [
                             'user_key' => $key,
+                            'user_id' => $assignee['user_id'] ?? null,
                             'name' => $displayName,
+                            'capacity_person_days' => $capacityPersonDays,
                             'planned_person_days' => 0.0,
                             'estimate_ids' => [],
                             'latest_titles' => [],
@@ -134,16 +138,19 @@ class EstimateWorkloadSimulationService
         $months = [];
         foreach ($buckets as $monthKey => $bucket) {
             $rows = collect($bucket['rows'])
-                ->map(function (array $row) use ($capacityPerPersonDays) {
+                ->map(function (array $row) {
                     $plannedPersonDays = round((float) ($row['planned_person_days'] ?? 0), 1);
-                    $availablePersonDays = round($capacityPerPersonDays - $plannedPersonDays, 1);
+                    $capacityPersonDays = round((float) ($row['capacity_person_days'] ?? 0), 1);
+                    $availablePersonDays = round($capacityPersonDays - $plannedPersonDays, 1);
 
                     return [
                         'user_key' => (string) ($row['user_key'] ?? $row['name'] ?? ''),
+                        'user_id' => $row['user_id'] ?? null,
                         'name' => (string) ($row['name'] ?? '未設定担当'),
                         'planned_person_days' => $plannedPersonDays,
+                        'capacity_person_days' => $capacityPersonDays,
                         'available_person_days' => $availablePersonDays,
-                        'utilization_rate' => round($this->calculateRate($plannedPersonDays, $capacityPerPersonDays), 1),
+                        'utilization_rate' => round($this->calculateRate($plannedPersonDays, $capacityPersonDays), 1),
                         'estimate_count' => count($row['estimate_ids'] ?? []),
                         'latest_titles' => array_values($row['latest_titles'] ?? []),
                     ];
@@ -158,7 +165,9 @@ class EstimateWorkloadSimulationService
                 'rows' => $rows,
                 'summary' => [
                     'tracked_people_count' => count($rows),
+                    'capacity_person_days' => round((float) collect($rows)->sum('capacity_person_days'), 1),
                     'planned_person_days' => round((float) collect($rows)->sum('planned_person_days'), 1),
+                    'available_person_days' => round((float) collect($rows)->sum('available_person_days'), 1),
                     'unassigned_person_days' => round((float) ($bucket['unassigned_person_days'] ?? 0), 1),
                     'high_load_count' => collect($rows)->filter(fn (array $row) => ($row['utilization_rate'] ?? 0) >= 85)->count(),
                     'over_capacity_count' => collect($rows)->filter(fn (array $row) => ($row['utilization_rate'] ?? 0) > 100)->count(),
@@ -173,9 +182,28 @@ class EstimateWorkloadSimulationService
             ],
             'reference_year' => (int) $referenceAt->year,
             'staff_count' => $staffSetting->resolveOperationalStaffCount(),
-            'capacity_per_person_days' => round($capacityPerPersonDays, 1),
+            'capacity_per_person_days' => round($defaultCapacityPerPersonDays, 1),
+            'monthly_capacity_person_days' => round($staffSetting->resolveMonthlyCapacityPersonDays(), 1),
             'months' => $months,
         ];
+    }
+
+    private function resolveAssigneeCapacityPersonDays(array $assignee, array $capacityMap, float $defaultCapacityPerPersonDays): float
+    {
+        $userId = isset($assignee['user_id']) && $assignee['user_id'] !== ''
+            ? (string) $assignee['user_id']
+            : null;
+        $userName = trim((string) ($assignee['user_name'] ?? ''));
+
+        if ($userId !== null && isset($capacityMap['by_id'][$userId])) {
+            return (float) $capacityMap['by_id'][$userId];
+        }
+
+        if ($userName !== '' && isset($capacityMap['by_name'][$userName])) {
+            return (float) $capacityMap['by_name'][$userName];
+        }
+
+        return $defaultCapacityPerPersonDays;
     }
 
     private function resolveRecognitionDate(Estimate $estimate, string $timezone): ?Carbon

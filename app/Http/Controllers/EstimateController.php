@@ -274,7 +274,11 @@ class EstimateController extends Controller
         }
 
         if ($status !== '') {
-            $estimatesQuery->where('status', $status);
+            if ($status === 'order_confirmed') {
+                $estimatesQuery->where('is_order_confirmed', true);
+            } else {
+                $estimatesQuery->where('status', $status);
+            }
         }
 
         $estimates = $estimatesQuery->get();
@@ -328,11 +332,10 @@ class EstimateController extends Controller
             ->orderByDesc('id')
             ->get();
 
-        $overdueFollowUpPrompt = $quoteOverdueFollowUpService->findPromptCandidate($overduePromptSource, $timezone);
+        $overdueFollowUpPrompts = $quoteOverdueFollowUpService->findPromptCandidates($overduePromptSource, $timezone);
 
         return Inertia::render('Quotes/Index', [
             'estimates' => $estimates,
-            'products' => $products,
             'products' => $products,
             'syncStatus' => $syncStatus,
             'moneyForwardConfig' => $moneyForwardConfig,
@@ -344,7 +347,7 @@ class EstimateController extends Controller
             'maintenance_fee_total' => $maintenanceFee,
             'maintenance_month' => $maintenanceMonthCarbon->format('Y-m'),
             'quoteOperationsSummary' => $quoteOperationsSummary,
-            'overdueFollowUpPrompt' => $overdueFollowUpPrompt,
+            'overdueFollowUpPrompts' => $overdueFollowUpPrompts,
         ]);
     }
 

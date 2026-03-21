@@ -124,6 +124,10 @@ class EstimateItemAssignmentTest extends TestCase
     public function test_create_page_includes_workload_simulation_context(): void
     {
         $user = User::factory()->create();
+        $assignee = User::factory()->create([
+            'name' => '担当者A',
+            'work_capacity_person_days' => 12,
+        ]);
 
         Estimate::factory()->create([
             'status' => 'pending',
@@ -137,7 +141,7 @@ class EstimateItemAssignmentTest extends TestCase
                     'cost' => 20000,
                     'tax_category' => 'standard',
                     'assignees' => [
-                        ['user_id' => 'u1', 'user_name' => '担当者A', 'share_percent' => 100],
+                        ['user_id' => (string) $assignee->id, 'user_name' => '担当者A', 'share_percent' => 100],
                     ],
                 ],
             ],
@@ -146,14 +150,15 @@ class EstimateItemAssignmentTest extends TestCase
         $response = $this->actingAs($user)->get(route('estimates.create'));
 
         $response->assertOk();
-        $response->assertInertia(function (AssertableInertia $page): void {
+        $response->assertInertia(function (AssertableInertia $page) use ($assignee): void {
             $page->component('Estimates/Create')
-                ->where('workloadSimulation.capacity_per_person_days', 20)
-                ->where('workloadSimulation.months', function ($months) {
-                    return collect($months)->contains(function ($month) {
+                ->where('workloadSimulation.capacity_per_person_days', fn ($value) => (float) $value === 20.0)
+                ->where('workloadSimulation.months', function ($months) use ($assignee) {
+                    return collect($months)->contains(function ($month) use ($assignee) {
                         return ($month['month_key'] ?? null) === '2026-04'
-                            && collect($month['rows'] ?? [])->contains(function ($row) {
-                                return ($row['user_key'] ?? null) === 'u1'
+                            && collect($month['rows'] ?? [])->contains(function ($row) use ($assignee) {
+                                return (string) ($row['user_id'] ?? '') === (string) $assignee->id
+                                    && (float) ($row['capacity_person_days'] ?? 0) === 12.0
                                     && (float) ($row['planned_person_days'] ?? 0) === 5.0;
                             });
                     });
@@ -164,6 +169,10 @@ class EstimateItemAssignmentTest extends TestCase
     public function test_edit_page_workload_simulation_excludes_current_estimate(): void
     {
         $user = User::factory()->create();
+        $assignee = User::factory()->create([
+            'name' => '担当者A',
+            'work_capacity_person_days' => 12,
+        ]);
 
         Estimate::factory()->create([
             'status' => 'pending',
@@ -177,7 +186,7 @@ class EstimateItemAssignmentTest extends TestCase
                     'cost' => 20000,
                     'tax_category' => 'standard',
                     'assignees' => [
-                        ['user_id' => 'u1', 'user_name' => '担当者A', 'share_percent' => 100],
+                        ['user_id' => (string) $assignee->id, 'user_name' => '担当者A', 'share_percent' => 100],
                     ],
                 ],
             ],
@@ -195,7 +204,7 @@ class EstimateItemAssignmentTest extends TestCase
                     'cost' => 10000,
                     'tax_category' => 'standard',
                     'assignees' => [
-                        ['user_id' => 'u1', 'user_name' => '担当者A', 'share_percent' => 100],
+                        ['user_id' => (string) $assignee->id, 'user_name' => '担当者A', 'share_percent' => 100],
                     ],
                 ],
             ],
@@ -204,13 +213,14 @@ class EstimateItemAssignmentTest extends TestCase
         $response = $this->actingAs($user)->get(route('estimates.edit', $currentEstimate));
 
         $response->assertOk();
-        $response->assertInertia(function (AssertableInertia $page): void {
+        $response->assertInertia(function (AssertableInertia $page) use ($assignee): void {
             $page->component('Estimates/Create')
-                ->where('workloadSimulation.months', function ($months) {
-                    return collect($months)->contains(function ($month) {
+                ->where('workloadSimulation.months', function ($months) use ($assignee) {
+                    return collect($months)->contains(function ($month) use ($assignee) {
                         return ($month['month_key'] ?? null) === '2026-04'
-                            && collect($month['rows'] ?? [])->contains(function ($row) {
-                                return ($row['user_key'] ?? null) === 'u1'
+                            && collect($month['rows'] ?? [])->contains(function ($row) use ($assignee) {
+                                return (string) ($row['user_id'] ?? '') === (string) $assignee->id
+                                    && (float) ($row['capacity_person_days'] ?? 0) === 12.0
                                     && (float) ($row['planned_person_days'] ?? 0) === 5.0;
                             });
                     });

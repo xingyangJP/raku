@@ -16,6 +16,8 @@ class QuoteOperationsSummaryService
     {
         $companySetting = CompanySetting::current();
         $monthlyCapacity = (float) $companySetting->resolveMonthlyCapacityPersonDays();
+        $defaultCapacityPerPersonDays = (float) $companySetting->resolveDefaultCapacityPerPersonDays();
+        $personHoursPerPersonDay = (float) config('app.person_hours_per_person_day', 8);
         $currentMonth = Carbon::now($timezone)->startOfMonth();
         $nextMonth = $currentMonth->copy()->addMonth();
 
@@ -32,8 +34,10 @@ class QuoteOperationsSummaryService
         return [
             'staff_count' => $companySetting->resolveOperationalStaffCount(),
             'monthly_capacity_person_days' => $monthlyCapacity,
-            'current_month' => $this->buildMonthSummary($estimates, $productLookups, $currentMonth, $monthlyCapacity),
-            'next_month' => $this->buildMonthSummary($estimates, $productLookups, $nextMonth, $monthlyCapacity),
+            'default_capacity_person_days' => $defaultCapacityPerPersonDays,
+            'person_hours_per_person_day' => $personHoursPerPersonDay,
+            'current_month' => $this->buildMonthSummary($estimates, $productLookups, $currentMonth, $monthlyCapacity, $defaultCapacityPerPersonDays, $personHoursPerPersonDay),
+            'next_month' => $this->buildMonthSummary($estimates, $productLookups, $nextMonth, $monthlyCapacity, $defaultCapacityPerPersonDays, $personHoursPerPersonDay),
         ];
     }
 
@@ -66,7 +70,14 @@ class QuoteOperationsSummaryService
         ];
     }
 
-    private function buildMonthSummary(Collection $estimates, array $productLookups, Carbon $month, float $monthlyCapacity): array
+    private function buildMonthSummary(
+        Collection $estimates,
+        array $productLookups,
+        Carbon $month,
+        float $monthlyCapacity,
+        float $defaultCapacityPerPersonDays,
+        float $personHoursPerPersonDay
+    ): array
     {
         $confirmed = $estimates->filter(function (Estimate $estimate) use ($month) {
             if (!$estimate->is_order_confirmed) {
@@ -77,8 +88,8 @@ class QuoteOperationsSummaryService
             return $scheduledMonth && $scheduledMonth->isSameMonth($month);
         });
 
-        $plannedPersonDays = round($confirmed->sum(fn (Estimate $estimate) => $this->calculateEffort($estimate, $productLookups)), 1);
-        $availablePersonDays = round(max(0, $monthlyCapacity - $plannedPersonDays), 1);
+        $plannedPersonDays = round($confirmed->sum(fn (Estimate $estimate) => $this->calculateEffort($estimate, $productLookups, $defaultCapacityPerPersonDays, $personHoursPerPersonDay)), 1);
+        $availablePersonDays = round($monthlyCapacity - $plannedPersonDays, 1);
         $utilization = $monthlyCapacity > 0
             ? round(($plannedPersonDays / $monthlyCapacity) * 100, 1)
             : 0.0;
@@ -86,6 +97,7 @@ class QuoteOperationsSummaryService
         return [
             'month' => $month->format('Y-m'),
             'label' => $month->format('Y年n月'),
+            'capacity_person_days' => round($monthlyCapacity, 1),
             'planned_person_days' => $plannedPersonDays,
             'available_person_days' => $availablePersonDays,
             'utilization_rate' => $utilization,
@@ -110,18 +122,39 @@ class QuoteOperationsSummaryService
         return null;
     }
 
-    private function calculateEffort(Estimate $estimate, array $productLookups): float
+    private function calculateEffort(
+        Estimate $estimate,
+        array $productLookups,
+        float $defaultCapacityPerPersonDays,
+        float $personHoursPerPersonDay
+    ): float
     {
         $items = is_array($estimate->items) ? $estimate->items : [];
 
-        return round(collect($items)->sum(function ($item) use ($productLookups) {
+        return round(collect($items)->sum(function ($item) use ($productLookups, $defaultCapacityPerPersonDays, $personHoursPerPersonDay) {
             $product = $this->resolveProduct($item, $productLookups);
             if (($product->business_division ?? null) === self::FIRST_BUSINESS_KEY) {
                 return 0;
             }
 
             $quantity = $item['qty'] ?? $item['quantity'] ?? 0;
-            return is_numeric($quantity) ? (float) $quantity : 0;
+            $qty = is_numeric($quantity) ? (float) $quantity : 0.0;
+            if ($qty <= 0) {
+                return 0;
+            }
+
+            $unit = mb_strtolower(trim((string) ($item['unit'] ?? ($product->unit ?? ''))));
+            if ($unit === '' || str_contains($unit, '人日')) {
+                return $qty;
+            }
+            if (str_contains($unit, '人月')) {
+                return $qty * $defaultCapacityPerPersonDays;
+            }
+            if (str_contains($unit, '人時') || str_contains($unit, '時間') || $unit === 'h' || $unit === 'hr') {
+                return $personHoursPerPersonDay > 0 ? ($qty / $personHoursPerPersonDay) : 0;
+            }
+
+            return 0;
         }), 1);
     }
 

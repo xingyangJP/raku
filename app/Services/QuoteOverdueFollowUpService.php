@@ -8,7 +8,7 @@ use Illuminate\Support\Collection;
 
 class QuoteOverdueFollowUpService
 {
-    public function findPromptCandidate(Collection $estimates, string $timezone = 'Asia/Tokyo'): ?Estimate
+    public function findPromptCandidates(Collection $estimates, string $timezone = 'Asia/Tokyo', int $limit = 20): Collection
     {
         $today = Carbon::now($timezone)->startOfDay();
 
@@ -29,11 +29,23 @@ class QuoteOverdueFollowUpService
 
                 return Carbon::parse($estimate->overdue_prompted_at)->lt($today);
             })
-            ->sortBy([
-                fn (Estimate $estimate) => $this->resolveFollowUpDeadline($estimate)?->timestamp ?? PHP_INT_MAX,
-                fn (Estimate $estimate) => $estimate->id,
-            ])
-            ->first();
+            ->sort(function (Estimate $left, Estimate $right) {
+                $leftDeadline = $this->resolveFollowUpDeadline($left)?->timestamp ?? PHP_INT_MAX;
+                $rightDeadline = $this->resolveFollowUpDeadline($right)?->timestamp ?? PHP_INT_MAX;
+
+                if ($leftDeadline === $rightDeadline) {
+                    return $left->id <=> $right->id;
+                }
+
+                return $leftDeadline <=> $rightDeadline;
+            })
+            ->take($limit)
+            ->values();
+    }
+
+    public function findPromptCandidate(Collection $estimates, string $timezone = 'Asia/Tokyo'): ?Estimate
+    {
+        return $this->findPromptCandidates($estimates, $timezone, 1)->first();
     }
 
     public function acknowledgePrompt(Estimate $estimate): Estimate

@@ -346,7 +346,7 @@ export default function Dashboard({
     const defaultSection = dashboardMetrics?.default_section && sections[dashboardMetrics.default_section]
         ? dashboardMetrics.default_section
         : sectionOrder[0] ?? 'overall';
-    const analysis = Array.isArray(dashboardMetrics?.analysis) ? dashboardMetrics.analysis : [];
+    const overallAnalysis = Array.isArray(dashboardMetrics?.analysis) ? dashboardMetrics.analysis : [];
     const currentPeriodLabel = periods?.current?.label ?? '今月';
     const previousPeriodLabel = periods?.previous?.label ?? '先月';
     const previousYearCurrentLabel = periods?.previous_year_current?.label ?? '前年同月';
@@ -776,6 +776,9 @@ export default function Dashboard({
                         const currentCash = section?.cash_flow?.current ?? {};
                         const currentForecast = Array.isArray(section?.forecast?.months) ? section.forecast.months : [];
                         const currentAlerts = Array.isArray(section?.alerts) ? section.alerts : [];
+                        const currentAnalysis = Array.isArray(section?.analysis)
+                            ? section.analysis
+                            : (key === 'overall' ? overallAnalysis : []);
                         const customerRanking = Array.isArray(section?.rankings?.customers) ? section.rankings.customers : [];
                         const staffRanking = Array.isArray(section?.rankings?.staff) ? section.rankings.staff : [];
                         const peoplePayload = section?.people ?? {};
@@ -1030,7 +1033,7 @@ export default function Dashboard({
                                             <CardDescription>先月比と予算差異をもとにしたコメントと注意点</CardDescription>
                                         </CardHeader>
                                         <CardContent className="space-y-3">
-                                            {analysis.map((item, index) => (
+                                            {currentAnalysis.map((item, index) => (
                                                 <div key={`${item.title}-${index}`} className={`rounded-lg border p-3 ${insightTone(item.tone)}`}>
                                                     <div className="text-sm font-semibold text-slate-900">{item.title}</div>
                                                     <div className="mt-1 text-sm text-slate-700">{item.body}</div>
@@ -1042,7 +1045,7 @@ export default function Dashboard({
                                                     <div className="mt-1 text-sm text-slate-700">{item.detail}</div>
                                                 </div>
                                             ))}
-                                            {analysis.length === 0 && currentAlerts.length === 0 && (
+                                            {currentAnalysis.length === 0 && currentAlerts.length === 0 && (
                                                 <div className="text-sm text-slate-500">現時点で強いアラートはありません。</div>
                                             )}
                                         </CardContent>
@@ -1153,9 +1156,9 @@ export default function Dashboard({
                                         <CardContent className="space-y-4">
                                             <div className="grid gap-3 sm:grid-cols-2">
                                                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                                                    <div className="text-xs text-slate-500">把握できている担当者</div>
+                                                    <div className="text-xs text-slate-500">集計対象担当者</div>
                                                     <div className="mt-2 text-2xl font-semibold text-slate-900">{peopleSummary?.tracked_people_count ?? 0}人</div>
-                                                    <div className="mt-1 text-xs text-slate-500">按分が入った明細だけを母数に集計</div>
+                                                    <div className="mt-1 text-xs text-slate-500">個別キャパ設定のある担当者を含めて集計</div>
                                                 </div>
                                                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                                                     <div className="text-xs text-slate-500">未割当工数</div>
@@ -1170,7 +1173,7 @@ export default function Dashboard({
                                                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                                                     <div className="text-xs text-slate-500">まだ空きがある担当者</div>
                                                     <div className="mt-2 text-2xl font-semibold text-emerald-600">{peopleSummary?.available_people_count ?? 0}人</div>
-                                                    <div className="mt-1 text-xs text-slate-500">20人日基準で残余あり</div>
+                                                    <div className="mt-1 text-xs text-slate-500">個別キャパに対して残余あり</div>
                                                 </div>
                                             </div>
                                             <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">

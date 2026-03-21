@@ -11,7 +11,7 @@ import { Checkbox } from '@/Components/ui/checkbox';
 import { Label } from '@/Components/ui/label';
 import { Switch } from '@/Components/ui/switch';
 import { Bar, BarChart, PieChart, Pie, Cell, ResponsiveContainer, XAxis, Tooltip } from 'recharts';
-import { PlusCircle, MinusCircle, Trash2, ArrowUp, ArrowDown, Copy, FileText, Eye, Check, ChevronsUpDown } from 'lucide-react';
+import { PlusCircle, MinusCircle, Trash2, ArrowUp, ArrowDown, Copy, FileText, Eye, Check, ChevronsUpDown, AlertTriangle } from 'lucide-react';
 import { cn } from "@/lib/utils"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/Components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover"
@@ -26,6 +26,7 @@ import {
     calculateLineGrossMargin,
     calculateLineGrossProfit,
 } from '@/lib/estimateCalculations';
+import { buildLegacyDefaultAssigneesForItem, resolveInitialEstimateStaff } from '@/lib/estimateAssignmentFallback';
 import { formatMonthLabelFromKey, toMonthStartKey } from '@/lib/estimateWorkloadSimulation';
 import axios from 'axios';
 
@@ -492,29 +493,68 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         (assignees || []).reduce((total, assignee) => total + normalizeNumber(assignee?.share_percent, 0), 0)
     );
 
-    const transformIncomingItems = (items = []) => items.map((item, index) => {
+    const resolveInitialProductForItem = (item) => {
+        if (item?.product_id != null && item?.product_id !== '') {
+            return products.find((product) => String(product?.id) === String(item.product_id)) ?? null;
+        }
+
+        const itemCode = String(item?.code ?? item?.sku ?? '').trim().toLowerCase();
+        if (itemCode !== '') {
+            const matchedByCode = products.find((product) => String(product?.sku ?? '').trim().toLowerCase() === itemCode);
+            if (matchedByCode) {
+                return matchedByCode;
+            }
+        }
+
+        const itemName = String(item?.name ?? '').trim().toLowerCase();
+        if (itemName !== '') {
+            return products.find((product) => String(product?.name ?? '').trim().toLowerCase() === itemName) ?? null;
+        }
+
+        return null;
+    };
+
+    const transformIncomingItems = (items = [], fallbackStaff = null) => items.map((item, index) => {
         const incomingQty = roundToOneDecimal(normalizeNumber(item.qty ?? item.quantity, 1));
         const incomingDisplayQty = roundToOneDecimal(normalizeNumber(item.display_qty, 1));
+        const resolvedProduct = resolveInitialProductForItem(item);
+        const resolvedProductDivision = item?.business_division ?? resolvedProduct?.business_division ?? null;
+        const resolvedBusinessDivision = item?.business_division
+            ?? resolvedProductDivision
+            ?? null;
+        const incomingAssignees = Array.isArray(item?.assignees) && item.assignees.length > 0
+            ? item.assignees
+            : buildLegacyDefaultAssigneesForItem({
+                ...item,
+                business_division: resolvedBusinessDivision,
+            }, fallbackStaff).map((assignee) => ({
+                id: `${createTempAssigneeId()}-legacy-${index}`,
+                ...assignee,
+            }));
         return {
             id: item.id ?? item.__temp_id ?? Date.now() + index,
-            product_id: item.product_id ?? null,
-            code: item.code ?? item.sku ?? null,
-            name: item.name ?? '',
+            product_id: item.product_id ?? resolvedProduct?.id ?? null,
+            code: item.code ?? item.sku ?? resolvedProduct?.sku ?? null,
+            name: item.name ?? resolvedProduct?.name ?? '',
             description: item.description ?? item.detail ?? '',
             qty: formatDecimalForDisplay(incomingQty > 0 ? incomingQty : 1),
-            unit: item.unit ?? '式',
+            unit: item.unit ?? resolvedProduct?.unit ?? '式',
             price: Math.round(normalizeNumber(item.price, 0)),
             cost: Math.round(normalizeNumber(item.cost, 0)),
-            tax_category: item.tax_category ?? 'standard',
+            tax_category: item.tax_category ?? resolvedProduct?.tax_category ?? 'standard',
             display_mode: item.display_mode ?? 'calculated',
             display_qty: formatDecimalForDisplay(incomingDisplayQty > 0 ? incomingDisplayQty : 1),
             display_unit: item.display_unit ?? '式',
-            business_division: item.business_division ?? null,
-            assignees: normalizeIncomingAssignees(item.assignees),
+            business_division: resolvedBusinessDivision,
+            assignees: normalizeIncomingAssignees(incomingAssignees),
         };
     });
 
-    const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
+    const initialSelectedStaff = useMemo(
+        () => resolveInitialEstimateStaff(estimate),
+        [estimate?.staff_id, estimate?.staff_name]
+    );
+    const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items, initialSelectedStaff));
     const [hasDecimalInput, setHasDecimalInput] = useState(false);
     const displayModeOptions = [
         { value: 'calculated', label: '数量表示' },
@@ -539,10 +579,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [aiDraftPreview, setAiDraftPreview] = useState([]);
     const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
     const [aiNotesSuggestion, setAiNotesSuggestion] = useState('');
-    const [selectedStaff, setSelectedStaff] = useState(() => (estimate?.staff_id && estimate?.staff_name)
-        ? { id: estimate.staff_id, name: estimate.staff_name }
-        : null
-    );
+    const [selectedStaff, setSelectedStaff] = useState(() => initialSelectedStaff);
     const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
     const [approvers, setApprovers] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
     const [selectedDepartment, setSelectedDepartment] = useState(() => (
@@ -666,7 +703,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         google_docs_url: estimate?.google_docs_url || '',
         requirement_summary: estimate?.requirement_summary || '',
         delivery_location: estimate?.delivery_location || '',
-        items: transformIncomingItems(estimate?.items),
+        items: transformIncomingItems(estimate?.items, initialSelectedStaff),
         estimate_number: estimate?.estimate_number || '',
         staff_id: estimate?.staff_id || null,
         staff_name: estimate?.staff_name || (estimate?.staff ? estimate.staff.name : null) || null,
@@ -699,8 +736,8 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [orderConfirmMode, setOrderConfirmMode] = useState('confirm');
 
     useEffect(() => {
-        setLineItems(transformIncomingItems(estimate?.items));
-    }, [estimate?.items]);
+        setLineItems(transformIncomingItems(estimate?.items, initialSelectedStaff));
+    }, [estimate?.items, initialSelectedStaff]);
 
     const clearDraftChatStorage = useCallback(() => {
         if (typeof window !== 'undefined') {
@@ -916,6 +953,9 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         if (!item) {
             return null;
         }
+        if (item.business_division != null && item.business_division !== '') {
+            return item.business_division;
+        }
         if (item.product_id !== undefined && item.product_id !== null) {
             const division = productDivisionMaps.byId.get(Number(item.product_id));
             if (division !== undefined) {
@@ -1078,6 +1118,13 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return toMonthStartKey(candidate);
     }, [data.delivery_date, data.due_date, data.issue_date]);
     const simulationMonthBaseline = simulationTargetMonthKey ? workloadSimulationMonthMap[simulationTargetMonthKey] ?? null : null;
+    const simulationMonthSummary = simulationMonthBaseline?.summary ?? null;
+    const simulationMonthCapacityPersonDays = roundToOneDecimal(
+        normalizeNumber(simulationMonthSummary?.capacity_person_days, workloadSimulation?.monthly_capacity_person_days ?? 0)
+    );
+    const simulationMonthAvailablePersonDays = roundToOneDecimal(
+        normalizeNumber(simulationMonthSummary?.available_person_days, simulationMonthCapacityPersonDays)
+    );
     const workloadImpact = useMemo(() => {
         const baselineRows = Array.isArray(simulationMonthBaseline?.rows) ? simulationMonthBaseline.rows : [];
         const merged = new Map(
@@ -1111,7 +1158,9 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                 const key = assignee.user_id || assignee.user_name || '未設定担当';
                 const existing = merged.get(key) ?? {
                     user_key: key,
+                    user_id: assignee.user_id || null,
                     name: assignee.user_name || key,
+                    capacity_person_days: workloadSimulationCapacityPerPersonDays,
                     baseline_person_days: 0,
                     planned_person_days: 0,
                     estimate_count: 0,
@@ -1120,6 +1169,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                 };
                 existing.draft_person_days = normalizeNumber(existing.draft_person_days, 0) + (personDays * (normalizeNumber(assignee.share_percent, 0) / 100));
                 existing.name = existing.name || assignee.user_name || key;
+                existing.user_id = existing.user_id || assignee.user_id || null;
                 merged.set(key, existing);
             });
         });
@@ -1129,13 +1179,15 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
                 const baselinePersonDays = roundToOneDecimal(normalizeNumber(row.baseline_person_days ?? row.planned_person_days, 0));
                 const addedPersonDays = roundToOneDecimal(normalizeNumber(row.draft_person_days, 0));
                 const simulatedPersonDays = roundToOneDecimal(baselinePersonDays + addedPersonDays);
-                const availablePersonDays = roundToOneDecimal(workloadSimulationCapacityPerPersonDays - simulatedPersonDays);
-                const utilizationRate = workloadSimulationCapacityPerPersonDays > 0
-                    ? roundToOneDecimal((simulatedPersonDays / workloadSimulationCapacityPerPersonDays) * 100)
+                const capacityPersonDays = roundToOneDecimal(normalizeNumber(row.capacity_person_days, workloadSimulationCapacityPerPersonDays));
+                const availablePersonDays = roundToOneDecimal(capacityPersonDays - simulatedPersonDays);
+                const utilizationRate = capacityPersonDays > 0
+                    ? roundToOneDecimal((simulatedPersonDays / capacityPersonDays) * 100)
                     : 0;
 
                 return {
                     ...row,
+                    capacity_person_days: capacityPersonDays,
                     baseline_person_days: baselinePersonDays,
                     draft_person_days: addedPersonDays,
                     simulated_person_days: simulatedPersonDays,
@@ -1163,6 +1215,61 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
             },
         };
     }, [lineItems, simulationMonthBaseline, simulationTargetMonthKey, workloadSimulationCapacityPerPersonDays]);
+
+    const getLineItemAssignmentWarning = (item) => {
+        const division = resolveBusinessDivisionForItem(item);
+        if (division === 'first_business') {
+            return null;
+        }
+
+        const personDays = roundToOneDecimal(toSimulationPersonDays(item));
+        const assignees = normalizeAssigneesForSimulation(item.assignees);
+        if (assignees.length === 0) {
+            return {
+                type: 'missing',
+                person_days: personDays,
+                message: personDays > 0
+                    ? `担当者未設定です。この明細の ${formatPersonDaysDisplay(personDays)} は工数集計に反映されません。`
+                    : '担当者未設定です。第1種以外の明細は担当者按分が必要です。',
+            };
+        }
+
+        const shareTotal = sumAssigneeShares(item.assignees);
+        if (shareTotal <= 0) {
+            return {
+                type: 'share_zero',
+                person_days: personDays,
+                message: personDays > 0
+                    ? `按分割合が未入力です。この明細の ${formatPersonDaysDisplay(personDays)} は担当者負荷へ正しく配分されません。`
+                    : '按分割合が未入力です。第1種以外の明細は担当者按分が必要です。',
+            };
+        }
+
+        return null;
+    };
+
+    const lineItemsAssignmentWarnings = useMemo(() => (
+        lineItems.map((item, index) => ({
+            itemId: item.id,
+            index,
+            warning: getLineItemAssignmentWarning(item),
+        })).filter((entry) => entry.warning)
+    ), [lineItems, workloadSimulationCapacityPerPersonDays, productBusinessDivisionById]);
+
+    const assignmentWarningSummary = useMemo(() => {
+        if (lineItemsAssignmentWarnings.length === 0) {
+            return null;
+        }
+
+        const totalPersonDays = roundToOneDecimal(
+            lineItemsAssignmentWarnings.reduce((sum, entry) => sum + normalizeNumber(entry.warning?.person_days, 0), 0)
+        );
+
+        return {
+            count: lineItemsAssignmentWarnings.length,
+            totalPersonDays,
+        };
+    }, [lineItemsAssignmentWarnings]);
 
 useEffect(() => {
         const payloadItems = lineItems.map(item => ({
@@ -2277,6 +2384,10 @@ useEffect(() => {
                                 <div className="space-y-4">
                                     {lineItems.map((item, index) => (
                                         <div key={item.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                                            {(() => {
+                                                const assignmentRequired = resolveBusinessDivisionForItem(item) !== 'first_business';
+                                                return (
+                                                    <>
                                             <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 md:flex-row md:items-center md:justify-between">
                                                 <div>
                                                     <div className="text-sm font-semibold text-slate-900">明細 {index + 1}</div>
@@ -2476,34 +2587,62 @@ useEffect(() => {
                                                             <div>
                                                                 <div className="text-sm font-semibold text-slate-900">担当者按分</div>
                                                                 <div className="text-xs text-slate-500">
-                                                                    空き状況集計の土台です。保存時に合計100%へ正規化します。
+                                                                    {assignmentRequired
+                                                                        ? '空き状況集計の土台です。保存時に合計100%へ正規化します。'
+                                                                        : '第1種の明細です。仕入れ販売扱いのため担当者設定は不要です。'}
                                                                 </div>
                                                             </div>
-                                                            <div className="flex flex-wrap items-center gap-2">
-                                                                <Badge variant="outline">入力合計 {formatDecimalForDisplay(sumAssigneeShares(item.assignees))}%</Badge>
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => rebalanceLineItemAssignees(item.id)}
-                                                                >
-                                                                    均等按分
-                                                                </Button>
-                                                                <Button
-                                                                    type="button"
-                                                                    variant="outline"
-                                                                    size="sm"
-                                                                    onClick={() => addAssigneeToLineItem(item.id)}
-                                                                >
-                                                                    <PlusCircle className="mr-2 h-4 w-4" />
-                                                                    担当者追加
-                                                                </Button>
-                                                            </div>
+                                                            {assignmentRequired ? (
+                                                                <div className="flex flex-wrap items-center gap-2">
+                                                                    <Badge variant="outline">入力合計 {formatDecimalForDisplay(sumAssigneeShares(item.assignees))}%</Badge>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => rebalanceLineItemAssignees(item.id)}
+                                                                    >
+                                                                        均等按分
+                                                                    </Button>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => addAssigneeToLineItem(item.id)}
+                                                                    >
+                                                                        <PlusCircle className="mr-2 h-4 w-4" />
+                                                                        担当者追加
+                                                                    </Button>
+                                                                </div>
+                                                            ) : (
+                                                                <Badge variant="secondary">担当者設定不要</Badge>
+                                                            )}
                                                         </div>
 
-                                                        {(item.assignees || []).length === 0 ? (
-                                                            <div className="rounded-md border border-dashed border-slate-200 bg-white px-3 py-2 text-sm text-slate-500">
-                                                                まだ担当者が未設定です。複数人で分担する場合はここで追加してください。
+                                                        {assignmentRequired && getLineItemAssignmentWarning(item) && (
+                                                            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800 shadow-sm">
+                                                                <div className="flex items-start gap-2">
+                                                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                                                                    <div>
+                                                                        <div className="font-medium">担当者未設定の警告</div>
+                                                                        <div className="mt-1">{getLineItemAssignmentWarning(item).message}</div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {!assignmentRequired ? (
+                                                            <div className="rounded-md border border-slate-200 bg-white px-3 py-3 text-sm text-slate-600">
+                                                                第1種の明細は工数集計対象外です。担当者を設定しなくても保存できます。
+                                                            </div>
+                                                        ) : (item.assignees || []).length === 0 ? (
+                                                            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800 shadow-sm">
+                                                                <div className="flex items-start gap-2">
+                                                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                                                                    <div>
+                                                                        <div className="font-medium">担当者が未設定です</div>
+                                                                        <div className="mt-1">複数人で分担する場合はここで追加してください。未設定のまま保存すると工数集計に反映されません。</div>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         ) : (
                                                             <div className="space-y-2">
@@ -2546,6 +2685,9 @@ useEffect(() => {
                                                     </div>
                                                 )}
                                             </div>
+                                                    </>
+                                                );
+                                            })()}
                                         </div>
                                     ))}
                                 </div>
@@ -2573,16 +2715,24 @@ useEffect(() => {
                                             <div className="mt-1">{workloadSimulation?.basis?.detail ?? '納期月の既存予定工数に、この見積の担当者按分を重ねて確認します。'}</div>
                                         </div>
 
-                                        <div className="grid gap-3 md:grid-cols-4">
+                                        <div className="grid gap-3 md:grid-cols-5">
                                             <div className="rounded-lg border bg-slate-50 p-3">
                                                 <div className="text-xs text-slate-500">対象月</div>
                                                 <div className="mt-1 text-sm font-semibold text-slate-900">
-                                                    {simulationMonthBaseline?.month_label ?? formatMonthLabelFromKey(simulationTargetMonthKey)}
+                                                    {simulationMonthBaseline?.label ?? formatMonthLabelFromKey(simulationTargetMonthKey)}
                                                 </div>
                                             </div>
                                             <div className="rounded-lg border bg-slate-50 p-3">
-                                                <div className="text-xs text-slate-500">1人あたり月間キャパ</div>
-                                                <div className="mt-1 text-sm font-semibold text-slate-900">{formatPersonDaysDisplay(workloadSimulationCapacityPerPersonDays)}</div>
+                                                <div className="text-xs text-slate-500">対象月の合計キャパ</div>
+                                                <div className="mt-1 text-sm font-semibold text-slate-900">{formatPersonDaysDisplay(simulationMonthCapacityPersonDays)}</div>
+                                                <div className="mt-1 text-xs text-slate-500">ユーザー別に設定した月間キャパの合計です。</div>
+                                            </div>
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">対象月の既存余力</div>
+                                                <div className={`mt-1 text-sm font-semibold ${simulationMonthAvailablePersonDays < 0 ? 'text-red-600' : simulationMonthAvailablePersonDays <= 2 ? 'text-amber-600' : 'text-slate-900'}`}>
+                                                    {formatPersonDaysDisplay(simulationMonthAvailablePersonDays)}
+                                                </div>
+                                                <div className="mt-1 text-xs text-slate-500">既存予定だけを引いた余力です。</div>
                                             </div>
                                             <div className="rounded-lg border bg-slate-50 p-3">
                                                 <div className="text-xs text-slate-500">この見積の追加工数</div>
@@ -2594,6 +2744,10 @@ useEffect(() => {
                                                     {formatPersonDaysDisplay(workloadImpact.summary.draft_unassigned_person_days)}
                                                 </div>
                                             </div>
+                                        </div>
+
+                                        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
+                                            標準1人月: {formatPersonDaysDisplay(workloadSimulationCapacityPerPersonDays)}。個別キャパ未設定の担当者だけ、この標準値を使います。
                                         </div>
 
                                         {!simulationTargetMonthKey ? (
@@ -2638,6 +2792,7 @@ useEffect(() => {
                                                         <TableHeader>
                                                             <TableRow>
                                                                 <TableHead>担当者</TableHead>
+                                                                <TableHead className="text-right">個別キャパ</TableHead>
                                                                 <TableHead className="text-right">既存予定</TableHead>
                                                                 <TableHead className="text-right">この見積</TableHead>
                                                                 <TableHead className="text-right">シミュ後</TableHead>
@@ -2648,7 +2803,7 @@ useEffect(() => {
                                                         <TableBody>
                                                             {workloadImpact.rows.length === 0 && (
                                                                 <TableRow>
-                                                                    <TableCell colSpan={6} className="text-slate-500">
+                                                                    <TableCell colSpan={7} className="text-slate-500">
                                                                         対象月の担当者予定はありません。担当者按分を入れるとここに反映されます。
                                                                     </TableCell>
                                                                 </TableRow>
@@ -2659,6 +2814,7 @@ useEffect(() => {
                                                                         <div className="font-medium text-slate-900">{row.name}</div>
                                                                         {row.draft_person_days > 0 && <div className="text-xs text-indigo-600">この見積で変動</div>}
                                                                     </TableCell>
+                                                                    <TableCell className="text-right">{formatPersonDaysDisplay(row.capacity_person_days)}</TableCell>
                                                                     <TableCell className="text-right">{formatPersonDaysDisplay(row.baseline_person_days)}</TableCell>
                                                                     <TableCell className="text-right font-medium text-indigo-700">{formatPersonDaysDisplay(row.draft_person_days)}</TableCell>
                                                                     <TableCell className="text-right">{formatPersonDaysDisplay(row.simulated_person_days)}</TableCell>
@@ -2935,10 +3091,26 @@ useEffect(() => {
 
                     <div className="mt-6">
                         <Card>
-                            <CardFooter className="flex justify-between items-center py-4">
-                                <div>
+                            <CardFooter className="flex flex-col gap-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="w-full lg:max-w-xl">
+                                    {isInternalView && assignmentWarningSummary && (
+                                        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm">
+                                            <div className="flex items-start gap-2">
+                                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                                                <div>
+                                                    <div className="font-semibold">担当者未設定の明細があります</div>
+                                                    <div className="mt-1">
+                                                        未設定の明細が {assignmentWarningSummary.count} 件あります。合計 {formatPersonDaysDisplay(assignmentWarningSummary.totalPersonDays)} が工数シミュレーションに正しく反映されません。
+                                                    </div>
+                                                    <div className="mt-2 text-xs text-red-800">
+                                                        保存はできますが、誰が空いているか・過負荷かの判断精度が下がります。
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="space-x-2">
+                                <div className="flex flex-wrap justify-end gap-2">
                                     {isEditMode && is_fully_approved && estimate.client_id && !estimate.mf_quote_id && (
                                         <Button type="button" onClick={() => setOpenIssueMFQuoteConfirm(true)}>
                                             マネーフォワードで見積書発行

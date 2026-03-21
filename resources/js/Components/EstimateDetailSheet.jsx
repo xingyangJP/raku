@@ -71,8 +71,17 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
         });
     }, [estimate?.id, estimate?.lost_reason, estimate?.lost_note, estimate?.lost_at]);
 
-    const getStatusBadge = (status) => {
+    const getStatusBadge = (estimate) => {
+        const status = estimate?.status === 'lost'
+            ? 'lost'
+            : (estimate?.is_order_confirmed ? 'order_confirmed' : (estimate?.status || 'draft'));
         const configs = {
+            'order_confirmed': {
+                variant: 'default',
+                className: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+                icon: CheckCircle,
+                label: '受注済'
+            },
             'sent': {
                 variant: 'default',
                 className: 'bg-blue-500 hover:bg-blue-600 text-white',
@@ -254,13 +263,7 @@ export default function EstimateDetailSheet({ estimate, isOpen, onClose }) {
                             </SheetDescription>
                         </div>
                         <div data-testid="status-badge" className="flex items-center gap-2">
-                            {getStatusBadge(estimate.status)}
-                            {estimate.is_order_confirmed && (
-                                <Badge className="flex items-center gap-1 bg-emerald-100 text-emerald-700">
-                                    <CheckCircle className="h-3 w-3" />
-                                    注文確定
-                                </Badge>
-                            )}
+                            {getStatusBadge(estimate)}
                         </div>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">

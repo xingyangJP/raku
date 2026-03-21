@@ -666,3 +666,162 @@
 - 確認:
   - `php -l database/seeders/DatabaseSeeder.php`
   - `php artisan test tests/Feature/DatabaseSeederEnvironmentTest.php tests/Feature/SyncExternalUsersCommandTest.php tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php`
+
+## Step 69: Xserver 開発環境(dev)で DashboardDemoSeeder を実行
+- `dev` へ push 済みのため、Xserver 開発環境 `/home/xero/rakudev` に Seeder が配備済みか確認し、`DashboardDemoSeeder` を明示実行する。
+- 本番 `/home/xero/raku` には触れず、開発環境 DB `xero_rakudev` のみ対象とする。
+- Xserver 開発環境 `/home/xero/rakudev` で `APP_ENV=development`、`DB_DATABASE=xero_rakudev`、`database/seeders/DashboardDemoSeeder.php` 配備済み、デプロイ済みコミット `e9b0ec9` を確認した。つまり Seeder のコードは dev に載っている。
+- 開発環境で `/opt/php-8.2.28-2/bin/php artisan db:seed --class=DashboardDemoSeeder --force` を実行した。
+- 実行後に dev サーバで `demo_like=84`、`source_dashboard_seed=24`、`all_estimates=151`、`staff_count_setting=10` を確認した。これで開発 DB にダッシュボード確認用データが投入済み。
+- 確認:
+  - `ssh xserver 'cd /home/xero/rakudev && grep -E "^(APP_ENV|DB_DATABASE)=" .env && ls database/seeders/DashboardDemoSeeder.php'`
+  - `ssh xserver 'cd /home/xero/rakudev && /opt/php-8.2.28-2/bin/php artisan db:seed --class=DashboardDemoSeeder --force'`
+  - `ssh xserver 'cd /home/xero/rakudev && /opt/php-8.2.28-2/bin/php artisan tinker --execute="..."'`
+
+## Step 70: /quotes の期限超過モーダルを複数件連続処理へ拡張
+- 期限超過が複数ある場合、現状は 1 件だけ返して `後で確認` 後に次候補が見えないため、営業運用として弱い。
+- `/quotes` で候補一覧を受け取り、モーダル内で 1 件ずつ処理しながら次候補へ進める方式へ変更する。残件数表示と `後で確認` 後の即時次候補表示も追加する。
+- `QuoteOverdueFollowUpService` を複数件返却できるよう拡張し、期限超過候補を「古い期限順 → 同日なら id 順」で返すようにした。`findPromptCandidate()` は互換用に先頭1件を返すラッパーへ変更。
+- `/quotes` は `overdueFollowUpPrompts` を受け取り、モーダル内で 1 件処理したら次候補へ進むキュー方式へ変更した。`後で確認` でも次候補へ進み、残件数を表示する。
+- `EstimateLostStatusTest` を更新し、複数の期限超過案件が古い期限順で props に並ぶことを固定した。
+- 当初 `Collection::sortBy([...])` では順序が安定せずテストが落ちたため、比較関数を使う `sort()` に修正して順序保証を明示した。
+- 確認:
+  - `php artisan test tests/Feature/EstimateLostStatusTest.php tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php tests/Feature/DatabaseSeederEnvironmentTest.php tests/Feature/SyncExternalUsersCommandTest.php`
+  - `npm run build`
+  - `tail -n 20 storage/logs/laravel.log`
+
+## Step 71: 期限超過モーダルを営業判断用にブラッシュアップ
+- 現状モーダルは見積番号・顧客名・期限だけで、失注か延長かの判断材料が不足している。
+- `/quotes` の既存 props か追加 props を使い、金額・工数・担当者・承認状態・前回追跡メモ・詳細導線をモーダルへ追加する。
+- `/quotes` の期限超過モーダルに、見積金額・粗利・概算工数のサマリカード、担当者・承認状態・見積日・納期・最終更新の情報、前回追跡メモ、主な明細、詳細シート導線を追加した。
+- 既存の props だけで判断材料を組み立てるため、`Quotes/Index.jsx` 側で明細金額・原価・粗利・工数・承認状態を計算する helper を追加した。追加 API は増やしていない。
+- `後で確認`・`まだ追う`・`失注にする` の既存フローは維持し、判断材料だけを増やした。詳細が必要な案件だけ `詳細シートを開く` で掘り下げられる。
+- 確認:
+  - `php artisan test tests/Feature/EstimateLostStatusTest.php tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php tests/Feature/DatabaseSeederEnvironmentTest.php tests/Feature/SyncExternalUsersCommandTest.php`
+  - `npm run build`
+  - `tail -n 20 storage/logs/laravel.log`
+
+## Step 72: 期限超過モーダルの表示切れを防ぐ
+- 期限超過モーダルは情報量が増えたことで、環境によって上下が切れやすくなっていた。
+- `DialogContent` の幅を広げ、`max-h` と `overflow-y-auto` を追加して、縦方向に溢れた場合でもモーダル内スクロールで確認できるようにした。
+- 失注/延長の操作フローや候補キュー処理は変更していない。
+- 確認:
+  - `php artisan test tests/Feature/EstimateLostStatusTest.php`
+  - `npm run build`
+
+## Step 73: /quotes のステータス表示を受注済・失注込みで整合させる
+- 受注確定しても一覧と詳細のステータス表示が `承認済` のままで、業務上の状態と見た目がずれていた。
+- `is_order_confirmed=true` を表示上の `受注済` として扱う helper を追加し、一覧と詳細シートのステータスバッジを統一した。
+- ステータス絞り込みにも `受注済` を追加し、バックエンドでは `status=order_confirmed` を `is_order_confirmed=true` として扱うようにした。
+- `期限` 列も受注済みは `受注済 / 納期` を優先表示するようにし、失注は従来どおり `失注` ラベルを維持する。
+- 確認:
+  - `php artisan test tests/Feature/EstimateLostStatusTest.php`
+  - `npm run build`
+
+## Step 74: 見積明細の担当者未設定をその場で警告する
+- 見積作成/編集画面では担当者按分が任意のため、未設定のままでも保存できるが、工数シミュレーション精度が下がる。
+- 明細カードの `担当者按分` セクション内に、工数対象なのに担当者未設定または按分割合未入力の明細だけ警告を表示するようにした。
+- 保存ボタンエリアにも全体警告を追加し、未設定明細件数と影響工数をまとめて表示するようにした。保存自体は禁止しない。
+- 警告が弱く見落としやすかったため、明細内警告と保存前警告を薄い赤系の配色に変更して目立たせた。
+- さらに、空状態の `まだ担当者が未設定です` も警告扱いへ寄せ、赤系背景と警告アイコンを付けた。明細内警告・保存前警告にも同じアイコンを追加した。
+- 確認:
+  - `npm run build`
+  - 実機で見積作成/編集画面を開き、担当者未設定時に明細警告と保存前警告が出ることを確認
+
+## Step 75: ユーザー別の月間開発キャパ設定を追加する
+- これまでの工数基準は全員同じ1人月前提だったため、営業や総務のように開発可能工数が異なる人を正しく表現できなかった。
+- `users.work_capacity_person_days` を追加し、ユーザーごとに月間開発キャパを保持できるようにした。未設定ユーザーは従来どおり標準1人月をフォールバックで使う。
+- 設定画面にユーザー別の月間開発キャパ入力欄を追加し、合計キャパと稼働人数は個別設定の合算で計算するようにした。
+- ダッシュボードの担当者別工数と見積の負荷シミュレーションも、各担当者の個別キャパを基準に稼働率と残余を算出するように切り替えた。
+- 確認:
+  - `php artisan test tests/Feature/AdminCapacitySettingsTest.php tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php`
+  - `npm run build`
+- `標準人数設定` は誤解を生むため設定画面から外し、標準1人月の説明だけ残した。実際の月間キャパはユーザー別人日の合計を使う。
+
+## Step 76: local 補助ユーザーを業務UIから除外する
+- local に残す `Codex UI Check` / `Codex Session User` は開発補助用であり、業務上のスタッフ候補や工数母集団に混ぜると誤解を生む。
+- `User::visibleForBusiness()` を追加し、設定画面のキャパ一覧や会社設定の人数・合計キャパ計算から補助ユーザーを除外するようにした。
+- `/api/users` もレスポンス内の同名・同メール補助ユーザーを落とすようにし、担当者候補へ出にくくした。
+- 確認:
+  - `php artisan test tests/Feature/AdminCapacitySettingsTest.php`
+  - `npm run build`
+
+## Step 77: 見積負荷シミュレーションと見積一覧の工数表示を個別キャパ前提へ揃える
+- 見積画面の `担当者負荷シミュレーション` は個別キャパ対応後も `標準月間キャパ` 表示が残っており、対象月の合計キャパや既存余力が見えず整合性が弱かった。
+- 見積画面では `対象月の合計キャパ` と `対象月の既存余力` を追加し、標準1人月は補助説明へ下げた。これで個別キャパ設定との関係が読みやすくなった。
+- `/quotes` の受注ベース工数サマリにも `月間キャパ工数 / 受注工数 / 余力工数(不足工数)` をカード表示し、設定内容が反映されているか一覧画面で確認できるようにした。
+- `QuoteOperationsSummaryService` の工数換算も `人月=標準1人月`、`時間=8時間=1人日`、`第1種品目除外` のルールへ揃え、見積画面と一覧画面の工数計算差を減らした。
+- 確認:
+  - `php artisan test tests/Feature/EstimateLostStatusTest.php tests/Feature/AdminCapacitySettingsTest.php`
+  - `npm run build`
+
+## Step 78: /quotes 上部ブロックの並びを縦構成へ整理する
+- `保存ビュー` と `受注ベース工数の目安` を横並びにしていたため、情報の種類が違う2ブロックを同時に追う必要があり視線移動が多かった。
+- 上部レイアウトを縦積みに変え、`保存ビュー -> 工数判断` の順に読めるようにした。
+- `保存ビュー` は丸ボタン群ではなくカード状のグリッドに変え、ラベル・補足・件数を1ブロックで把握できるようにした。
+- `受注ベース工数の目安` はその下に独立配置し、今月/来月カードの比較をしやすくした。
+- 確認:
+  - `npm run build`
+
+- Step 79 (2026-03-21 13:05 JST)
+  - /quotes 上部の保存ビューを一覧直上へ移設し、横一列の小ボタンへ変更。
+  - 承認待ち/MF未発行/自分担当/期限超過の重複サマリーカードを削除して、フィルタUIへ役割を集約。
+  - build成功、ログに今回変更起因の新規例外なしを確認。
+
+- Step 80 (2026-03-21 13:18 JST)
+  - ダッシュボードの経営分析が全タブで overall 共通内容を表示していたため、区分別 analysis を追加。
+  - overall は全社分析、development/sales/maintenance は区分別の売上・粗利・工数・回収観点へ分離。
+  - DashboardTest に区分別 analysis の回帰確認を追加。
+
+- Step 81 (2026-03-21 13:24 JST)
+  - ダッシュボードの担当者別空き状況が、按分入力済み担当者だけを母集団にしていたため、個別キャパ設定済み担当者も0工数で集計対象へ含めるよう修正。
+  - 表示文言も「20人日基準」から「個別キャパ基準」へ修正。
+  - DashboardTest を更新し、未割当だがキャパ設定済み担当者が空きとして計上されることを固定。
+
+- Step 82 (2026-03-21 13:38 JST)
+  - ダッシュボードの担当者別空き状況は、個別キャパ設定済みで未割当の担当者も集計対象に含める仕様へ統一。
+  - 集計テストは、ログインユーザーを業務UI非表示ユーザーとして作成し、キャパ設定済み担当者3名のみが母集団になることを固定。
+  - DashboardTest と AdminCapacitySettingsTest を再実行し、担当者空き状況の回帰がないことを確認。
+
+- Step 83 (2026-03-21 13:47 JST)
+  - 未割当工数が 0 になっていた原因は、担当者別集計を delivery_date 当月だけに限定していたこと。
+  - 納期未設定でも due_date / issue_date をフォールバックして担当者別集計対象月を決めるよう修正。
+  - DashboardTest に、delivery_date なし・due_date 当月の未割当 2.5人日が `unassigned_person_days` に入る回帰テストを追加。
+
+- Step 84 (2026-03-21 14:02 JST)
+  - 見積編集画面で、旧データの top-level 担当者(staff_id/staff_name)しか入っていない工数明細は、初期表示時に 100% 按分として補完するよう修正。
+  - これにより、既存見積を開いたときに『全部未割当』に見える問題を軽減し、保存時に新しい assignees 形式へ寄せられるようにした。
+  - /quotes の工数注意列には `担当未割当` / `按分未設定` を追加し、トップレベル担当者しかない旧見積も一覧で判別できるようにした。
+  - quoteEffortNotice の JS テストを追加し、未割当・按分未設定・按分済みの判定を固定した。
+
+- Step 85 (2026-03-21 14:18 JST)
+  - 工数対象/担当者必須の判定を『第1種以外は対象』へ修正し、`一式表示` や `式` 単位でも第1種以外なら未割当/按分未設定ラベルが出るように統一。
+  - 旧見積の top-level 担当者補完も単位判定をやめ、第1種以外の明細なら 100% 按分候補として初期表示するよう修正。
+  - 商品編集画面は、商品分類マスタが空のときに原因が分かる警告を表示し、分類セレクトを無効化して `+` から追加すべきことを明示した。
+
+- Step 86 (2026-03-21 14:28 JST)
+  - local DB の `categories` が空だったため、商品管理の分類プルダウンが実質使えない状態だった。
+  - local に `コンサル(A) / 開発(B) / 設計(C) / 管理(D) / ハードウェア(E) / サプライ(F) / ライセンス(G)` を既存の英字自動採番ルールに沿って投入した。
+  - これで local の商品編集/作成画面で商品分類を選択できる前提データが揃った。
+
+- Step 87 (2026-03-21 14:34 JST)
+  - 既存見積の明細で `product_id` が空でも `code/name` から既存商品を解決し、見積編集画面の品目プルダウンに選択状態が出るよう補完を追加。
+  - `EST-9-110-261103-001` のように `A-001/B-001/C-001/B-002` だけ保持している旧明細でも、local の商品マスタに紐付いて表示される前提へ修正。
+
+- Step 88 (2026-03-21 14:40 JST)
+  - 見積編集画面の担当者按分UIで、第1種明細でも空の按分ブロックが赤警告表示されていたため、レンダリング条件を修正。
+  - 第1種は `担当者設定不要` バッジと案内文だけを表示し、赤警告・担当者追加操作は出さないようにした。
+
+- Step 89 (2026-03-21 14:48 JST)
+  - local DB の `categories` が空で商品編集画面の分類選択が使えなかったため、`CategorySeeder` を local で実行。
+  - 既存の自動採番ルールどおり `コンサル(A) / 開発(B) / 設計(C) / 管理(D) / ハードウェア(E) / サプライ(F) / ライセンス(G)` の 7 件が投入されたことを確認。
+
+- Step 90 (2026-03-21 14:56 JST)
+  - 見積編集画面で第1種商品を選んでも担当者未設定警告が残る不具合を修正。
+  - 原因は事業区分判定が `item.business_division` を見ず、商品マスタ逆引きだけに依存していたこと。
+  - 明細自身の `business_division` を最優先で使うようにし、第1種は即座に `担当者設定不要` 表示へ切り替わるようにした。
+
+- Step 91 (2026-03-21 15:20 JST)
+  - `/help` を旧仕様の静的説明から全面刷新し、最新版ルールに合わせた 2 層構成へ置き換えた。
+  - 上部にクイックリンクと重要変更カード、本文はダッシュボード / 見積作成・編集 / 見積一覧 / 商品管理 / MF連携のセクション別アコーディオンへ再構成。
+  - 第1種/第5種、担当者按分、個別キャパ、失注/追跡期限、事業区分分析統合など直近の仕様変更をヘルプへ同期した。

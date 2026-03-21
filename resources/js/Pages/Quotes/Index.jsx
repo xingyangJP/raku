@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog';
 import SyncButton from '@/Components/SyncButton';
 import EstimateDetailSheet from '@/Components/EstimateDetailSheet';
+import { calculateQuoteItemEffortPersonDays, resolveEstimateAssignmentStatus } from '@/lib/quoteEffortNotice';
 
 const computeDefaultQuoteMonth = (value) => {
     if (value) return value;
@@ -69,6 +70,16 @@ const isPastDate = (value) => {
 
 const resolveDeadlineDate = (estimate) => estimate?.follow_up_due_date ?? estimate?.due_date ?? null;
 
+const resolveEstimateDisplayStatus = (estimate) => {
+    if (estimate?.status === 'lost') {
+        return 'lost';
+    }
+    if (estimate?.is_order_confirmed) {
+        return 'order_confirmed';
+    }
+    return estimate?.status || 'draft';
+};
+
 const filterEstimatesList = (source, filters, options = {}) => {
     let temp = [...source];
 
@@ -104,7 +115,7 @@ const filterEstimatesList = (source, filters, options = {}) => {
     }
 
     if (filters.status) {
-        temp = temp.filter((e) => (e.status || '') === filters.status);
+        temp = temp.filter((e) => resolveEstimateDisplayStatus(e) === filters.status);
     }
 
     switch (filters.quickView) {
@@ -165,7 +176,12 @@ const parseEstimateId = (value) => {
 export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncStatus, error, defaultRange, initialFilters, focusEstimateId, customerPortalBase }) {
     const { props } = usePage();
     const quoteOperationsSummary = useMemo(() => props.quoteOperationsSummary ?? null, [props.quoteOperationsSummary]);
-    const overdueFollowUpPrompt = useMemo(() => props.overdueFollowUpPrompt ?? null, [props.overdueFollowUpPrompt]);
+    const defaultCapacityPerPersonDays = Number(quoteOperationsSummary?.default_capacity_person_days ?? 20);
+    const personHoursPerPersonDay = Number(quoteOperationsSummary?.person_hours_per_person_day ?? 8);
+    const overdueFollowUpPrompts = useMemo(
+        () => Array.isArray(props.overdueFollowUpPrompts) ? props.overdueFollowUpPrompts : [],
+        [props.overdueFollowUpPrompts]
+    );
     const products = useMemo(() => Array.isArray(props.products) ? props.products : [], [props.products]);
     const productLookups = useMemo(() => {
         const skuMap = new Map();
@@ -202,6 +218,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
     const [isOverduePromptOpen, setIsOverduePromptOpen] = useState(false);
     const [isSubmittingFollowUp, setIsSubmittingFollowUp] = useState(false);
     const [overdueDecision, setOverdueDecision] = useState('still_pursuing');
+    const [overduePromptQueue, setOverduePromptQueue] = useState([]);
     const [followUpForm, setFollowUpForm] = useState({
         follow_up_due_date: '',
         overdue_decision_note: '',
@@ -303,8 +320,19 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         }
     }, [props.flash]);
 
+    const currentOverduePrompt = overduePromptQueue[0] ?? null;
+    const remainingOverduePromptCount = Math.max(overduePromptQueue.length - 1, 0);
+
+    const moveToNextOverduePrompt = () => {
+        setOverduePromptQueue((prev) => prev.slice(1));
+    };
+
     useEffect(() => {
-        if (!overdueFollowUpPrompt?.id) {
+        setOverduePromptQueue(overdueFollowUpPrompts);
+    }, [overdueFollowUpPrompts]);
+
+    useEffect(() => {
+        if (!currentOverduePrompt?.id) {
             setIsOverduePromptOpen(false);
             return;
         }
@@ -316,23 +344,30 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         })();
 
         setFollowUpForm({
-            follow_up_due_date: overdueFollowUpPrompt.follow_up_due_date
-                ? String(overdueFollowUpPrompt.follow_up_due_date).slice(0, 10)
+            follow_up_due_date: currentOverduePrompt.follow_up_due_date
+                ? String(currentOverduePrompt.follow_up_due_date).slice(0, 10)
                 : baseDate,
-            overdue_decision_note: overdueFollowUpPrompt.overdue_decision_note ?? '',
+            overdue_decision_note: currentOverduePrompt.overdue_decision_note ?? '',
             lost_reason: '',
             lost_note: '',
         });
         setOverdueDecision('still_pursuing');
         setIsOverduePromptOpen(true);
 
-        axios.patch(route('estimates.acknowledgeOverduePrompt', overdueFollowUpPrompt.id)).catch(() => {
+        axios.patch(route('estimates.acknowledgeOverduePrompt', currentOverduePrompt.id)).catch(() => {
             // same-day再表示抑止なので、失敗しても画面は継続させる
         });
-    }, [overdueFollowUpPrompt]);
+    }, [currentOverduePrompt]);
 
-    const getStatusBadge = (status) => {
+    const getStatusBadge = (estimate) => {
+        const status = resolveEstimateDisplayStatus(estimate);
         const configs = {
+            'order_confirmed': {
+                variant: 'default',
+                className: 'bg-emerald-600 hover:bg-emerald-700 text-white',
+                icon: CheckCircle,
+                label: '受注済'
+            },
             'sent': { 
                 variant: 'default', 
                 className: 'bg-blue-500 hover:bg-blue-600 text-white', 
@@ -421,6 +456,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         const amount = calculateAmount(item);
         return amount !== 0 ? (calculateGrossProfit(item) / amount) * 100 : 0;
     };
+    const formatCurrency = (value) => `¥${Math.round(toNumber(value, 0)).toLocaleString('ja-JP')}`;
     const formatIssueDate = (value) => {
         if (!value) return '—';
         if (typeof value === 'string') {
@@ -461,6 +497,56 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         }
         return null;
     };
+
+    const getEstimateItems = (estimate) => Array.isArray(estimate?.items) ? estimate.items : [];
+
+    const calculateEstimateCostAmount = (estimate) => getEstimateItems(estimate).reduce(
+        (sum, item) => sum + calculateCostAmount(item),
+        0
+    );
+
+    const calculateEstimateGrossAmount = (estimate) => toNumber(estimate?.total_amount, 0) - calculateEstimateCostAmount(estimate);
+
+    const calculateEstimateEffortPersonDays = (estimate) => getEstimateItems(estimate).reduce((sum, item) => (
+        sum + calculateQuoteItemEffortPersonDays(item, {
+            defaultCapacityPerPersonDays,
+            personHoursPerPersonDay,
+            resolveProduct: resolveProductForItem,
+        })
+    ), 0);
+
+    const getApprovalSummary = (estimate) => {
+        const status = estimate?.status ?? '';
+        if (status === 'lost') {
+            return '失注';
+        }
+        if (status === 'sent') {
+            return '承認済';
+        }
+        if (status === 'draft') {
+            return 'ドラフト';
+        }
+        if (status === 'rejected') {
+            return '却下';
+        }
+
+        const flow = Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : [];
+        const pendingNames = flow
+            .filter((step) => !step?.approved_at && !step?.rejected_at && !step?.approved && !step?.rejected)
+            .map((step) => step?.name)
+            .filter(Boolean);
+
+        if (pendingNames.length > 0) {
+            return `承認待ち: ${pendingNames.join(' / ')}`;
+        }
+
+        return status === 'pending' ? '承認待ち' : '未設定';
+    };
+
+    const getEstimateItemLabels = (estimate) => getEstimateItems(estimate)
+        .map((item) => item?.summary || item?.name || item?.product_name)
+        .filter(Boolean)
+        .slice(0, 3);
 
     // approval history is rendered from estimate.approval_flow in the detail view
 
@@ -558,41 +644,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         { key: 'lost', label: '失注', helper: `${lostCount}件` },
         { key: 'attention', label: '要フォロー', helper: `${attentionCount}件` },
     ];
-
-    const operationCards = [
-        {
-            key: 'pending',
-            title: '承認待ち',
-            value: `${pendingCount}件`,
-            helper: '先に処理すべき見積',
-            icon: Clock,
-            accent: 'amber',
-        },
-        {
-            key: 'mf_pending',
-            title: 'MF未発行',
-            value: `${mfPendingCount}件`,
-            helper: '承認済だが未発行',
-            icon: FileText,
-            accent: 'blue',
-        },
-        {
-            key: 'mine',
-            title: '自分担当',
-            value: `${myEstimateCount}件`,
-            helper: `${auth?.user?.name ?? '担当者'}が持つ案件`,
-            icon: Target,
-            accent: 'violet',
-        },
-        {
-            key: 'overdue',
-            title: '期限超過',
-            value: `${overdueCount}件`,
-            helper: '未受注の要確認案件',
-            icon: AlertCircle,
-            accent: 'rose',
-        },
-    ];
+    const formatPersonDays = (value) => `${Number(value ?? 0).toFixed(1)}人日`;
 
     const workloadCards = [
         {
@@ -627,6 +679,24 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
             return {
                 label: '失注',
                 className: 'bg-slate-50 text-slate-600 border border-slate-200',
+            };
+        }
+
+        const assignmentStatus = resolveEstimateAssignmentStatus(estimate, {
+            defaultCapacityPerPersonDays,
+            personHoursPerPersonDay,
+            resolveProduct: resolveProductForItem,
+        });
+        if (assignmentStatus?.key === 'unassigned') {
+            return {
+                label: assignmentStatus.label,
+                className: 'bg-red-50 text-red-700 border border-red-200',
+            };
+        }
+        if (assignmentStatus?.key) {
+            return {
+                label: assignmentStatus.label,
+                className: 'bg-amber-50 text-amber-800 border border-amber-200',
             };
         }
 
@@ -677,6 +747,14 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
             };
         }
 
+        if (estimate?.is_order_confirmed) {
+            return {
+                label: '受注済',
+                helper: estimate?.delivery_date ? `納期 ${formatIssueDate(estimate.delivery_date)}` : '受注確定済み',
+                className: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+            };
+        }
+
         const deadline = resolveDeadlineDate(estimate);
         if (!deadline) {
             return {
@@ -702,7 +780,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
     };
 
     const handleOverdueDecisionSubmit = () => {
-        if (!overdueFollowUpPrompt?.id) {
+        if (!currentOverduePrompt?.id) {
             return;
         }
 
@@ -713,14 +791,14 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
             }
 
             setIsSubmittingFollowUp(true);
-            router.patch(route('estimates.markLost', overdueFollowUpPrompt.id), {
+            router.patch(route('estimates.markLost', currentOverduePrompt.id), {
                 lost_reason: followUpForm.lost_reason,
                 lost_note: followUpForm.lost_note,
                 lost_at: new Date().toISOString().slice(0, 10),
             }, {
                 preserveScroll: true,
                 onFinish: () => setIsSubmittingFollowUp(false),
-                onSuccess: () => setIsOverduePromptOpen(false),
+                onSuccess: () => moveToNextOverduePrompt(),
             });
             return;
         }
@@ -731,13 +809,13 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         }
 
         setIsSubmittingFollowUp(true);
-        router.patch(route('estimates.extendOverdueFollowUp', overdueFollowUpPrompt.id), {
+        router.patch(route('estimates.extendOverdueFollowUp', currentOverduePrompt.id), {
             follow_up_due_date: followUpForm.follow_up_due_date,
             overdue_decision_note: followUpForm.overdue_decision_note,
         }, {
             preserveScroll: true,
             onFinish: () => setIsSubmittingFollowUp(false),
-            onSuccess: () => setIsOverduePromptOpen(false),
+            onSuccess: () => moveToNextOverduePrompt(),
         });
     };
 
@@ -780,18 +858,78 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                 </DialogContent>
             </Dialog>
             <Dialog open={isOverduePromptOpen} onOpenChange={setIsOverduePromptOpen}>
-                <DialogContent>
+                <DialogContent className="w-[min(96vw,980px)] max-w-[980px] max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>期限超過の見積があります</DialogTitle>
                         <DialogDescription>
-                            {overdueFollowUpPrompt?.title ?? '見積案件'} が期限を過ぎています。失注にするか、まだ追うかを選んでください。
+                            {currentOverduePrompt?.title ?? '見積案件'} が期限を過ぎています。失注にするか、まだ追うかを選んでください。
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
+                        <div className="flex items-center justify-between text-xs text-slate-500">
+                            <span>{overduePromptQueue.length}件の期限超過案件を順に確認します。</span>
+                            <span>残り {remainingOverduePromptCount} 件</span>
+                        </div>
                         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                            <div>見積番号: {overdueFollowUpPrompt?.estimate_number ?? '—'}</div>
-                            <div>顧客名: {overdueFollowUpPrompt?.customer_name ?? '—'}</div>
-                            <div>現在の期限: {resolveDeadlineDate(overdueFollowUpPrompt) ? formatIssueDate(resolveDeadlineDate(overdueFollowUpPrompt)) : '未設定'}</div>
+                            <div>見積番号: {currentOverduePrompt?.estimate_number ?? '—'}</div>
+                            <div>顧客名: {currentOverduePrompt?.customer_name ?? '—'}</div>
+                            <div>現在の期限: {resolveDeadlineDate(currentOverduePrompt) ? formatIssueDate(resolveDeadlineDate(currentOverduePrompt)) : '未設定'}</div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-3">
+                            <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="text-xs text-slate-500">見積金額</div>
+                                <div className="mt-1 text-lg font-semibold text-slate-900">{formatCurrency(currentOverduePrompt?.total_amount)}</div>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="text-xs text-slate-500">粗利</div>
+                                <div className="mt-1 text-lg font-semibold text-slate-900">{formatCurrency(calculateEstimateGrossAmount(currentOverduePrompt))}</div>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="text-xs text-slate-500">概算工数</div>
+                                <div className="mt-1 text-lg font-semibold text-slate-900">{calculateEstimateEffortPersonDays(currentOverduePrompt).toFixed(1)} 人日</div>
+                            </div>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                            <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                                <div className="text-xs text-slate-500">担当 / 承認 / 日付</div>
+                                <div className="mt-2 space-y-1">
+                                    <div>担当者: {currentOverduePrompt?.staff_name || '未設定'}</div>
+                                    <div>承認状態: {getApprovalSummary(currentOverduePrompt)}</div>
+                                    <div>見積日: {formatIssueDate(currentOverduePrompt?.issue_date)}</div>
+                                    <div>納期: {formatIssueDate(currentOverduePrompt?.delivery_date)}</div>
+                                    <div>最終更新: {formatIssueDate(currentOverduePrompt?.updated_at)}</div>
+                                </div>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="text-xs text-slate-500">前回追跡メモ / 主な明細</div>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                            setActiveDetailId(currentOverduePrompt?.id ?? null);
+                                            setIsOverduePromptOpen(false);
+                                        }}
+                                    >
+                                        詳細シートを開く
+                                    </Button>
+                                </div>
+                                <div className="mt-2 rounded border border-slate-100 bg-slate-50 p-2 text-xs text-slate-600">
+                                    {currentOverduePrompt?.overdue_decision_note?.trim() || '前回メモは未記録'}
+                                </div>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    {getEstimateItemLabels(currentOverduePrompt).length > 0 ? (
+                                        getEstimateItemLabels(currentOverduePrompt).map((label) => (
+                                            <Badge key={label} variant="outline" className="bg-white text-slate-700">
+                                                {label}
+                                            </Badge>
+                                        ))
+                                    ) : (
+                                        <span className="text-xs text-slate-500">主な明細は未設定</span>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                         <div className="grid gap-2 sm:grid-cols-2">
                             <button
@@ -873,7 +1011,14 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                         )}
                     </div>
                     <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setIsOverduePromptOpen(false)}>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setIsOverduePromptOpen(false);
+                                moveToNextOverduePrompt();
+                            }}
+                        >
                             後で確認
                         </Button>
                         <Button type="button" onClick={handleOverdueDecisionSubmit} disabled={isSubmittingFollowUp}>
@@ -958,100 +1103,66 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                     </CardContent>
                 </Card>
 
-                <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-                    <Card className="border-slate-200 shadow-sm">
-                        <CardHeader className="pb-3">
-                            <CardTitle className="text-base">保存ビュー</CardTitle>
-                            <CardDescription>実務でよく使う条件をワンクリックで切り替えます。</CardDescription>
-                        </CardHeader>
-                        <CardContent className="flex flex-wrap gap-2">
-                            {quickViews.map((view) => {
-                                const active = filters.quickView === view.key;
-                                return (
-                                    <button
-                                        key={view.key}
-                                        type="button"
-                                        onClick={() => applyQuickView(view.key)}
-                                        className={cn(
-                                            'rounded-full border px-4 py-2 text-left transition',
-                                            active
-                                                ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
-                                                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
-                                        )}
-                                    >
-                                        <div className="text-sm font-semibold">{view.label}</div>
-                                        <div className={cn('text-xs', active ? 'text-blue-100' : 'text-slate-500')}>
-                                            {view.helper}
-                                        </div>
-                                    </button>
-                                );
-                            })}
-                        </CardContent>
-                    </Card>
-
-                    <Card className="border-slate-200 shadow-sm">
+                <div className="space-y-4">                    <Card className="border-slate-200 shadow-sm">
                         <CardHeader className="pb-3">
                             <CardTitle className="text-base">受注ベース工数の目安</CardTitle>
                             <CardDescription>
-                                予算ではなく、注文確定済み案件の工数で今月・来月の余力を判断します。
+                                予算ではなく、注文確定済み案件の工数で今月・来月の余力を判断します。月間キャパはユーザー別設定の合計です。
                             </CardDescription>
                         </CardHeader>
-                        <CardContent className="grid gap-3 sm:grid-cols-2">
-                            {workloadCards.map(({ key, title, summary }) => {
-                                const meta = getWorkloadStatusMeta(summary?.status);
-                                return (
-                                    <div key={key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                                        <div className="flex items-center justify-between">
-                                            <div className="text-sm font-semibold text-slate-900">{title}</div>
-                                            <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', meta.badgeClassName)}>
-                                                {meta.label}
-                                            </span>
+                        <CardContent className="space-y-3">
+                            <div className="grid gap-3 xl:grid-cols-2">
+                                {workloadCards.map(({ key, title, summary }) => {
+                                    const meta = getWorkloadStatusMeta(summary?.status);
+                                    const remainingPersonDays = Number(summary?.available_person_days ?? 0);
+                                    return (
+                                        <div key={key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                                            <div className="flex items-center justify-between">
+                                                <div className="text-sm font-semibold text-slate-900">{title}</div>
+                                                <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', meta.badgeClassName)}>
+                                                    {meta.label}
+                                                </span>
+                                            </div>
+                                            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                                    <div className="text-[11px] text-slate-500">月間キャパ工数</div>
+                                                    <div className="mt-1 text-sm font-semibold text-slate-900">
+                                                        {formatPersonDays(summary?.capacity_person_days ?? monthlyCapacityPersonDays)}
+                                                    </div>
+                                                </div>
+                                                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                                                    <div className="text-[11px] text-slate-500">受注工数</div>
+                                                    <div className="mt-1 text-sm font-semibold text-slate-900">
+                                                        {formatPersonDays(summary?.planned_person_days)}
+                                                    </div>
+                                                </div>
+                                                <div className={cn('rounded-xl border px-3 py-2', remainingPersonDays < 0 ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-white')}>
+                                                    <div className={cn('text-[11px]', remainingPersonDays < 0 ? 'text-red-600' : 'text-slate-500')}>
+                                                        {remainingPersonDays < 0 ? '不足工数' : '余力工数'}
+                                                    </div>
+                                                    <div className={cn('mt-1 text-sm font-semibold', remainingPersonDays < 0 ? 'text-red-700' : 'text-slate-900')}>
+                                                        {formatPersonDays(Math.abs(remainingPersonDays))}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="mt-3 flex items-end justify-between gap-3">
+                                                <div className="text-2xl font-bold text-slate-950">
+                                                    {summary?.utilization_rate?.toFixed?.(1) ?? '0.0'}%
+                                                </div>
+                                                <div className="text-xs text-slate-600">
+                                                    受注件数 {summary?.confirmed_count ?? 0} 件
+                                                </div>
+                                            </div>
                                         </div>
-                                        <div className="mt-3 text-2xl font-bold text-slate-950">
-                                            {summary?.utilization_rate?.toFixed?.(1) ?? '0.0'}%
-                                        </div>
-                                        <div className="mt-2 space-y-1 text-xs text-slate-600">
-                                            <div>受注工数 {summary?.planned_person_days ?? 0} 人日</div>
-                                            <div>残り {summary?.available_person_days ?? 0} 人日</div>
-                                            <div>受注件数 {summary?.confirmed_count ?? 0} 件</div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                            <div className="sm:col-span-2 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
-                                基準キャパ: {staffCount}人 / 月間 {monthlyCapacityPersonDays.toFixed(1)} 人日
+                                    );
+                                })}
+                            </div>
+                            <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                                キャパ設定反映: {staffCount}人 / 月間 {monthlyCapacityPersonDays.toFixed(1)} 人日 / 標準1人月 {defaultCapacityPerPersonDays.toFixed(1)} 人日
                             </div>
                         </CardContent>
                     </Card>
                 </div>
-
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    {operationCards.map((card) => {
-                        const Icon = card.icon;
-                        const accentMap = {
-                            amber: 'from-amber-50 to-orange-50 text-amber-900 border-amber-100',
-                            blue: 'from-blue-50 to-cyan-50 text-blue-900 border-blue-100',
-                            violet: 'from-violet-50 to-fuchsia-50 text-violet-900 border-violet-100',
-                            rose: 'from-rose-50 to-red-50 text-rose-900 border-rose-100',
-                        };
-
-                        return (
-                            <Card key={card.key} className={cn('border bg-gradient-to-br shadow-sm', accentMap[card.accent])}>
-                                <CardContent className="flex items-start justify-between gap-3 px-5 py-5">
-                                    <div>
-                                        <div className="text-sm font-medium text-slate-700">{card.title}</div>
-                                        <div className="mt-2 text-3xl font-bold">{card.value}</div>
-                                        <div className="mt-2 text-xs text-slate-600">{card.helper}</div>
-                                    </div>
-                                    <div className="rounded-full bg-white/80 p-2 shadow-sm">
-                                        <Icon className="h-5 w-5 text-slate-700" />
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        );
-                    })}
-                </div>
-
                 {/* 検索・フィルタ */}
                 <Accordion type="single" collapsible defaultValue="filters">
                     <AccordionItem value="filters" className="border rounded-lg shadow-sm bg-white">
@@ -1122,6 +1233,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                 className="mt-1 block w-full rounded-md border border-slate-300 focus:border-blue-500 focus:ring-blue-500"
                                             >
                                                 <option value="">全て</option>
+                                                <option value="order_confirmed">受注済</option>
                                                 <option value="sent">承認済</option>
                                                 <option value="pending">承認待ち</option>
                                                 <option value="draft">ドラフト</option>
@@ -1153,6 +1265,41 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                         </AccordionContent>
                     </AccordionItem>
                 </Accordion>
+
+
+                <Card className="border-slate-200 shadow-sm">
+                    <CardContent className="px-4 py-3">
+                        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                            <div>
+                                <div className="text-sm font-semibold text-slate-900">保存ビュー</div>
+                                <div className="text-xs text-slate-500">一覧の見え方をここで切り替えます。</div>
+                            </div>
+                            <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+                                {quickViews.map((view) => {
+                                    const active = filters.quickView === view.key;
+                                    return (
+                                        <button
+                                            key={view.key}
+                                            type="button"
+                                            onClick={() => applyQuickView(view.key)}
+                                            className={cn(
+                                                'shrink-0 rounded-full border px-3 py-2 text-sm font-medium transition',
+                                                active
+                                                    ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                                                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                                            )}
+                                        >
+                                            <span>{view.label}</span>
+                                            <span className={cn('ml-2 rounded-full px-2 py-0.5 text-xs font-semibold', active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600')}>
+                                                {view.count}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
 
                 {/* メインテーブル */}
                 <Card className="shadow-xl border-0">
@@ -1260,7 +1407,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                         ¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}
                                                     </TableCell>
                                                     <TableCell>
-                                                        {getStatusBadge(estimate.status)}
+                                                        {getStatusBadge(estimate)}
                                                     </TableCell>
                                                     <TableCell className="text-slate-600">{estimate.staff_name || (estimate.staff ? estimate.staff.name : '-')}</TableCell>
                                                     <TableCell>

@@ -76,7 +76,22 @@ class DashboardTest extends TestCase
 
     public function test_dashboard_includes_people_workload_summary_from_item_assignees(): void
     {
-        $user = User::factory()->create();
+        $user = User::factory()->create([
+            'name' => 'Codex UI Check',
+            'email' => 'codex-ui-check@example.com',
+        ]);
+        $assigneeA = User::factory()->create([
+            'name' => '担当者A',
+            'work_capacity_person_days' => 10,
+        ]);
+        $assigneeB = User::factory()->create([
+            'name' => '担当者B',
+            'work_capacity_person_days' => 5,
+        ]);
+        User::factory()->create([
+            'name' => '担当者C',
+            'work_capacity_person_days' => 8,
+        ]);
 
         Estimate::factory()->create([
             'status' => 'sent',
@@ -93,8 +108,8 @@ class DashboardTest extends TestCase
                     'cost' => 30000,
                     'business_division' => 'fifth_business',
                     'assignees' => [
-                        ['user_id' => 'u1', 'user_name' => '担当者A', 'share_percent' => 75],
-                        ['user_id' => 'u2', 'user_name' => '担当者B', 'share_percent' => 25],
+                        ['user_id' => (string) $assigneeA->id, 'user_name' => '担当者A', 'share_percent' => 75],
+                        ['user_id' => (string) $assigneeB->id, 'user_name' => '担当者B', 'share_percent' => 25],
                     ],
                 ],
                 [
@@ -116,13 +131,117 @@ class DashboardTest extends TestCase
         $response->assertOk();
         $response->assertInertia(function (AssertableInertia $page): void {
             $page->component('Dashboard')
-                ->where('dashboardMetrics.sections.overall.people.summary.tracked_people_count', 2)
+                ->where('dashboardMetrics.sections.overall.people.summary.tracked_people_count', 3)
+                ->where('dashboardMetrics.sections.overall.people.summary.capacity_person_days', fn ($value) => (float) $value === 23.0)
+                ->where('dashboardMetrics.sections.overall.people.summary.available_people_count', 3)
+                ->where('dashboardMetrics.sections.overall.people.summary.high_load_count', 0)
                 ->where('dashboardMetrics.sections.overall.people.summary.unassigned_person_days', 4)
                 ->where('dashboardMetrics.sections.overall.people.rows.0.name', '担当者A')
                 ->where('dashboardMetrics.sections.overall.people.rows.0.planned_person_days', fn ($value) => (float) $value === 6.0)
-                ->where('dashboardMetrics.sections.overall.people.rows.0.utilization_rate', fn ($value) => (float) $value === 30.0)
+                ->where('dashboardMetrics.sections.overall.people.rows.0.capacity_person_days', fn ($value) => (float) $value === 10.0)
+                ->where('dashboardMetrics.sections.overall.people.rows.0.utilization_rate', fn ($value) => (float) $value === 60.0)
                 ->where('dashboardMetrics.sections.overall.people.rows.1.name', '担当者B')
-                ->where('dashboardMetrics.sections.overall.people.rows.1.planned_person_days', fn ($value) => (float) $value === 2.0);
+                ->where('dashboardMetrics.sections.overall.people.rows.1.planned_person_days', fn ($value) => (float) $value === 2.0)
+                ->where('dashboardMetrics.sections.overall.people.rows.1.capacity_person_days', fn ($value) => (float) $value === 5.0)
+                ->where('dashboardMetrics.sections.overall.people.rows.1.utilization_rate', fn ($value) => (float) $value === 40.0)
+                ->where('dashboardMetrics.sections.overall.people.rows.2.name', '担当者C')
+                ->where('dashboardMetrics.sections.overall.people.rows.2.planned_person_days', fn ($value) => (float) $value === 0.0)
+                ->where('dashboardMetrics.sections.overall.people.rows.2.capacity_person_days', fn ($value) => (float) $value === 8.0)
+                ->where('dashboardMetrics.sections.overall.people.rows.2.available_person_days', fn ($value) => (float) $value === 8.0);
+        });
+    }
+
+    public function test_dashboard_builds_section_specific_analysis(): void
+    {
+        $user = User::factory()->create([
+            'work_capacity_person_days' => 10,
+        ]);
+
+        Estimate::factory()->create([
+            'status' => 'sent',
+            'is_order_confirmed' => true,
+            'issue_date' => '2026-03-01',
+            'due_date' => '2026-03-10',
+            'delivery_date' => '2026-03-25',
+            'items' => [
+                [
+                    'name' => '設計',
+                    'qty' => 12,
+                    'unit' => '人日',
+                    'price' => 1200000,
+                    'cost' => 500000,
+                    'business_division' => 'fifth_business',
+                ],
+                [
+                    'name' => 'ハード販売',
+                    'qty' => 1,
+                    'unit' => '式',
+                    'price' => 300000,
+                    'cost' => 210000,
+                    'business_division' => 'first_business',
+                ],
+            ],
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->withSession(['mf_skip_partner_auto_sync' => true])
+            ->get(route('dashboard', ['year' => 2026, 'month' => 3]));
+
+        $response->assertOk();
+        $response->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Dashboard')
+                ->where('dashboardMetrics.sections.overall.analysis.0.title', '売上差異')
+                ->where('dashboardMetrics.sections.development.analysis.0.title', '売上差異')
+                ->where('dashboardMetrics.sections.development.analysis.2.title', '開発稼働')
+                ->where('dashboardMetrics.sections.sales.analysis.1.title', '販売粗利')
+                ->where('dashboardMetrics.sections.sales.analysis.2.title', '販売回収')
+                ->where('dashboardMetrics.sections.maintenance.analysis.0.title', '保守継続');
+        });
+    }
+
+    public function test_dashboard_counts_unassigned_people_effort_when_delivery_date_is_missing(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Codex UI Check',
+            'email' => 'codex-ui-check@example.com',
+        ]);
+
+        Estimate::factory()->create([
+            'status' => 'sent',
+            'is_order_confirmed' => false,
+            'issue_date' => '2026-02-20',
+            'due_date' => '2026-03-12',
+            'delivery_date' => null,
+            'items' => [
+                [
+                    'name' => '開発',
+                    'qty' => 2,
+                    'unit' => '人日',
+                    'price' => 80000,
+                    'cost' => 30000,
+                    'business_division' => 'fifth_business',
+                ],
+                [
+                    'name' => 'テスト',
+                    'qty' => 0.5,
+                    'unit' => '人日',
+                    'price' => 30000,
+                    'cost' => 10000,
+                    'business_division' => 'fifth_business',
+                ],
+            ],
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->withSession(['mf_skip_partner_auto_sync' => true])
+            ->get(route('dashboard', ['year' => 2026, 'month' => 3]));
+
+        $response->assertOk();
+        $response->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Dashboard')
+                ->where('dashboardMetrics.sections.overall.people.summary.unassigned_person_days', fn ($value) => (float) $value === 2.5);
         });
     }
 
