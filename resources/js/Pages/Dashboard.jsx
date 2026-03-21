@@ -347,6 +347,8 @@ export default function Dashboard({
         ? dashboardMetrics.default_section
         : sectionOrder[0] ?? 'overall';
     const overallAnalysis = Array.isArray(dashboardMetrics?.analysis) ? dashboardMetrics.analysis : [];
+    const overallAnalysisMeta = dashboardMetrics?.analysis_meta ?? {};
+    const overallAnalysisOverview = dashboardMetrics?.analysis_overview ?? {};
     const currentPeriodLabel = periods?.current?.label ?? '今月';
     const previousPeriodLabel = periods?.previous?.label ?? '先月';
     const previousYearCurrentLabel = periods?.previous_year_current?.label ?? '前年同月';
@@ -642,6 +644,67 @@ export default function Dashboard({
                     </div>
                 </div>
 
+                <Card className="overflow-hidden border-slate-900 bg-slate-950 text-white shadow-lg">
+                    <CardContent className="p-0">
+                        <div className="grid gap-0 lg:grid-cols-[1.2fr_0.8fr]">
+                            <div className="space-y-4 p-6">
+                                <div className="flex flex-wrap items-center gap-2 text-xs">
+                                    <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 font-medium text-white/90">
+                                        <Brain className="mr-1.5 h-3.5 w-3.5" />
+                                        {currentPeriodLabel} の経営総評
+                                    </span>
+                                    <span className={`inline-flex items-center rounded-full px-3 py-1 font-medium ${overallAnalysisMeta?.source === 'ai' ? 'bg-violet-400/20 text-violet-100' : 'bg-slate-700 text-slate-100'}`}>
+                                        {overallAnalysisMeta?.source === 'ai' ? 'AI分析' : 'ルール分析'}
+                                    </span>
+                                    {overallAnalysisMeta?.generated_at_label && (
+                                        <span className="text-white/60">生成: {overallAnalysisMeta.generated_at_label}</span>
+                                    )}
+                                </div>
+                                <div>
+                                    <div className="text-sm font-medium text-sky-200">
+                                        {overallAnalysisOverview?.headline ?? `${currentPeriodLabel}の経営総評`}
+                                    </div>
+                                    <p className="mt-3 max-w-3xl text-base leading-7 text-slate-100">
+                                        {overallAnalysisOverview?.summary ?? '売上差異、工数充足率、資金繰りの3点を優先して確認してください。'}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="grid gap-4 border-t border-white/10 bg-white/5 p-6 lg:border-l lg:border-t-0">
+                                <div>
+                                    <div className="text-xs font-semibold tracking-wide text-white/60">何がポイントか</div>
+                                    <div className="mt-3 space-y-2">
+                                        {(overallAnalysisOverview?.focus_points ?? []).map((point, index) => (
+                                            <div key={`focus-${index}`} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100">
+                                                {point}
+                                            </div>
+                                        ))}
+                                        {(overallAnalysisOverview?.focus_points ?? []).length === 0 && (
+                                            <div className="rounded-xl border border-dashed border-white/15 px-3 py-2 text-sm text-white/60">
+                                                注目ポイントは下の分析カードを参照
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-xs font-semibold tracking-wide text-white/60">何を改善すべきか</div>
+                                    <div className="mt-3 space-y-2">
+                                        {(overallAnalysisOverview?.actions ?? []).map((action, index) => (
+                                            <div key={`action-${index}`} className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-50">
+                                                {action}
+                                            </div>
+                                        ))}
+                                        {(overallAnalysisOverview?.actions ?? []).length === 0 && (
+                                            <div className="rounded-xl border border-dashed border-white/15 px-3 py-2 text-sm text-white/60">
+                                                改善アクションは下の分析カードを参照
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
                 <Card className="border-slate-200">
                     <CardHeader className="pb-2">
                         <div>
@@ -779,6 +842,7 @@ export default function Dashboard({
                         const currentAnalysis = Array.isArray(section?.analysis)
                             ? section.analysis
                             : (key === 'overall' ? overallAnalysis : []);
+                        const currentAnalysisMeta = section?.analysis_meta ?? (key === 'overall' ? dashboardMetrics?.analysis_meta ?? {} : {});
                         const customerRanking = Array.isArray(section?.rankings?.customers) ? section.rankings.customers : [];
                         const staffRanking = Array.isArray(section?.rankings?.staff) ? section.rankings.staff : [];
                         const peoplePayload = section?.people ?? {};
@@ -1031,6 +1095,19 @@ export default function Dashboard({
                                                 経営分析 / アラート
                                             </CardTitle>
                                             <CardDescription>先月比と予算差異をもとにしたコメントと注意点</CardDescription>
+                                            {key === 'overall' && (
+                                                <div className="flex flex-wrap items-center gap-2 pt-2 text-xs text-slate-500">
+                                                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 font-medium ${currentAnalysisMeta?.source === 'ai' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                        {currentAnalysisMeta?.source === 'ai' ? 'AI日次分析' : 'ルール分析'}
+                                                    </span>
+                                                    {currentAnalysisMeta?.generated_at_label && (
+                                                        <span>生成: {currentAnalysisMeta.generated_at_label}</span>
+                                                    )}
+                                                    {currentAnalysisMeta?.model && (
+                                                        <span>モデル: {currentAnalysisMeta.model}</span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </CardHeader>
                                         <CardContent className="space-y-3">
                                             {currentAnalysis.map((item, index) => (

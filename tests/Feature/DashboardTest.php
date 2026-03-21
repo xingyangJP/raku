@@ -2,12 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Models\DashboardAiAnalysis;
 use App\Models\Estimate;
 use App\Models\LocalInvoice;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
 
@@ -279,6 +283,185 @@ class DashboardTest extends TestCase
                 ->where('dashboardMetrics.sections.overall.cash_flow.current.collection_inflow_actual', fn ($value) => (float) $value === 500000.0)
                 ->where('dashboardMetrics.basis.cash_rule', '受注確定案件の回収予測は注文書納期の翌月入金、未受注案件は見積期限日を仮の回収予定として試算');
         });
+    }
+
+
+    public function test_dashboard_generates_and_persists_overall_ai_analysis_once_per_day(): void
+    {
+        $this->travelTo(Carbon::parse('2026-03-21 09:00:00', 'Asia/Tokyo'));
+
+        Config::set('services.openai.key', 'test-key');
+        Config::set('services.openai.base_url', 'https://api.openai.com');
+        Config::set('services.openai.model', 'gpt-4o-mini');
+
+        Http::fake([
+            'https://api.openai.com/v1/chat/completions' => Http::response([
+                'choices' => [[
+                    'message' => [
+                        'content' => '{"overview":{"headline":"3月の経営総評","summary":"売上は未達だが保守収益が下支えしており、粗利率と回収時期の管理が優先です。","focus_points":["保守収益が売上を下支え","粗利率の低い案件が混在"],"actions":["低粗利案件の見直し","回収予定の前倒し確認"]},"items":[{"title":"AI要約","body":"全社売上は未達だが、保守収益が下支えしています。","tone":"neutral"}]}'
+                    ],
+                ]],
+            ], 200),
+        ]);
+
+        $user = User::factory()->create();
+
+        $firstResponse = $this
+            ->actingAs($user)
+            ->withSession(['mf_skip_partner_auto_sync' => true])
+            ->get(route('dashboard', ['year' => 2026, 'month' => 3]));
+
+        $firstResponse->assertOk();
+        $firstResponse->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Dashboard')
+                ->where('dashboardMetrics.sections.overall.analysis.0.title', 'AI要約')
+                ->where('dashboardMetrics.analysis_meta.source', 'ai')
+                ->where('dashboardMetrics.sections.overall.analysis_meta.source', 'ai')
+                ->where('dashboardMetrics.analysis_overview.headline', '3月の経営総評')
+                ->where('dashboardMetrics.analysis_overview.actions.0', '低粗利案件の見直し');
+        });
+
+        $this->assertTrue(
+            DashboardAiAnalysis::query()
+                ->whereDate('analysis_date', '2026-03-21')
+                ->where('target_year', 2026)
+                ->where('target_month', 3)
+                ->where('section_key', 'overall')
+                ->where('status', 'completed')
+                ->where('model', 'gpt-4o-mini')
+                ->exists()
+        );
+
+        Http::fake([
+            '*' => function () {
+                throw new \RuntimeException('OpenAI should not be called on the second dashboard access in the same day.');
+            },
+        ]);
+
+        $secondResponse = $this
+            ->actingAs($user)
+            ->withSession(['mf_skip_partner_auto_sync' => true])
+            ->get(route('dashboard', ['year' => 2026, 'month' => 3]));
+
+        $secondResponse->assertOk();
+        $secondResponse->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Dashboard')
+                ->where('dashboardMetrics.sections.overall.analysis.0.title', 'AI要約')
+                ->where('dashboardMetrics.analysis_meta.source', 'ai');
+        });
+
+        $this->assertSame(1, DashboardAiAnalysis::query()->count());
+    }
+
+    public function test_dashboard_returns_saved_ai_overview_for_selected_period(): void
+    {
+        $this->travelTo(Carbon::parse('2026-03-21 10:00:00', 'Asia/Tokyo'));
+
+        $user = User::factory()->create();
+
+        DashboardAiAnalysis::query()->create([
+            'analysis_date' => '2026-03-21',
+            'target_year' => 2026,
+            'target_month' => 3,
+            'section_key' => 'overall',
+            'status' => 'completed',
+            'model' => 'gpt-4o-mini',
+            'analysis_items' => [
+                ['title' => '3月要約', 'body' => '3月の分析です。', 'tone' => 'neutral'],
+            ],
+            'analysis_overview' => [
+                'headline' => '3月の経営総評',
+                'summary' => '3月は保守が下支えしつつ、案件粗利のばらつきが大きい状態です。',
+                'focus_points' => ['保守売上が安定', '開発案件の粗利差が大きい'],
+                'actions' => ['粗利の低い案件を洗い出す'],
+            ],
+            'generated_at' => '2026-03-21 10:00:00',
+        ]);
+
+        DashboardAiAnalysis::query()->create([
+            'analysis_date' => '2026-03-21',
+            'target_year' => 2026,
+            'target_month' => 4,
+            'section_key' => 'overall',
+            'status' => 'completed',
+            'model' => 'gpt-4o-mini',
+            'analysis_items' => [
+                ['title' => '4月要約', 'body' => '4月の分析です。', 'tone' => 'positive'],
+            ],
+            'analysis_overview' => [
+                'headline' => '4月の経営総評',
+                'summary' => '4月は売上回復が見える一方で、回収予定の遅れが資金繰りの焦点です。',
+                'focus_points' => ['売上は回復基調', '回収予定に遅れ'],
+                'actions' => ['未回収案件の督促を前倒しする'],
+            ],
+            'generated_at' => '2026-03-21 10:05:00',
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->withSession(['mf_skip_partner_auto_sync' => true])
+            ->get(route('dashboard', ['year' => 2026, 'month' => 4]));
+
+        $response->assertOk();
+        $response->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Dashboard')
+                ->where('dashboardMetrics.analysis_meta.source', 'ai')
+                ->where('dashboardMetrics.analysis_overview.headline', '4月の経営総評')
+                ->where('dashboardMetrics.analysis_overview.summary', '4月は売上回復が見える一方で、回収予定の遅れが資金繰りの焦点です。')
+                ->where('dashboardMetrics.analysis_overview.focus_points.0', '売上は回復基調')
+                ->where('dashboardMetrics.analysis_overview.actions.0', '未回収案件の督促を前倒しする')
+                ->where('dashboardMetrics.sections.overall.analysis.0.title', '4月要約');
+        });
+    }
+
+    public function test_dashboard_falls_back_to_rule_analysis_when_openai_is_not_configured(): void
+    {
+        $this->travelTo(Carbon::parse('2026-03-21 09:00:00', 'Asia/Tokyo'));
+
+        Config::set('services.openai.key', '');
+
+        $user = User::factory()->create([
+            'work_capacity_person_days' => 10,
+        ]);
+
+        Estimate::factory()->create([
+            'status' => 'sent',
+            'is_order_confirmed' => true,
+            'issue_date' => '2026-03-01',
+            'due_date' => '2026-03-10',
+            'delivery_date' => '2026-03-25',
+            'items' => [[
+                'name' => '設計',
+                'qty' => 12,
+                'unit' => '人日',
+                'price' => 1200000,
+                'cost' => 500000,
+                'business_division' => 'fifth_business',
+            ]],
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->withSession(['mf_skip_partner_auto_sync' => true])
+            ->get(route('dashboard', ['year' => 2026, 'month' => 3]));
+
+        $response->assertOk();
+        $response->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Dashboard')
+                ->where('dashboardMetrics.analysis_meta.source', 'rule')
+                ->where('dashboardMetrics.analysis_meta.status', 'skipped')
+                ->where('dashboardMetrics.sections.overall.analysis.0.title', '売上差異');
+        });
+
+        $this->assertTrue(
+            DashboardAiAnalysis::query()
+                ->whereDate('analysis_date', '2026-03-21')
+                ->where('target_year', 2026)
+                ->where('target_month', 3)
+                ->where('section_key', 'overall')
+                ->where('status', 'skipped')
+                ->exists()
+        );
     }
 
     public function test_dashboard_includes_business_division_report_from_invoice_data(): void

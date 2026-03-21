@@ -482,6 +482,8 @@ class EstimateController extends Controller
                 ?? $estimate->due_date
                 ?? $estimate->issue_date;
             $recognizedDate = $formatDate($recognizedAt, $timezone);
+            $recognizedAtCarbon = $recognizedAt ? Carbon::parse($recognizedAt, $timezone)->startOfDay() : null;
+            $collectionMonth = $recognizedAtCarbon?->copy()->startOfMonth()->addMonth();
 
             $breakdown = collect($estimate->items ?? [])->reduce(function ($carry, $item) {
                 $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
@@ -544,9 +546,14 @@ class EstimateController extends Controller
                 'title' => (string) ($estimate->title ?? ''),
                 'staff_name' => (string) ($estimate->staff_name ?? ''),
                 'recognized_date' => $recognizedDate,
+                'recognized_at' => $recognizedAtCarbon?->toDateString(),
                 'issue_date' => $formatDate($estimate->issue_date, $timezone),
+                'issue_at' => $estimate->issue_date ? Carbon::parse($estimate->issue_date, $timezone)->toDateString() : null,
                 'due_date' => $formatDate($estimate->due_date, $timezone),
+                'due_at' => $estimate->due_date ? Carbon::parse($estimate->due_date, $timezone)->toDateString() : null,
                 'delivery_date' => $formatDate($estimate->delivery_date, $timezone),
+                'delivery_at' => $estimate->delivery_date ? Carbon::parse($estimate->delivery_date, $timezone)->toDateString() : null,
+                'collection_month' => $collectionMonth?->format('Y-m'),
                 'total_amount' => (float) ($estimate->total_amount ?? 0),
                 'cost_amount' => $cost,
                 'gross_amount' => (float) (($estimate->total_amount ?? 0) - $cost),

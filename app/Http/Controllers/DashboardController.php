@@ -9,6 +9,7 @@ use App\Models\Estimate;
 use App\Models\Partner;
 use App\Models\Billing;
 use App\Services\BusinessDivisionAnalysisService;
+use App\Services\DashboardAiAnalysisService;
 use App\Services\ManagementMetricsService;
 use App\Services\MoneyForwardApiService;
 use Inertia\Inertia;
@@ -22,7 +23,7 @@ class DashboardController extends Controller
     private const PARTNER_SYNC_COOLDOWN_HOURS = 3;
     private const PARTNER_SYNC_META_CACHE_KEY = 'dashboard:partner-sync-meta';
 
-    public function index(Request $request, MoneyForwardApiService $apiService, ManagementMetricsService $managementMetrics, BusinessDivisionAnalysisService $businessDivisionAnalysis)
+    public function index(Request $request, MoneyForwardApiService $apiService, ManagementMetricsService $managementMetrics, BusinessDivisionAnalysisService $businessDivisionAnalysis, DashboardAiAnalysisService $dashboardAiAnalysis)
     {
         $user = Auth::user();
 
@@ -146,6 +147,13 @@ class DashboardController extends Controller
         $selectedMonth = $request->filled('month') ? (int) $request->query('month') : null;
         $metrics = $managementMetrics->build($selectedYear, $selectedMonth);
         $displayTimezone = config('app.sales_timezone', config('app.timezone', 'Asia/Tokyo'));
+        $overallAiAnalysis = $dashboardAiAnalysis->resolveOverall($metrics, Carbon::now($displayTimezone));
+        $metrics['analysis'] = $overallAiAnalysis['items'];
+        $metrics['analysis_meta'] = $overallAiAnalysis['meta'];
+        $metrics['analysis_overview'] = $overallAiAnalysis['overview'];
+        $metrics['sections']['overall']['analysis'] = $overallAiAnalysis['items'];
+        $metrics['sections']['overall']['analysis_meta'] = $overallAiAnalysis['meta'];
+        $metrics['sections']['overall']['analysis_overview'] = $overallAiAnalysis['overview'];
         $businessDivisionReport = $businessDivisionAnalysis->buildForYear(
             (int) ($metrics['filters']['selected_year'] ?? Carbon::now($displayTimezone)->year),
             (int) ($metrics['filters']['selected_month'] ?? Carbon::now($displayTimezone)->month),
