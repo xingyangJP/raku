@@ -7,7 +7,7 @@ import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/Components/ui/toggle-group';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { Activity, BarChart3, Brain, ClipboardList, FileText, Gauge, Info, Landmark, LineChart as LineChartIcon, ListChecks, ShoppingCart, TrendingUp, Users } from 'lucide-react';
+import { Activity, BarChart3, Brain, ChevronDown, ClipboardList, FileText, Gauge, Info, Landmark, LineChart as LineChartIcon, ListChecks, ShoppingCart, TrendingUp, Users } from 'lucide-react';
 import EstimateDetailSheet from '@/Components/EstimateDetailSheet';
 import SyncButton from '@/Components/SyncButton';
 import { formatCurrency } from '@/lib/utils';
@@ -396,6 +396,7 @@ export default function Dashboard({
     const [openSheet, setOpenSheet] = useState(false);
     const [selectedEstimate, setSelectedEstimate] = useState(null);
     const [selectedBusinessDivision, setSelectedBusinessDivision] = useState('all');
+    const [isOverviewOpen, setIsOverviewOpen] = useState(false);
 
     const selected = sections[activeSection] ?? sections[defaultSection] ?? {};
     const budgetCurrent = selected?.budget?.current ?? {};
@@ -645,64 +646,86 @@ export default function Dashboard({
                 </div>
 
                 <Card className="overflow-hidden border-slate-900 bg-slate-950 text-white shadow-lg">
-                    <CardContent className="p-0">
-                        <div className="grid gap-0 lg:grid-cols-[1.2fr_0.8fr]">
-                            <div className="space-y-4 p-6">
-                                <div className="flex flex-wrap items-center gap-2 text-xs">
-                                    <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 font-medium text-white/90">
-                                        <Brain className="mr-1.5 h-3.5 w-3.5" />
-                                        {currentPeriodLabel} の経営総評
-                                    </span>
-                                    <span className={`inline-flex items-center rounded-full px-3 py-1 font-medium ${overallAnalysisMeta?.source === 'ai' ? 'bg-violet-400/20 text-violet-100' : 'bg-slate-700 text-slate-100'}`}>
-                                        {overallAnalysisMeta?.source === 'ai' ? 'AI分析' : 'ルール分析'}
-                                    </span>
-                                    {overallAnalysisMeta?.generated_at_label && (
-                                        <span className="text-white/60">生成: {overallAnalysisMeta.generated_at_label}</span>
-                                    )}
-                                </div>
-                                <div>
-                                    <div className="text-sm font-medium text-sky-200">
-                                        {overallAnalysisOverview?.headline ?? `${currentPeriodLabel}の経営総評`}
-                                    </div>
-                                    <p className="mt-3 max-w-3xl text-base leading-7 text-slate-100">
-                                        {overallAnalysisOverview?.summary ?? '売上差異、工数充足率、資金繰りの3点を優先して確認してください。'}
-                                    </p>
-                                </div>
+                    <button
+                        type="button"
+                        className="flex w-full items-start justify-between gap-4 p-6 text-left"
+                        onClick={() => setIsOverviewOpen((current) => !current)}
+                        aria-expanded={isOverviewOpen}
+                    >
+                        <div className="space-y-3">
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 font-medium text-white/90">
+                                    <Brain className="mr-1.5 h-3.5 w-3.5" />
+                                    {currentPeriodLabel} の経営総評
+                                </span>
+                                <span className={`inline-flex items-center rounded-full px-3 py-1 font-medium ${overallAnalysisMeta?.source === 'ai' ? 'bg-violet-400/20 text-violet-100' : 'bg-slate-700 text-slate-100'}`}>
+                                    {overallAnalysisMeta?.source === 'ai' ? 'AI分析' : 'ルール分析'}
+                                </span>
+                                {overallAnalysisMeta?.generated_at_label && (
+                                    <span className="text-white/60">生成: {overallAnalysisMeta.generated_at_label}</span>
+                                )}
                             </div>
-                            <div className="grid gap-4 border-t border-white/10 bg-white/5 p-6 lg:border-l lg:border-t-0">
-                                <div>
-                                    <div className="text-xs font-semibold tracking-wide text-white/60">何がポイントか</div>
-                                    <div className="mt-3 space-y-2">
-                                        {(overallAnalysisOverview?.focus_points ?? []).map((point, index) => (
-                                            <div key={`focus-${index}`} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100">
-                                                {point}
-                                            </div>
-                                        ))}
-                                        {(overallAnalysisOverview?.focus_points ?? []).length === 0 && (
-                                            <div className="rounded-xl border border-dashed border-white/15 px-3 py-2 text-sm text-white/60">
-                                                注目ポイントは下の分析カードを参照
-                                            </div>
-                                        )}
-                                    </div>
+                            <div>
+                                <div className="text-sm font-medium text-sky-200">
+                                    {overallAnalysisOverview?.headline ?? `${currentPeriodLabel}の経営総評`}
                                 </div>
-                                <div>
-                                    <div className="text-xs font-semibold tracking-wide text-white/60">何を改善すべきか</div>
-                                    <div className="mt-3 space-y-2">
-                                        {(overallAnalysisOverview?.actions ?? []).map((action, index) => (
-                                            <div key={`action-${index}`} className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-50">
-                                                {action}
-                                            </div>
-                                        ))}
-                                        {(overallAnalysisOverview?.actions ?? []).length === 0 && (
-                                            <div className="rounded-xl border border-dashed border-white/15 px-3 py-2 text-sm text-white/60">
-                                                改善アクションは下の分析カードを参照
-                                            </div>
-                                        )}
-                                    </div>
+                                <div className="mt-2 text-sm text-white/70">
+                                    {isOverviewOpen ? 'クリックで閉じる' : 'クリックで開く'}
                                 </div>
                             </div>
                         </div>
-                    </CardContent>
+                        <div className="flex shrink-0 items-center gap-3">
+                            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">
+                                {isOverviewOpen ? '表示中' : '非表示'}
+                            </span>
+                            <ChevronDown className={`h-5 w-5 text-white/70 transition-transform ${isOverviewOpen ? 'rotate-180' : ''}`} />
+                        </div>
+                    </button>
+                    {isOverviewOpen && (
+                        <CardContent className="border-t border-white/10 p-0">
+                            <div className="grid gap-0 lg:grid-cols-[1.2fr_0.8fr]">
+                                <div className="space-y-4 p-6">
+                                    <div>
+                                        <p className="max-w-3xl text-base leading-7 text-slate-100">
+                                            {overallAnalysisOverview?.summary ?? '売上差異、工数充足率、資金繰りの3点を優先して確認してください。'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="grid gap-4 border-t border-white/10 bg-white/5 p-6 lg:border-l lg:border-t-0">
+                                    <div>
+                                        <div className="text-xs font-semibold tracking-wide text-white/60">何がポイントか</div>
+                                        <div className="mt-3 space-y-2">
+                                            {(overallAnalysisOverview?.focus_points ?? []).map((point, index) => (
+                                                <div key={`focus-${index}`} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100">
+                                                    {point}
+                                                </div>
+                                            ))}
+                                            {(overallAnalysisOverview?.focus_points ?? []).length === 0 && (
+                                                <div className="rounded-xl border border-dashed border-white/15 px-3 py-2 text-sm text-white/60">
+                                                    注目ポイントは下の分析カードを参照
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-semibold tracking-wide text-white/60">何を改善すべきか</div>
+                                        <div className="mt-3 space-y-2">
+                                            {(overallAnalysisOverview?.actions ?? []).map((action, index) => (
+                                                <div key={`action-${index}`} className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-50">
+                                                    {action}
+                                                </div>
+                                            ))}
+                                            {(overallAnalysisOverview?.actions ?? []).length === 0 && (
+                                                <div className="rounded-xl border border-dashed border-white/15 px-3 py-2 text-sm text-white/60">
+                                                    改善アクションは下の分析カードを参照
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    )}
                 </Card>
 
                 <Card className="border-slate-200">
