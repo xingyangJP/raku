@@ -5,20 +5,29 @@ namespace Database\Seeders;
 use App\Models\CompanySetting;
 use App\Models\Estimate;
 use App\Models\MaintenanceFeeSnapshot;
+use App\Models\Partner;
+use App\Models\Product;
+use App\Models\User;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Collection;
 
 class DashboardDemoSeeder extends Seeder
 {
     private const SNAPSHOT_SOURCE = 'dashboard_demo_seed_v1';
     private const ESTIMATE_NUMBER_PREFIX = 'DEMO-DASH';
 
+    private Collection $partnerPool;
+    private Collection $staffPool;
+    private Collection $productPool;
+
     /**
      * Run the database seeds.
      */
     public function run(): void
     {
+        $this->bootstrapReferenceData();
         $this->configureCompanySetting();
         $this->purgeDemoData();
 
@@ -38,12 +47,71 @@ class DashboardDemoSeeder extends Seeder
         ));
     }
 
+    private function bootstrapReferenceData(): void
+    {
+        $this->productPool = Product::query()
+            ->select(['id', 'sku', 'name', 'unit', 'price', 'cost', 'tax_category', 'business_division'])
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->get()
+            ->values();
+
+        if ($this->productPool->isEmpty()) {
+            throw new \RuntimeException('DashboardDemoSeeder: products が存在しないため、既存商品マスタベースのダミーデータを生成できません。');
+        }
+
+        $this->partnerPool = Partner::query()
+            ->select(['id', 'name', 'mf_partner_id'])
+            ->whereNotNull('name')
+            ->where('name', '!=', '')
+            ->whereNotNull('mf_partner_id')
+            ->where('mf_partner_id', '!=', '')
+            ->orderBy('id')
+            ->get()
+            ->values();
+
+        if ($this->partnerPool->isEmpty()) {
+            throw new \RuntimeException('DashboardDemoSeeder: partners が存在しないため、既存顧客ベースのダミーデータを生成できません。');
+        }
+
+        $staffPool = User::query()
+            ->select(['id', 'name', 'email', 'external_user_id'])
+            ->whereNotNull('name')
+            ->where('name', '!=', '')
+            ->orderBy('id')
+            ->get()
+            ->filter(function (User $user): bool {
+                $haystack = mb_strtolower(trim(($user->name ?? '') . ' ' . ($user->email ?? '')));
+
+                return !str_contains($haystack, 'codex')
+                    && !str_contains($haystack, 'test')
+                    && !str_contains($haystack, 'session');
+            })
+            ->values();
+
+        if ($staffPool->isEmpty()) {
+            $staffPool = User::query()
+                ->select(['id', 'name', 'email', 'external_user_id'])
+                ->whereNotNull('name')
+                ->where('name', '!=', '')
+                ->orderBy('id')
+                ->get()
+                ->values();
+        }
+
+        if ($staffPool->isEmpty()) {
+            throw new \RuntimeException('DashboardDemoSeeder: users が存在しないため、既存スタッフベースのダミーデータを生成できません。');
+        }
+
+        $this->staffPool = $staffPool;
+    }
+
     private function configureCompanySetting(): void
     {
         $setting = CompanySetting::current();
         $setting->fill([
             'company_name' => $setting->company_name ?: 'KCS販売管理',
-            'operational_staff_count' => 10,
+            'operational_staff_count' => max(1, $this->staffPool->count()),
         ]);
         $setting->save();
     }
@@ -82,10 +150,8 @@ class DashboardDemoSeeder extends Seeder
     private function seedDevelopmentEstimate(Carbon $month, int $index, bool $isConfirmed, float $personDays): void
     {
         $suffix = $isConfirmed ? 'DEV-C' : 'DEV-P';
-        $staffNames = $this->staffNames();
-        $customerNames = $this->developmentCustomers();
-        $staffIndex = ($index + ($isConfirmed ? 0 : 3)) % count($staffNames);
-        $customerIndex = ($index + ($isConfirmed ? 1 : 4)) % count($customerNames);
+        $staff = $this->resolveStaff($index + ($isConfirmed ? 0 : 3));
+        $customer = $this->resolvePartner($index + ($isConfirmed ? 1 : 4));
         $laborUnitPrice = 78000 + (($index % 4) * 2000);
         $laborUnitCost = 30000 + (($index % 3) * 1500);
         $cloudPrice = 150000 + (($index % 5) * 20000);
@@ -98,43 +164,38 @@ class DashboardDemoSeeder extends Seeder
         $dueDate = $deliveryDate->copy()->addDays(20);
 
         $items = [
-            [
-                'name' => '要件定義・設計',
+            $this->buildProductItem('A-001', [
                 'description' => '上流設計と仕様整理',
                 'qty' => $designDays,
-                'unit' => '人日',
                 'price' => $laborUnitPrice,
                 'cost' => $laborUnitCost,
                 'business_division' => 'fifth_business',
-                'assignees' => $this->buildDevelopmentAssignees($staffNames, $staffIndex, false),
-            ],
-            [
-                'name' => '実装・検証',
+                'assignees' => $this->buildDevelopmentAssignees($index + ($isConfirmed ? 0 : 3), false),
+            ]),
+            $this->buildProductItem('B-001', [
                 'description' => '実装と単体・結合テスト',
                 'qty' => $buildDays,
-                'unit' => '人日',
                 'price' => $laborUnitPrice + 4000,
                 'cost' => $laborUnitCost + 1000,
                 'business_division' => 'fifth_business',
-                'assignees' => $this->buildDevelopmentAssignees($staffNames, $staffIndex, true),
-            ],
-            [
-                'name' => 'クラウド・ライセンス',
+                'assignees' => $this->buildDevelopmentAssignees($index + ($isConfirmed ? 0 : 3), true),
+            ]),
+            $this->buildProductItem('F-001', [
                 'description' => '検証環境と運用準備',
                 'qty' => 1,
-                'unit' => '式',
                 'price' => $cloudPrice,
                 'cost' => $cloudCost,
                 'business_division' => 'fifth_business',
-            ],
+            ]),
         ];
 
         $this->upsertEstimate(
             estimateNumber: sprintf('%s-%s-%s', self::ESTIMATE_NUMBER_PREFIX, $month->format('Ym'), $suffix),
             title: sprintf('[DEMO-DASHBOARD] %s月 開発%s案件', $month->format('Y年n'), $isConfirmed ? '受注' : '見込'),
-            customerName: $customerNames[$customerIndex],
-            staffName: $staffNames[$staffIndex],
-            staffId: $staffIndex + 1,
+            customerName: (string) $customer['name'],
+            clientId: (string) $customer['mf_partner_id'],
+            staffName: (string) $staff['name'],
+            staffId: (int) $staff['id'],
             issueDate: $issueDate,
             dueDate: $dueDate,
             deliveryDate: $deliveryDate,
@@ -148,10 +209,8 @@ class DashboardDemoSeeder extends Seeder
     private function seedSalesEstimate(Carbon $month, int $index, bool $isConfirmed): void
     {
         $suffix = $isConfirmed ? 'SAL-C' : 'SAL-P';
-        $staffNames = $this->staffNames();
-        $customerNames = $this->salesCustomers();
-        $staffIndex = ($index + ($isConfirmed ? 5 : 7)) % count($staffNames);
-        $customerIndex = ($index + ($isConfirmed ? 2 : 5)) % count($customerNames);
+        $staff = $this->resolveStaff($index + ($isConfirmed ? 5 : 7));
+        $customer = $this->resolvePartner($index + ($isConfirmed ? 18 : 27));
 
         $deviceUnits = 2 + (($index + ($isConfirmed ? 0 : 1)) % 3);
         $devicePrice = 360000 + (($index % 4) * 30000);
@@ -164,32 +223,29 @@ class DashboardDemoSeeder extends Seeder
         $dueDate = $deliveryDate->copy()->addDays(25);
 
         $items = [
-            [
-                'name' => 'ネットワーク機器一式',
+            $this->buildProductItem('E-001', [
                 'description' => '仕入れ販売案件',
                 'qty' => $deviceUnits,
-                'unit' => '台',
                 'price' => $devicePrice,
                 'cost' => $deviceCost,
                 'business_division' => 'first_business',
-            ],
-            [
-                'name' => '導入セットアップ',
+            ]),
+            $this->buildProductItem('F-001', [
                 'description' => '現地設定と初期設定',
                 'qty' => 1,
-                'unit' => '式',
                 'price' => $setupPrice,
                 'cost' => $setupCost,
                 'business_division' => 'first_business',
-            ],
+            ]),
         ];
 
         $this->upsertEstimate(
             estimateNumber: sprintf('%s-%s-%s', self::ESTIMATE_NUMBER_PREFIX, $month->format('Ym'), $suffix),
             title: sprintf('[DEMO-DASHBOARD] %s月 販売%s案件', $month->format('Y年n'), $isConfirmed ? '受注' : '見込'),
-            customerName: $customerNames[$customerIndex],
-            staffName: $staffNames[$staffIndex],
-            staffId: $staffIndex + 1,
+            customerName: (string) $customer['name'],
+            clientId: (string) $customer['mf_partner_id'],
+            staffName: (string) $staff['name'],
+            staffId: (int) $staff['id'],
             issueDate: $issueDate,
             dueDate: $dueDate,
             deliveryDate: $deliveryDate,
@@ -204,22 +260,22 @@ class DashboardDemoSeeder extends Seeder
     {
         $items = collect([
             [
-                'customer_name' => '青山クリニック',
+                'customer_name' => $this->resolvePartner($index + 40)['name'],
                 'maintenance_fee' => 220000 + (($index % 4) * 12000),
                 'support_type' => 'フルサポート',
             ],
             [
-                'customer_name' => '熊本物流センター',
+                'customer_name' => $this->resolvePartner($index + 52)['name'],
                 'maintenance_fee' => 180000 + (($index % 3) * 15000),
                 'support_type' => '運用保守',
             ],
             [
-                'customer_name' => '中央建設',
+                'customer_name' => $this->resolvePartner($index + 64)['name'],
                 'maintenance_fee' => 140000 + (($index % 5) * 10000),
                 'support_type' => '監視',
             ],
             [
-                'customer_name' => '東町学園',
+                'customer_name' => $this->resolvePartner($index + 76)['name'],
                 'maintenance_fee' => 95000 + (($index % 4) * 8000),
                 'support_type' => 'ヘルプデスク',
             ],
@@ -251,6 +307,7 @@ class DashboardDemoSeeder extends Seeder
         string $estimateNumber,
         string $title,
         string $customerName,
+        string $clientId,
         string $staffName,
         int $staffId,
         Carbon $issueDate,
@@ -269,8 +326,8 @@ class DashboardDemoSeeder extends Seeder
             ['estimate_number' => $estimateNumber],
             [
                 'customer_name' => $customerName,
-                'client_id' => 'demo-client-' . strtolower($estimateNumber),
-                'mf_department_id' => 'demo-dept',
+                'client_id' => $clientId,
+                'mf_department_id' => null,
                 'title' => $title,
                 'issue_date' => $issueDate->toDateString(),
                 'due_date' => $dueDate->toDateString(),
@@ -283,108 +340,126 @@ class DashboardDemoSeeder extends Seeder
                 'items' => $items,
                 'staff_id' => $staffId,
                 'staff_name' => $staffName,
-                'approval_flow' => $this->buildApprovalFlow($staffName, $isOrderConfirmed),
+                'approval_flow' => $this->buildApprovalFlow($staffId, $staffName, $isOrderConfirmed),
                 'approval_started' => $approvalStarted,
                 'is_order_confirmed' => $isOrderConfirmed,
             ]
         );
     }
 
-    private function buildApprovalFlow(string $staffName, bool $isApproved): array
+    private function buildApprovalFlow(int $staffId, string $staffName, bool $isApproved): array
     {
+        $primaryApprover = $this->resolveStaff($staffId);
+        $secondaryApprover = $this->resolveStaff($staffId + 1);
+
         return [
             [
-                'id' => 9001,
-                'name' => '部門承認者',
+                'id' => $primaryApprover['id'],
+                'name' => $primaryApprover['name'],
                 'approved_at' => $isApproved ? now()->subDays(2)->toDateTimeString() : null,
                 'status' => $isApproved ? 'approved' : 'pending',
             ],
             [
-                'id' => 9002,
-                'name' => $staffName . ' マネージャー',
+                'id' => $secondaryApprover['id'],
+                'name' => $secondaryApprover['name'] ?: ($staffName . ' マネージャー'),
                 'approved_at' => $isApproved ? now()->subDay()->toDateTimeString() : null,
                 'status' => $isApproved ? 'approved' : 'pending',
             ],
         ];
     }
 
-    private function buildDevelopmentAssignees(array $staffNames, int $staffIndex, bool $isImplementation): array
+    private function buildDevelopmentAssignees(int $staffIndex, bool $isImplementation): array
     {
-        $primaryIndex = $staffIndex % count($staffNames);
-        $secondaryIndex = ($staffIndex + 1) % count($staffNames);
-        $thirdIndex = ($staffIndex + 2) % count($staffNames);
+        return $this->buildAssigneesFromShares(
+            $staffIndex,
+            $isImplementation ? [45.0, 35.0, 20.0] : [60.0, 40.0]
+        );
+    }
 
-        if ($isImplementation) {
-            return [
-                [
-                    'user_id' => 'demo-user-' . ($primaryIndex + 1),
-                    'user_name' => $staffNames[$primaryIndex],
-                    'share_percent' => 45.0,
-                ],
-                [
-                    'user_id' => 'demo-user-' . ($secondaryIndex + 1),
-                    'user_name' => $staffNames[$secondaryIndex],
-                    'share_percent' => 35.0,
-                ],
-                [
-                    'user_id' => 'demo-user-' . ($thirdIndex + 1),
-                    'user_name' => $staffNames[$thirdIndex],
-                    'share_percent' => 20.0,
-                ],
-            ];
+    private function buildAssigneesFromShares(int $staffIndex, array $shares): array
+    {
+        $merged = [];
+
+        foreach ($shares as $offset => $sharePercent) {
+            $staff = $this->resolveStaff($staffIndex + $offset);
+            $key = (string) $staff['id'];
+
+            if (!isset($merged[$key])) {
+                $merged[$key] = [
+                    'user_id' => (string) $staff['id'],
+                    'user_name' => (string) $staff['name'],
+                    'share_percent' => 0.0,
+                ];
+            }
+
+            $merged[$key]['share_percent'] += (float) $sharePercent;
+        }
+
+        return array_values(array_map(function (array $assignee): array {
+            $assignee['share_percent'] = round((float) $assignee['share_percent'], 1);
+
+            return $assignee;
+        }, $merged));
+    }
+
+    private function buildProductItem(string $sku, array $overrides = []): array
+    {
+        $product = $this->resolveProduct($sku);
+
+        return array_filter([
+            'product_id' => $product['id'],
+            'code' => $product['sku'],
+            'name' => $overrides['name'] ?? $product['name'],
+            'description' => $overrides['description'] ?? null,
+            'qty' => $overrides['qty'] ?? 1,
+            'unit' => $overrides['unit'] ?? $product['unit'],
+            'price' => $overrides['price'] ?? $product['price'],
+            'cost' => $overrides['cost'] ?? $product['cost'],
+            'tax_category' => $overrides['tax_category'] ?? $product['tax_category'],
+            'business_division' => $overrides['business_division'] ?? $product['business_division'],
+            'assignees' => $overrides['assignees'] ?? null,
+        ], static fn ($value) => $value !== null);
+    }
+
+    private function resolveProduct(string $sku): array
+    {
+        $product = $this->productPool->first(fn ($row) => (string) $row->sku === $sku);
+
+        if (!$product) {
+            throw new \RuntimeException(sprintf('DashboardDemoSeeder: SKU %s の商品が見つかりません。', $sku));
         }
 
         return [
-            [
-                'user_id' => 'demo-user-' . ($primaryIndex + 1),
-                'user_name' => $staffNames[$primaryIndex],
-                'share_percent' => 60.0,
-            ],
-            [
-                'user_id' => 'demo-user-' . ($secondaryIndex + 1),
-                'user_name' => $staffNames[$secondaryIndex],
-                'share_percent' => 40.0,
-            ],
+            'id' => (int) $product->id,
+            'sku' => (string) $product->sku,
+            'name' => (string) $product->name,
+            'unit' => (string) $product->unit,
+            'price' => (float) $product->price,
+            'cost' => (float) $product->cost,
+            'tax_category' => (string) ($product->tax_category ?? 'taxable'),
+            'business_division' => (string) ($product->business_division ?? 'fifth_business'),
         ];
     }
 
-    private function staffNames(): array
+    private function resolvePartner(int $offset): array
     {
+        $partner = $this->partnerPool->get($offset % $this->partnerPool->count());
+
         return [
-            '青木',
-            '井上',
-            '上田',
-            '岡本',
-            '川口',
-            '清水',
-            '高橋',
-            '田口',
-            '中村',
-            '守部',
+            'id' => (int) $partner->id,
+            'name' => (string) $partner->name,
+            'mf_partner_id' => (string) $partner->mf_partner_id,
         ];
     }
 
-    private function developmentCustomers(): array
+    private function resolveStaff(int $offset): array
     {
-        return [
-            '九州製造',
-            '東海ソリューション',
-            '西日本メディカル',
-            '熊本市教育委員会',
-            '南星物流',
-            '光洋設備',
-        ];
-    }
+        $staff = $this->staffPool->get($offset % $this->staffPool->count());
 
-    private function salesCustomers(): array
-    {
         return [
-            '大牟田商事',
-            '西部フーズ',
-            '天草観光開発',
-            '水前寺工業',
-            '阿蘇エネルギー',
-            '玉名印刷',
+            'id' => (int) $staff->id,
+            'name' => (string) $staff->name,
+            'external_user_id' => $staff->external_user_id ? (string) $staff->external_user_id : null,
         ];
     }
 }

@@ -44,5 +44,10 @@ class DatabaseSeeder extends Seeder
         // 見積書・請求書シードは実施しない
         // $this->call(QuoteSeeder::class);
         // $this->call(InvoiceSeeder::class);
+
+        // ダッシュボード確認用のデモデータは開発サーバ(dev)だけ自動投入する
+        if (App::environment('development')) {
+            $this->call(DashboardDemoSeeder::class);
+        }
     }
 }

@@ -581,3 +581,88 @@
   - `php artisan test tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php`
   - `npm run build`
   - `tail -n 20 storage/logs/laravel.log`
+
+## Step 61: Xserver の開発/本番DB分離状況を実機確認
+- GitHub Actions の deploy 設定から、`dev` は `/home/xero/rakudev`、`main` は `/home/xero/raku` へ配置されることを再確認した。
+- Xserver へ read-only で接続し、`/home/xero/raku/.env` と `/home/xero/rakudev/.env` の `APP_ENV / DB_CONNECTION / DB_HOST / DB_DATABASE / DB_USERNAME` を確認した。
+- 結果として、開発と本番は同じ MySQL ホスト `mysql807b.xserver.jp` を使うが、DB 名は `xero_raku` と `xero_rakudev` で分かれていた。したがって DB は別である。
+- 補足として、`APP_ENV` は本番・開発ともに `production` になっていた。環境判定を `APP_ENV` に依存する実装があると、開発環境でも本番扱いになるため注意が必要。
+- 確認:
+  - `sed -n '1,240p' .github/workflows/deploy.yml`
+  - `ssh xserver '... grep -E "^(APP_ENV|APP_NAME|DB_CONNECTION|DB_HOST|DB_PORT|DB_DATABASE|DB_USERNAME)=" .env ...'`
+
+## Step 62: Xserver 開発環境の APP_ENV を development へ変更
+- repo 内を `APP_ENV` / `app()->environment()` / `config('app.env')` で検索し、今回のアプリコードでは `config/app.php` の `'env' => env('APP_ENV', 'production')` 以外に、環境名へ直接依存する分岐がないことを確認した。
+- Xserver 開発環境 `/home/xero/rakudev/.env` を変更する前に `.env.backup_app_env_20260321_091653` を作成した。
+- 初回は Python で `.env` を読んだ際にサーバ側の文字コード既定値で `UnicodeDecodeError` になったため、ファイルは壊さず中断した。UTF-8 前提の Python 編集は避け、`perl` で `APP_ENV=development` へ安全に置換した。
+- 変更後に `/opt/php-8.2.28-2/bin/php artisan config:clear` を実行し、`php artisan about` で Environment が `development` へ切り替わったことを確認した。
+- 確認:
+  - `rg -n "app\(\)->environment|App::environment|APP_ENV|config\('app.env'\)|env\('APP_ENV'\)" ...`
+  - `ssh xserver '... grep -E "^(APP_ENV|APP_DEBUG|APP_URL|DB_CONNECTION|DB_HOST|DB_DATABASE|DB_USERNAME)=" .env ...'`
+  - `ssh xserver '... php artisan about | sed -n "1,40p"'`
+
+## Step 63: 開発URLの公開状態を確認し、APP_DEBUG運用方針を確定
+- `curl -I -L https://salesdev.xerographix.co.jp/` で開発URLへ外部から到達でき、`/login` まで通常の 302 -> 200 で公開されていることを確認した。Basic認証やIP制限のような前段ブロックは見当たらなかった。
+- Xserver 上でも `public_html/salesdev -> /home/xero/rakudev/public` の公開シンボリックリンクと `public/.htaccess` を確認し、Laravel 標準の rewrite のみで追加アクセス制限はないことを確認した。
+- そのため、開発環境で `APP_DEBUG=true` を常時有効にするのは非推奨と判断した。現在の安全な方針は `APP_ENV=development` + `APP_DEBUG=false` を通常運用とし、障害調査時だけ一時的に `APP_DEBUG=true` へ変更して戻す運用である。
+- 確認:
+  - `curl -I -L --max-redirs 5 https://salesdev.xerographix.co.jp/`
+  - `ssh xserver 'ls -la /home/xero/xerographix.co.jp/public_html ...'`
+  - `ssh xserver 'grep -E "^(APP_ENV|APP_DEBUG|APP_URL)=" /home/xero/rakudev/.env'`
+
+## Step 64: DashboardDemoSeeder を既存顧客・既存スタッフ整合へ改修
+- `DashboardDemoSeeder` の架空顧客・架空スタッフ依存を廃止し、既存 `partners` と `users` を参照してダミー見積・担当者按分・保守スナップショットを生成するように組み替えた。
+- 顧客は `partners.mf_partner_id` と `partners.name` を使い、`estimates.client_id` も実在の `mf_partner_id` を設定するようにした。これにより顧客別集計と既存顧客マスタの整合を保つ。
+- スタッフは `users` から既存ユーザーを取得し、`Codex/test/session` 系の補助ユーザーを除外したうえで、`staff_id / staff_name / items[*].assignees[*].user_id` を実在ユーザーへ寄せた。人数設定 `company_settings.operational_staff_count` も実在スタッフ数に合わせるようにした。
+- `mf_department_id` の架空値 `demo-dept` はやめて `null` にした。存在しない部門IDをダミー見積へ入れないため。
+- `php artisan db:seed --class=DashboardDemoSeeder` 後に、デモ見積 84 件で `missing_client_ids=[]`、`missing_assignee_ids=[]` を確認した。現在のローカルでは実在スタッフ母数が 2 名なので、運用上の人日キャパも 2 名基準へ揃う。
+- 確認:
+  - `php -l database/seeders/DashboardDemoSeeder.php`
+  - `php artisan db:seed --class=DashboardDemoSeeder`
+  - `php artisan tinker --execute='...'`
+  - `tail -n 20 storage/logs/laravel.log`
+
+## Step 65: DashboardDemoSeeder の明細を既存商品マスタへ紐付け
+- 再確認で、デモ見積の `items[*]` は `product_id` と `code` を持たず、既存 `products` マスタが利用されていないことを確認した。
+- `DashboardDemoSeeder` に既存 `Product` の読込を追加し、開発系は `A-001(要件定義)` `B-001(開発)` `F-001(サプライ)`、販売系は `E-001(ハードウェア)` `F-001(サプライ)` を既存商品から解決するように変更した。
+- 生成明細は `product_id / code / name / unit / tax_category` を商品マスタ由来にし、価格・原価・事業区分だけ必要に応じて上書きする構成へ変更した。これにより商品マスタとの紐付けを保ちながら、ダッシュボード確認用の金額バリエーションも維持した。
+- `php artisan db:seed --class=DashboardDemoSeeder` 後に、デモ明細 216 件で `items_missing_product_link=0`、`missing_product_ids_sample=[]` を確認した。
+- 確認:
+  - `php artisan tinker --execute='... Product::select(...) ...'`
+  - `php artisan db:seed --class=DashboardDemoSeeder`
+  - `php artisan tinker --execute='... items_missing_product_link ...'`
+
+## Step 66: ローカル users の同期元を確認し、実在スタッフを安全に追加する方針を整理
+- `DashboardDemoSeeder` の母集団を実運用へ寄せるため、ローカル `users` の同期元と既存経路を再確認する。
+- `UserSeeder` は既存ユーザーが1件でもあると同期を止めるため、今のローカル状態では外部スタッフを追加できないことを確認した。
+- `/api/users` は外部 API `https://api.xerographix.co.jp/api/users` からスタッフ一覧を取得しており、ローカル `.env` でも同系統の外部 API が利用可能なため、既存ユーザーを壊さず upsert できるローカル専用同期コマンドを追加する方針とした。
+- 実行後は `DashboardDemoSeeder` を再投入し、担当者按分と人数設定が実在スタッフ母集団へ寄ることを確認する。
+- `ExternalUserSyncService` と `users:sync-external` コマンドを追加し、既存ユーザーがいても外部 API のスタッフ一覧を local `users` へ upsert 同期できるようにした。`UserSeeder` はその Service を再利用する形へ寄せた。
+- `php artisan users:sync-external` を実行し、外部 API 取得 10 件に対して `作成9件 / 更新1件 / external_user_id紐付け9件 / 合計13件` を確認した。同期後の実在スタッフ候補は `LARS HONDA HAPPEL / 植木健司 / 守部幸洋 / KCS湯原 / 牛島麻理子 / 古閑信広 / 園田美和 / 川口大希 / 吉井靖人 / 三井明` に加え、既存ローカルの `廣川 京助` を保持する形となった。
+- `DashboardDemoSeeder` を再投入し、`demo_estimates=84`、`missing_client_ids=[]`、`missing_assignee_ids=[]`、`company_settings.operational_staff_count=11` を確認した。これでダッシュボード用ダミー見積の担当者按分と人数設定が実在スタッフ母集団に寄った。
+- 確認:
+  - `php artisan test tests/Feature/SyncExternalUsersCommandTest.php tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php`
+  - `php artisan users:sync-external`
+  - `php artisan db:seed --class=DashboardDemoSeeder`
+  - `php artisan tinker --execute="..."`
+
+## Step 67: local users のパスワード統一と不要ユーザー削除
+- local のログイン検証を簡単にするため、全 local users のパスワードを `00000000` へ統一し、不要ユーザー `廣川 京助` を削除する。
+- 削除前に users 参照とダミー見積の担当者参照が壊れないよう確認し、必要なら `DashboardDemoSeeder` を再投入して整合を戻す。
+- local users 全件のパスワードを `00000000` に統一した。ログイン検証時の混乱をなくすためで、対象は補助ユーザーも含む local `users` 全件。
+- 不要ユーザー `廣川 京助`（id=1）を local DB から削除した。削除前に参照を確認し、`staff_id=1` はダミー見積 8 件のみ、その他本線データ参照はないことを確認した。
+- 削除後に `DashboardDemoSeeder` を再投入し、`demo_staff_refs_deleted_user=0`、`demo_assignee_refs_deleted_user=0`、`operational_staff_count=10` を確認した。これでダミー見積の担当者割当から削除ユーザー参照は消えた。
+- 確認:
+  - `php -r '... User::query()->update([password => Hash::make("00000000")]) ...'`
+  - `php artisan db:seed --class=DashboardDemoSeeder`
+  - `php artisan tinker --execute="... Hash::check('00000000', User::find(3)->password) ..."`
+  - `tail -n 20 storage/logs/laravel.log`
+
+## Step 68: DashboardDemoSeeder を development 環境だけ自動適用する
+- GitHub Actions の deploy は `main` と `dev` の両方で `php artisan migrate --force --seed` を実行しているため、`DatabaseSeeder` 側で環境分岐しないと本番にも DashboardDemoSeeder が載るリスクがある。
+- `APP_ENV=development` に変えた Xserver 開発環境だけで DashboardDemoSeeder を自動実行し、production では絶対に走らせない分岐を `DatabaseSeeder` に追加する。
+- `DatabaseSeeder` に `App::environment('development')` 分岐を追加し、`DashboardDemoSeeder` を Xserver 開発環境(dev)だけ自動適用するようにした。本番 production では呼ばれない。
+- `DatabaseSeederEnvironmentTest` を追加し、development では `DashboardDemoSeeder` が呼ばれ、production では呼ばれないことを固定した。
+- 確認:
+  - `php -l database/seeders/DatabaseSeeder.php`
+  - `php artisan test tests/Feature/DatabaseSeederEnvironmentTest.php tests/Feature/SyncExternalUsersCommandTest.php tests/Feature/DashboardTest.php tests/Feature/EstimateItemAssignmentTest.php`
