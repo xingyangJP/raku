@@ -11,6 +11,8 @@ use App\Models\MaintenanceFeeSnapshotItem;
 
 class MaintenanceFeeController extends Controller
 {
+    private const DEMO_SNAPSHOT_SOURCE = 'dashboard_demo_seed_v1';
+
     public function resyncCurrentMonth(Request $request)
     {
         $month = Carbon::now()->startOfMonth();
@@ -90,7 +92,19 @@ class MaintenanceFeeController extends Controller
             ->values()
             ->all();
 
-        $chart = $snapshots->sortByDesc('month')->take(6)->sortBy('month')->values()->map(function ($s) {
+        $chartReferenceMonth = $snapshot?->month
+            ? Carbon::parse($snapshot->month)->startOfMonth()
+            : ($snapshotMonths->isNotEmpty() ? Carbon::parse($snapshotMonths->last())->startOfMonth() : Carbon::now()->startOfMonth());
+        $chartStartMonth = $chartReferenceMonth->copy()->subMonths(5);
+
+        $chart = $snapshots
+            ->filter(function ($s) use ($chartStartMonth, $chartReferenceMonth) {
+                $month = $s->month instanceof Carbon ? $s->month->copy()->startOfMonth() : Carbon::parse($s->month)->startOfMonth();
+                return $month->betweenIncluded($chartStartMonth, $chartReferenceMonth);
+            })
+            ->sortBy('month')
+            ->values()
+            ->map(function ($s) {
             return [
                 'month' => $s->month,
                 'label' => Carbon::parse($s->month)->format('Y/m'),
@@ -218,9 +232,9 @@ class MaintenanceFeeController extends Controller
         }
         $snapshot = MaintenanceFeeSnapshot::with('items')->whereDate('month', $month)->first();
         if ($snapshot) {
-            if ($snapshot->items->isEmpty()) {
+            if ($snapshot->items->isEmpty() || $this->shouldRefreshSnapshotFromApi($snapshot, $month)) {
                 $this->populateSnapshotItemsFromApi($snapshot);
-                $snapshot->load('items');
+                $snapshot->refresh()->load('items');
             }
             return $snapshot;
         }
@@ -281,8 +295,18 @@ class MaintenanceFeeController extends Controller
         if (!empty($rows)) {
             MaintenanceFeeSnapshotItem::where('maintenance_fee_snapshot_id', $snapshot->id)->delete();
             MaintenanceFeeSnapshotItem::insert($rows);
+            $snapshot->forceFill(['source' => 'api'])->save();
             $this->recalculateSnapshotTotal($snapshot->fresh('items'));
         }
+    }
+
+    private function shouldRefreshSnapshotFromApi(MaintenanceFeeSnapshot $snapshot, Carbon $month): bool
+    {
+        if ($snapshot->source !== self::DEMO_SNAPSHOT_SOURCE) {
+            return false;
+        }
+
+        return $month->isSameMonth(Carbon::now());
     }
 
     private function buildRowsFromCustomers(int $snapshotId, array $customers): array
