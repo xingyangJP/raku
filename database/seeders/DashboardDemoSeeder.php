@@ -21,12 +21,18 @@ class DashboardDemoSeeder extends Seeder
     private Collection $partnerPool;
     private Collection $staffPool;
     private Collection $productPool;
+    private bool $includeMaintenanceSnapshots;
 
     /**
      * Run the database seeds.
      */
     public function run(): void
     {
+        $this->includeMaintenanceSnapshots = filter_var(
+            env('DASHBOARD_DEMO_INCLUDE_MAINTENANCE', false),
+            FILTER_VALIDATE_BOOL
+        );
+
         $this->bootstrapReferenceData();
         $this->configureCompanySetting();
         $this->purgeDemoData();
@@ -144,7 +150,9 @@ class DashboardDemoSeeder extends Seeder
             $this->seedSalesEstimate($month, $index, false);
         }
 
-        $this->seedMaintenanceSnapshot($month, $index);
+        if ($this->includeMaintenanceSnapshots) {
+            $this->seedMaintenanceSnapshot($month, $index);
+        }
     }
 
     private function seedDevelopmentEstimate(Carbon $month, int $index, bool $isConfirmed, float $personDays): void

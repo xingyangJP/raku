@@ -15,6 +15,7 @@ class MaintenanceFeeSnapshotItem extends Model
         'maintenance_fee',
         'status',
         'support_type',
+        'entry_source',
     ];
 
     protected $casts = [

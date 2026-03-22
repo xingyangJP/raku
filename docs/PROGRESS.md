@@ -869,3 +869,68 @@
   - 保守売上管理の local / dev 数値差分を調査し、`dashboard_demo_seed_v1` の demo snapshot が API値より優先されていることを確認。
   - あわせて、直近6ヶ月グラフが選択月ではなく DB 末尾6件を表示している実装差分も確認。
   - demo snapshot の当月自動再同期と、選択月基準グラフへの修正で揃える方針に決定。
+
+- Step 103 (2026-03-21 19:42 JST)
+  - 追加調査で、dev デプロイ時に GitHub Actions が `php artisan migrate --force --seed` を実行し、`APP_ENV=development` では `DashboardDemoSeeder` が毎回 demo の保守 snapshot を再投入することを確認。
+  - そのため dev では修正デプロイ後も非当月の保守 snapshot が `dashboard_demo_seed_v1` に戻り、本番と数値が乖離していた。
+  - 対策は、demo seeder から保守 snapshot の自動投入を既定で外し、snapshot 不在時は当月を API から生成する方針とした。
+
+- Step 104 (2026-03-21 19:55 JST)
+  - dev / local の開発ノイズ対策として、`DashboardDemoSeeder` の自動実行を env フラグで明示許可制に変える方針を確定。
+  - 既に混入した `DEMO-DASH` 見積と `dashboard_demo_seed_v1` snapshot を安全に削除する Artisan コマンドを追加する。
+  - cleanup コマンドの回帰テストも追加し、実データを巻き込まないことを固定する。
+
+- Step 105 (2026-03-21 20:12 JST)
+  - 再発防止のため、`dev` deploy 後に `dashboard:purge-demo-data` を自動実行する方針を追加。
+  - `DatabaseSeeder` の demo seed 条件は env フラグ込みで回帰テストへ反映し、`development` だから自動投入される状態を固定的に解消する。
+  - 併せて、直アクセス可能な `/inventory` が mock 固定かつ実行時エラーを含んでいたため、mock 明示と最低限の表示整合も合わせて修正する。
+
+- Step 106 (2026-03-21 20:18 JST)
+  - `DatabaseSeederEnvironmentTest` 3件、`PurgeDashboardDemoDataCommandTest` 2件、`MaintenanceFeeControllerTest` 3件を実行し、seed 条件・cleanup・保守売上回帰がすべて pass。
+  - `npm run build` も成功し、`Inventory/Index.jsx` の JSX 崩れや参照エラーがないことを確認。
+  - 残確認は dev 実機デプロイ後に `dashboard:purge-demo-data` が実行され、既存 demo データが除去されることのサーバ確認のみ。
+
+- Step 107 (2026-03-22 00:18 JST)
+  - 保守売上管理の要件確認のため、`docs/MAINTENANCE_FEE.md`、`MaintenanceFeeController`、画面 JSX、見積・ダッシュボード側の利用箇所を横断確認。
+  - 現仕様では `support_type` フィルタ UI 未実装、サマリーと検索結果の意味ずれ、履歴証跡不足、取得ロジック分散が主な課題と整理。
+  - 改善は「表示の信頼性」「再同期/手修正の証跡」「ロジック集約」を先に行う方針でまとめる。
+
+- Step 108 (2026-03-22 00:24 JST)
+  - `docs/MAINTENANCE_FEE_BRUSHUP_PROPOSAL.md` を新規作成し、要件・現仕様・差分・優先度つき改善案・受け入れ観点を文書化。
+  - `docs/INDEX.md` に索引を追加し、後から参照しやすい状態へ更新。
+  - 今回は提案整理が目的のため挙動変更は行わず、次の実装フェーズで P1 項目から着手できるよう論点を固定した。
+
+- Step 109 (2026-03-22 00:41 JST)
+  - 保守売上管理の P1 実装として、`MaintenanceFeeSyncService` を追加し、API取得・snapshot 生成/再同期・source 判定・サポート種別分解を Service に集約。
+  - `maintenance_fee_snapshots.last_synced_at` と `maintenance_fee_snapshot_items.entry_source` を追加する migration を作成し、source / 最終同期 / 手修正件数を画面で出せる前提を整備。
+  - `MaintenanceFeeController` と `EstimateController` の保守売上取得を Service ベースへ寄せ、ロジック重複を削減。
+
+- Step 110 (2026-03-22 00:48 JST)
+  - `MaintenanceFees/Index.jsx` に source / 最終同期 / 手修正件数カード、`support_type` フィルタ、APIエラーバナー、`表示中 / 全体` 併記のサマリーを追加。
+  - `MaintenanceFeeControllerTest` を 5 件へ拡張し、source メタ、support_type 絞り込み、API失敗表示を固定。
+  - `DatabaseSeederEnvironmentTest`、`PurgeDashboardDemoDataCommandTest`、`DashboardTest`、`npm run build`、`php -l` も通過し、保守売上周辺の回帰を確認。
+
+- Step 111 (2026-03-22 01:18 JST)
+  - local の過去月表示を確認し、snapshot 自体は 24 件残っているが、demo source の月では過去の 4 件データが残っていることを確認。
+  - 対策として、`dashboard_demo_seed_v1` の snapshot は当月に限らず選択時に API 値へ自動補正するよう変更。
+  - フィルタカードを最上部へ移動し、数値状態カードへ適用中の年月・顧客名・サポート種別を表示して、どの条件で見ている数値かを明示する。
+
+- Step 112 (2026-03-22 01:22 JST)
+  - `MaintenanceFeeControllerTest` の demo refresh を過去月ケースへ更新し、support_type 適用条件の props も固定。
+  - `php artisan test --filter=MaintenanceFeeControllerTest` は 5 件 pass、`npm run build` も成功。
+  - これにより、過去月の demo snapshot は対象月を開いた時点で API へ置換され、上部フィルタから条件適用順に画面が読める構成になった。
+
+- Step 113 (2026-03-22 01:34 JST)
+  - 追加調査で、`2025-04` の 4件問題は demo ではなく `source=api` かつ `last_synced_at=null` の古い stale snapshot が残っていたことを確認。
+  - local では snapshot 自体は 24 件残っており、`2025-04` だけ item_count=4 / total=725000 の古い API 結果だった。
+  - 解決策として、local/dev 用に stale snapshot を一括再同期するコマンドを追加し、dev deploy 後にも自動補正できるようにする。
+
+- Step 114 (2026-03-22 01:40 JST)
+  - `maintenance:refresh-snapshots` コマンドを追加し、`--legacy-only` で demo または `last_synced_at=null` の古い api snapshot だけを補正できるようにした。
+  - `RefreshMaintenanceSnapshotsCommandTest` を追加し、legacy snapshot だけが更新対象になることを固定。
+  - dev deploy 後に `maintenance:refresh-snapshots --legacy-only` を自動実行するよう workflow へ追加した。
+
+- Step 115 (2026-03-22 01:45 JST)
+  - local で `php artisan maintenance:refresh-snapshots --legacy-only` を実行し、18 件の stale snapshot を API ベースで再同期。
+  - `2025-04` は `item_count=65 / total_fee=614523 / last_synced_at=2026-03-22 01:26:23` へ更新されたことを確認。
+  - その後 `php artisan test --filter=MaintenanceFeeControllerTest` も再実行し、5 件 pass を確認。

@@ -14,12 +14,14 @@ class MaintenanceFeeSnapshot extends Model
         'total_fee',
         'total_gross',
         'source',
+        'last_synced_at',
     ];
 
     protected $casts = [
         'month' => 'date',
         'total_fee' => 'float',
         'total_gross' => 'float',
+        'last_synced_at' => 'datetime',
     ];
 
     public function items()
