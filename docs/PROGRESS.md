@@ -934,3 +934,18 @@
   - local で `php artisan maintenance:refresh-snapshots --legacy-only` を実行し、18 件の stale snapshot を API ベースで再同期。
   - `2025-04` は `item_count=65 / total_fee=614523 / last_synced_at=2026-03-22 01:26:23` へ更新されたことを確認。
   - その後 `php artisan test --filter=MaintenanceFeeControllerTest` も再実行し、5 件 pass を確認。
+
+- Step 116 (2026-03-22 02:05 JST)
+  - 保守以外の demo データを作り直す依頼に対し、`DashboardDemoSeeder` の現状と画面側の確認パターンを調査。
+  - 現行 seeder は `2025-01` から `2026-12` まで固定投入で、見積パターンも受注/見込に偏っていることを確認。
+  - 今回はマスターと保守 snapshot を触らず、`DEMO-DASH` 見積だけを `2025-01` から `2026-05` の範囲で再構成する方針を確定。
+
+- Step 117 (2026-03-22 02:18 JST)
+  - `DashboardDemoSeeder` を全面的に作り直し、投入対象を `2025-01` から `2026-05` へ制限。
+  - 月ごとに `開発受注 / 開発承認待ち / 開発追跡 / 販売受注 / 販売送付済み / 販売失注 / ドラフト` の 7 パターンを固定で投入する構成へ変更。
+  - `CompanySetting` 更新と maintenance snapshot 作成/削除を外し、`DEMO-DASH` 見積だけを purge 対象に絞った。
+
+- Step 118 (2026-03-22 02:23 JST)
+  - `DashboardDemoSeederTest` を追加し、119件投入、月範囲、主要ステータス、保守非変更を固定。
+  - `DatabaseSeederEnvironmentTest` は再実行で 3 件 pass、`DashboardDemoSeederTest` は 1 件 pass。
+  - local で `php artisan db:seed --class=DashboardDemoSeeder` を実行し、`DEMO-DASH` 見積 119 件、末尾月 `2026-05`、maintenance snapshot 24 件据え置きを確認。
