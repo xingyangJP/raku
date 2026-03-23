@@ -34,6 +34,15 @@ class CaptureMaintenanceMonthEndSnapshot extends Command
             return self::FAILURE;
         }
 
+        if ($monthInput === '' && !$this->shouldRunToday()) {
+            $this->line(sprintf(
+                '本日 %s は月末日ではないため、snapshot 取得をスキップしました。',
+                now()->format('Y-m-d')
+            ));
+
+            return self::SUCCESS;
+        }
+
         $snapshot = MaintenanceFeeSnapshot::query()
             ->with('items')
             ->whereDate('month', $month->copy()->startOfMonth())
@@ -83,5 +92,10 @@ class CaptureMaintenanceMonthEndSnapshot extends Command
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    private function shouldRunToday(): bool
+    {
+        return now()->isLastOfMonth();
     }
 }

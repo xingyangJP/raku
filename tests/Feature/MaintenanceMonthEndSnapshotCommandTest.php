@@ -11,8 +11,34 @@ class MaintenanceMonthEndSnapshotCommandTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function tearDown(): void
+    {
+        $this->travelBack();
+
+        parent::tearDown();
+    }
+
+    public function test_month_end_command_skips_when_today_is_not_last_day_and_month_is_not_explicitly_specified(): void
+    {
+        $this->travelTo(now()->setDate(2026, 3, 30)->setTime(23, 55));
+
+        Http::fake([
+            '*' => Http::response([
+                ['customer_name' => '顧客A', 'maintenance_fee' => 180000, 'status' => 'active', 'support_type' => '運用保守'],
+            ], 200),
+        ]);
+
+        $this->artisan('maintenance:capture-month-end')
+            ->expectsOutput('本日 2026-03-30 は月末日ではないため、snapshot 取得をスキップしました。')
+            ->assertSuccessful();
+
+        $this->assertNull(MaintenanceFeeSnapshot::query()->first());
+    }
+
     public function test_month_end_command_creates_snapshot_from_api_when_missing(): void
     {
+        $this->travelTo(now()->setDate(2026, 3, 31)->setTime(23, 55));
+
         Http::fake([
             '*' => Http::response([
                 ['customer_name' => '顧客A', 'maintenance_fee' => 180000, 'status' => 'active', 'support_type' => '運用保守'],
@@ -38,6 +64,8 @@ class MaintenanceMonthEndSnapshotCommandTest extends TestCase
 
     public function test_month_end_command_skips_manual_snapshot_without_force(): void
     {
+        $this->travelTo(now()->setDate(2026, 3, 31)->setTime(23, 55));
+
         Http::fake([
             '*' => Http::response([
                 ['customer_name' => '顧客A', 'maintenance_fee' => 180000, 'status' => 'active', 'support_type' => '運用保守'],

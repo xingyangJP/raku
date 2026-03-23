@@ -964,3 +964,13 @@
   - `routes/console.php` に scheduler を追加し、`maintenance:capture-month-end` を毎日 23:55 実行しつつ、月末日のみ起動するよう設定。
   - `MaintenanceMonthEndSnapshotCommandTest` を追加し、新規 snapshot 作成と manual snapshot スキップを固定。
   - `php artisan test --filter=MaintenanceMonthEndSnapshotCommandTest` 2件 pass、`MaintenanceFeeControllerTest` 5件 pass、`php artisan schedule:list` でも月末ジョブ登録を確認。
+
+- Step 122 (2026-03-23 00:28 JST)
+  - Xserver の cron 運用確認により、毎分 `schedule:run` 前提は不要かつ負荷に対して過剰と判断。
+  - 方針を修正し、`maintenance:capture-month-end` コマンド自身に「月末日以外は何もしない」判定を持たせ、Xserver cron から直接呼ぶ構成へ変更することにした。
+  - `routes/console.php` の scheduler 定義は削除し、今後は `28-31日 23:55` の軽量 cron からコマンドを直接叩く前提で整理する。
+
+- Step 123 (2026-03-23 00:33 JST)
+  - `maintenance:capture-month-end` を修正し、`--month` 未指定時は本日が月末日でなければ何もせず終了するようにした。
+  - `MaintenanceMonthEndSnapshotCommandTest` を 3 件へ拡張し、非月末スキップ / 新規作成 / manual snapshot 保護を固定。
+  - `php artisan test --filter=MaintenanceMonthEndSnapshotCommandTest` 3件 pass、`MaintenanceFeeControllerTest` 5件 pass、構文確認も問題なし。
