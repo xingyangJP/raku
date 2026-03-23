@@ -949,3 +949,18 @@
   - `DashboardDemoSeederTest` を追加し、119件投入、月範囲、主要ステータス、保守非変更を固定。
   - `DatabaseSeederEnvironmentTest` は再実行で 3 件 pass、`DashboardDemoSeederTest` は 1 件 pass。
   - local で `php artisan db:seed --class=DashboardDemoSeeder` を実行し、`DEMO-DASH` 見積 119 件、末尾月 `2026-05`、maintenance snapshot 24 件据え置きを確認。
+
+- Step 119 (2026-03-23 00:06 JST)
+  - 保守売上 snapshot の取得タイミングを再調査し、現状は画面アクセス時または手動再同期時のみで、月末自動確定は未実装と確認。
+  - 月末自動取得は、当月 snapshot を API から確定保存する専用コマンドを追加し、scheduler で月末 23:55 実行とする方針を確定。
+  - 手修正済み月を自動で壊さないため、manual / mixed snapshot は自動実行時にスキップする安全設計で進める。
+
+- Step 120 (2026-03-23 00:15 JST)
+  - `maintenance:capture-month-end` コマンドを追加し、当月または指定月の snapshot を API から確定保存できるようにした。
+  - 既存 snapshot が manual / mixed かつ手修正を含む場合は既定でスキップし、`--force` 指定時のみ強制再同期する設計にした。
+  - `MaintenanceFeeSyncService` に自動更新保護判定を追加し、月末自動化でも既存の手修正運用を壊さないようにした。
+
+- Step 121 (2026-03-23 00:18 JST)
+  - `routes/console.php` に scheduler を追加し、`maintenance:capture-month-end` を毎日 23:55 実行しつつ、月末日のみ起動するよう設定。
+  - `MaintenanceMonthEndSnapshotCommandTest` を追加し、新規 snapshot 作成と manual snapshot スキップを固定。
+  - `php artisan test --filter=MaintenanceMonthEndSnapshotCommandTest` 2件 pass、`MaintenanceFeeControllerTest` 5件 pass、`php artisan schedule:list` でも月末ジョブ登録を確認。

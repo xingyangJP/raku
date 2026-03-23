@@ -155,6 +155,24 @@ class MaintenanceFeeSyncService
         return $snapshot->items->where('entry_source', self::ITEM_SOURCE_MANUAL)->count();
     }
 
+    public function hasManualEdits(?MaintenanceFeeSnapshot $snapshot): bool
+    {
+        return $this->manualEditCount($snapshot) > 0;
+    }
+
+    public function shouldProtectFromAutomatedRefresh(?MaintenanceFeeSnapshot $snapshot): bool
+    {
+        if (!$snapshot) {
+            return false;
+        }
+
+        if ($this->hasManualEdits($snapshot)) {
+            return true;
+        }
+
+        return in_array($snapshot->source, [self::SNAPSHOT_SOURCE_MANUAL, self::SNAPSHOT_SOURCE_MIXED], true);
+    }
+
     public function sourceLabel(?string $source): string
     {
         return match ($source) {
