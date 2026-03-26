@@ -2384,19 +2384,6 @@ useEffect(() => {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
-                                <div className="hidden xl:grid xl:grid-cols-[180px_minmax(0,1.8fr)_90px_170px_130px_120px_120px_110px_110px_90px] xl:gap-4 xl:px-3 xl:text-sm xl:text-slate-500">
-                                    <div>品目名</div>
-                                    <div>詳細</div>
-                                    <div className="text-right">数量</div>
-                                    <div>単位 / 数量表示</div>
-                                    <div className="text-right">単価</div>
-                                    <div className="text-right">金額</div>
-                                    <div>税区分</div>
-                                    {isInternalView && <div className="text-right">原価</div>}
-                                    {isInternalView && <div className="text-right">粗利</div>}
-                                    <div className="text-right">操作</div>
-                                </div>
-
                                 <div className="space-y-4">
                                     {lineItems.map((item, index) => (
                                         <div key={item.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
