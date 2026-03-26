@@ -249,6 +249,52 @@ class DashboardTest extends TestCase
         });
     }
 
+    public function test_dashboard_evenly_allocates_effort_across_start_and_delivery_months(): void
+    {
+        $user = User::factory()->create();
+        $assignee = User::factory()->create([
+            'name' => '担当者A',
+            'work_capacity_person_days' => 12,
+        ]);
+
+        Estimate::factory()->create([
+            'status' => 'sent',
+            'is_order_confirmed' => true,
+            'issue_date' => '2026-03-01',
+            'due_date' => '2026-03-10',
+            'start_date' => '2026-04-01',
+            'delivery_date' => '2026-06-25',
+            'items' => [
+                [
+                    'name' => '設計',
+                    'qty' => 9,
+                    'unit' => '人日',
+                    'price' => 900000,
+                    'cost' => 300000,
+                    'business_division' => 'fifth_business',
+                    'assignees' => [
+                        ['user_id' => (string) $assignee->id, 'user_name' => '担当者A', 'share_percent' => 100],
+                    ],
+                ],
+            ],
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->withSession(['mf_skip_partner_auto_sync' => true])
+            ->get(route('dashboard', ['year' => 2026, 'month' => 5]));
+
+        $response->assertOk();
+        $response->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Dashboard')
+                ->where('dashboardMetrics.sections.overall.effort.current.planned', fn ($value) => (float) $value === 3.0)
+                ->where('dashboardMetrics.sections.overall.people.summary.unassigned_person_days', fn ($value) => (float) $value === 0.0)
+                ->where('dashboardMetrics.sections.overall.people.rows.0.name', '担当者A')
+                ->where('dashboardMetrics.sections.overall.people.rows.0.planned_person_days', fn ($value) => (float) $value === 3.0)
+                ->where('dashboardMetrics.basis.effort_rule', '着手日と納期がある案件は開始月から納品月まで均等配賦、着手日未設定は納期月へ一括配賦、納期未設定は未配賦として別管理');
+        });
+    }
+
     public function test_dashboard_uses_confirmed_order_delivery_month_for_collection_forecast(): void
     {
         $user = User::factory()->create();

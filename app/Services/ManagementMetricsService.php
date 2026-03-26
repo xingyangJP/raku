@@ -14,6 +14,10 @@ use Illuminate\Support\Facades\Schema;
 
 class ManagementMetricsService
 {
+    public function __construct(private readonly EstimateEffortAllocationService $effortAllocation)
+    {
+    }
+
     public function build(?int $selectedYear = null, ?int $selectedMonth = null): array
     {
         $timezone = config('app.sales_timezone', config('app.timezone', 'Asia/Tokyo'));
@@ -91,6 +95,7 @@ class ManagementMetricsService
                 'status',
                 'issue_date',
                 'due_date',
+                'start_date',
                 'delivery_date',
                 'total_amount',
                 'items',
@@ -113,8 +118,7 @@ class ManagementMetricsService
 
             $sectionAmounts = $this->summarizeEstimateBySection($estimate, $productLookup);
             $estimateEffort = (float) ($sectionAmounts['overall']['effort'] ?? 0);
-            $deliveryAt = $estimate->delivery_date ? Carbon::parse($estimate->delivery_date, $timezone) : null;
-            $deliveryMonthKey = $deliveryAt?->copy()->startOfMonth()->toDateString();
+            $effortAllocations = $this->effortAllocation->resolveMonthlyEffort($estimate, $estimateEffort, $timezone, false);
 
             foreach (['overall', 'development', 'sales'] as $sectionKey) {
                 $amounts = $sectionAmounts[$sectionKey] ?? null;
@@ -146,11 +150,15 @@ class ManagementMetricsService
 
                 $monthlyBySection[$sectionKey]->put($monthKey, $row);
 
-                if ($deliveryAt && $sectionKey !== 'maintenance') {
-                    if ($monthlyBySection[$sectionKey]->has($deliveryMonthKey)) {
-                        $deliveryRow = $monthlyBySection[$sectionKey]->get($deliveryMonthKey);
-                        $deliveryRow['budget_effort'] += (float) ($amounts['effort'] ?? 0);
-                        $monthlyBySection[$sectionKey]->put($deliveryMonthKey, $deliveryRow);
+                if ($sectionKey !== 'maintenance' && !empty($effortAllocations)) {
+                    foreach ($effortAllocations as $effortMonthKey => $allocatedEffort) {
+                        if ($allocatedEffort <= 0 || !$monthlyBySection[$sectionKey]->has($effortMonthKey)) {
+                            continue;
+                        }
+
+                        $deliveryRow = $monthlyBySection[$sectionKey]->get($effortMonthKey);
+                        $deliveryRow['budget_effort'] += (float) $allocatedEffort;
+                        $monthlyBySection[$sectionKey]->put($effortMonthKey, $deliveryRow);
                     }
                 }
 
@@ -177,12 +185,12 @@ class ManagementMetricsService
                 }
             }
 
-            $peoplePlanningMonthKey = $this->resolvePeoplePlanningMonthKey($estimate, $timezone);
-            if ($peoplePlanningMonthKey === $currentMonthKey) {
-                $this->appendPeopleAssignments($peopleBuckets, $estimate, $productLookup, $currentMonthKey, $capacityMap, $personDaysPerMonth);
+            $currentMonthRatio = $this->effortAllocation->resolveMonthlyRatios($estimate, $timezone)[$currentMonthKey] ?? null;
+            if ($currentMonthRatio !== null && $currentMonthRatio > 0) {
+                $this->appendPeopleAssignments($peopleBuckets, $estimate, $productLookup, $currentMonthKey, $capacityMap, $personDaysPerMonth, (float) $currentMonthRatio);
             }
 
-            if ($deliveryAt) {
+            if (!empty($effortAllocations)) {
                 $effortAssignedTotal += $estimateEffort;
             } else {
                 $effortUnscheduledTotal += $estimateEffort;
@@ -230,7 +238,7 @@ class ManagementMetricsService
                 'recognition' => '納期ベース',
                 'recognition_fallback' => '納期未設定時は見積期限日、さらに未設定時は見積日を使用',
                 'effort' => '計画工数（見積ベース）',
-                'effort_rule' => '納期あり見積のみ月次計画工数に配賦（納期未設定は未配賦として別管理）',
+                'effort_rule' => '着手日と納期がある案件は開始月から納品月まで均等配賦、着手日未設定は納期月へ一括配賦、納期未設定は未配賦として別管理',
                 'maintenance_rule' => '保守は月次スナップショットを売上・粗利同額として計上',
                 'cash_rule' => '受注確定案件の回収予測は注文書納期の翌月入金、未受注案件は見積期限日を仮の回収予定として試算',
             ],
@@ -759,8 +767,12 @@ class ManagementMetricsService
             ->all();
     }
 
-    private function appendPeopleAssignments(array &$peopleBuckets, Estimate $estimate, array $productLookup, string $currentMonthKey, array $capacityMap, float $defaultCapacityPersonDays): void
+    private function appendPeopleAssignments(array &$peopleBuckets, Estimate $estimate, array $productLookup, string $currentMonthKey, array $capacityMap, float $defaultCapacityPersonDays, float $monthRatio = 1.0): void
     {
+        if ($monthRatio <= 0) {
+            return;
+        }
+
         $items = is_array($estimate->items) ? $estimate->items : [];
 
         foreach ($items as $item) {
@@ -773,7 +785,7 @@ class ManagementMetricsService
                 $qty = 1.0;
             }
 
-            $personDays = $this->toPersonDays($qty, (string) (data_get($item, 'unit') ?? ''));
+            $personDays = $this->toPersonDays($qty, (string) (data_get($item, 'unit') ?? '')) * $monthRatio;
             if ($personDays <= 0) {
                 continue;
             }
@@ -1259,19 +1271,6 @@ class ManagementMetricsService
         }
 
         return Carbon::parse($collectionAt, $timezone);
-    }
-
-    private function resolvePeoplePlanningMonthKey(Estimate $estimate, string $timezone): ?string
-    {
-        $baseAt = $estimate->delivery_date
-            ?? $estimate->due_date
-            ?? $estimate->issue_date;
-
-        if (!$baseAt) {
-            return null;
-        }
-
-        return Carbon::parse($baseAt, $timezone)->startOfMonth()->toDateString();
     }
 
     private function shouldExcludeEffortItem($item, array $productLookup): bool

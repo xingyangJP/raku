@@ -12,6 +12,10 @@ class QuoteOperationsSummaryService
 {
     private const FIRST_BUSINESS_KEY = 'first_business';
 
+    public function __construct(private readonly EstimateEffortAllocationService $effortAllocation)
+    {
+    }
+
     public function summarize(string $timezone = 'Asia/Tokyo'): array
     {
         $companySetting = CompanySetting::current();
@@ -29,15 +33,15 @@ class QuoteOperationsSummaryService
 
         $estimates = Estimate::query()
             ->whereNull('mf_deleted_at')
-            ->get(['id', 'items', 'issue_date', 'due_date', 'delivery_date', 'is_order_confirmed']);
+            ->get(['id', 'items', 'issue_date', 'due_date', 'start_date', 'delivery_date', 'is_order_confirmed']);
 
         return [
             'staff_count' => $companySetting->resolveOperationalStaffCount(),
             'monthly_capacity_person_days' => $monthlyCapacity,
             'default_capacity_person_days' => $defaultCapacityPerPersonDays,
             'person_hours_per_person_day' => $personHoursPerPersonDay,
-            'current_month' => $this->buildMonthSummary($estimates, $productLookups, $currentMonth, $monthlyCapacity, $defaultCapacityPerPersonDays, $personHoursPerPersonDay),
-            'next_month' => $this->buildMonthSummary($estimates, $productLookups, $nextMonth, $monthlyCapacity, $defaultCapacityPerPersonDays, $personHoursPerPersonDay),
+            'current_month' => $this->buildMonthSummary($estimates, $productLookups, $currentMonth, $monthlyCapacity, $defaultCapacityPerPersonDays, $personHoursPerPersonDay, $timezone),
+            'next_month' => $this->buildMonthSummary($estimates, $productLookups, $nextMonth, $monthlyCapacity, $defaultCapacityPerPersonDays, $personHoursPerPersonDay, $timezone),
         ];
     }
 
@@ -76,19 +80,26 @@ class QuoteOperationsSummaryService
         Carbon $month,
         float $monthlyCapacity,
         float $defaultCapacityPerPersonDays,
-        float $personHoursPerPersonDay
+        float $personHoursPerPersonDay,
+        string $timezone
     ): array
     {
+        $monthKey = $month->copy()->startOfMonth()->toDateString();
         $confirmed = $estimates->filter(function (Estimate $estimate) use ($month) {
             if (!$estimate->is_order_confirmed) {
                 return false;
             }
 
-            $scheduledMonth = $this->resolveScheduledMonth($estimate);
-            return $scheduledMonth && $scheduledMonth->isSameMonth($month);
+            return true;
         });
 
-        $plannedPersonDays = round($confirmed->sum(fn (Estimate $estimate) => $this->calculateEffort($estimate, $productLookups, $defaultCapacityPerPersonDays, $personHoursPerPersonDay)), 1);
+        $confirmed = $confirmed->filter(fn (Estimate $estimate) => array_key_exists($monthKey, $this->effortAllocation->resolveMonthlyRatios($estimate, $timezone)));
+
+        $plannedPersonDays = round($confirmed->sum(function (Estimate $estimate) use ($productLookups, $defaultCapacityPerPersonDays, $personHoursPerPersonDay, $timezone, $monthKey) {
+            $totalEffort = $this->calculateEffort($estimate, $productLookups, $defaultCapacityPerPersonDays, $personHoursPerPersonDay);
+
+            return (float) ($this->effortAllocation->resolveMonthlyEffort($estimate, $totalEffort, $timezone)[$monthKey] ?? 0);
+        }), 1);
         $availablePersonDays = round($monthlyCapacity - $plannedPersonDays, 1);
         $utilization = $monthlyCapacity > 0
             ? round(($plannedPersonDays / $monthlyCapacity) * 100, 1)
@@ -104,22 +115,6 @@ class QuoteOperationsSummaryService
             'confirmed_count' => $confirmed->count(),
             'status' => $this->resolveStatus($utilization),
         ];
-    }
-
-    private function resolveScheduledMonth(Estimate $estimate): ?Carbon
-    {
-        foreach (['delivery_date', 'due_date', 'issue_date'] as $field) {
-            $value = $estimate->{$field};
-            if (!$value) {
-                continue;
-            }
-
-            return $value instanceof Carbon
-                ? $value->copy()->startOfMonth()
-                : Carbon::parse($value)->startOfMonth();
-        }
-
-        return null;
     }
 
     private function calculateEffort(

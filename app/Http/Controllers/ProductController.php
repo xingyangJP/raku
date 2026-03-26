@@ -79,7 +79,6 @@ class ProductController extends Controller
         $data = $request->validated();
         $selectedBusinessDivision = $data['business_division'] ?? $this->defaultBusinessDivision();
 
-        // Server-side SKU auto-generation using categories.last_item_seq
         $product = DB::transaction(function () use ($data, $selectedBusinessDivision) {
             $category = DB::table('categories')
                 ->where('id', $data['category_id'])
@@ -90,8 +89,7 @@ class ProductController extends Controller
                 abort(422, 'Invalid category selected.');
             }
 
-            $nextSeq = ((int) $category->last_item_seq) + 1;
-            $sku = sprintf('%s-%03d', $category->code, $nextSeq);
+            [$nextSeq, $sku] = $this->resolveNextCategorySku((int) $category->id, (string) $category->code);
 
             // Create product with generated SKU and seq
             $product = Product::create([
@@ -111,11 +109,7 @@ class ProductController extends Controller
                 'attributes' => $data['attributes'] ?? null,
             ]);
 
-            // Update last_item_seq after successful insert
-            DB::table('categories')->where('id', $category->id)->update([
-                'last_item_seq' => $nextSeq,
-                'updated_at' => now(),
-            ]);
+            $this->syncCategoryLastItemSeq((int) $category->id, $nextSeq);
 
             return $product;
         });
@@ -155,8 +149,7 @@ class ProductController extends Controller
                     abort(422, 'Invalid category selected.');
                 }
 
-                $nextSeq = ((int) $category->last_item_seq) + 1;
-                $sku = sprintf('%s-%03d', $category->code, $nextSeq);
+                [$nextSeq, $sku] = $this->resolveNextCategorySku((int) $category->id, (string) $category->code, $product->id);
 
                 $product->fill([
                     'sku' => $sku,
@@ -180,10 +173,7 @@ class ProductController extends Controller
 
                 $product->save();
 
-                DB::table('categories')->where('id', $category->id)->update([
-                    'last_item_seq' => $nextSeq,
-                    'updated_at' => now(),
-                ]);
+                $this->syncCategoryLastItemSeq((int) $category->id, $nextSeq);
             });
         } else {
             // No category change; just update other fields (SKU stays the same)
@@ -762,5 +752,57 @@ class ProductController extends Controller
         }
 
         return $candidate;
+    }
+
+    private function resolveNextCategorySku(int $categoryId, string $categoryCode, ?int $ignoreProductId = null): array
+    {
+        $code = trim($categoryCode);
+        $prefix = $code . '-';
+
+        $maxSeqInCategory = 0;
+        if (Schema::hasColumn('products', 'category_id') && Schema::hasColumn('products', 'seq')) {
+            $maxSeqInCategory = (int) DB::table('products')
+                ->where('category_id', $categoryId)
+                ->max('seq');
+        }
+
+        $skuRows = DB::table('products')
+            ->where('sku', 'like', $prefix . '%')
+            ->get(['id', 'sku']);
+
+        $maxSeqFromSku = (int) $skuRows
+            ->reject(fn ($row) => $ignoreProductId !== null && (int) $row->id === $ignoreProductId)
+            ->map(function ($row) use ($code) {
+                if (!preg_match('/^' . preg_quote($code, '/') . '-(\d+)$/', (string) $row->sku, $matches)) {
+                    return 0;
+                }
+
+                return (int) $matches[1];
+            })
+            ->max();
+
+        $nextSeq = max($maxSeqInCategory, $maxSeqFromSku) + 1;
+
+        while (true) {
+            $sku = sprintf('%s-%03d', $code, $nextSeq);
+            $exists = DB::table('products')
+                ->where('sku', $sku)
+                ->when($ignoreProductId !== null, fn ($query) => $query->where('id', '!=', $ignoreProductId))
+                ->exists();
+
+            if (!$exists) {
+                return [$nextSeq, $sku];
+            }
+
+            $nextSeq++;
+        }
+    }
+
+    private function syncCategoryLastItemSeq(int $categoryId, int $seq): void
+    {
+        DB::table('categories')->where('id', $categoryId)->update([
+            'last_item_seq' => $seq,
+            'updated_at' => now(),
+        ]);
     }
 }

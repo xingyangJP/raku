@@ -11,7 +11,10 @@ use Illuminate\Support\Facades\Schema;
 
 class EstimateWorkloadSimulationService
 {
-    public function __construct(private readonly EstimateItemAssignmentNormalizer $assignmentNormalizer)
+    public function __construct(
+        private readonly EstimateItemAssignmentNormalizer $assignmentNormalizer,
+        private readonly EstimateEffortAllocationService $effortAllocation
+    )
     {
     }
 
@@ -39,6 +42,7 @@ class EstimateWorkloadSimulationService
                 'status',
                 'issue_date',
                 'due_date',
+                'start_date',
                 'delivery_date',
                 'items',
                 'title',
@@ -57,13 +61,8 @@ class EstimateWorkloadSimulationService
         }
 
         foreach ($query as $estimate) {
-            $recognizedAt = $this->resolveRecognitionDate($estimate, $timezone);
-            if (!$recognizedAt) {
-                continue;
-            }
-
-            $monthKey = $recognizedAt->copy()->startOfMonth()->toDateString();
-            if (!isset($buckets[$monthKey])) {
+            $monthRatios = $this->effortAllocation->resolveMonthlyRatios($estimate, $timezone);
+            if ($monthRatios === []) {
                 continue;
             }
 
@@ -82,54 +81,65 @@ class EstimateWorkloadSimulationService
                     continue;
                 }
 
-                $assignees = $this->assignmentNormalizer->normalizeAssignees((array) ($item['assignees'] ?? []));
-                if (empty($assignees)) {
-                    $buckets[$monthKey]['unassigned_person_days'] += $personDays;
-                    continue;
-                }
-
-                foreach ($assignees as $assignee) {
-                    $sharePercent = (float) ($assignee['share_percent'] ?? 0);
-                    if ($sharePercent <= 0) {
+                foreach ($monthRatios as $monthKey => $monthRatio) {
+                    if (!isset($buckets[$monthKey]) || $monthRatio <= 0) {
                         continue;
                     }
 
-                    $assignedPersonDays = $personDays * ($sharePercent / 100);
-                    if ($assignedPersonDays <= 0) {
+                    $allocatedPersonDays = $personDays * $monthRatio;
+                    if ($allocatedPersonDays <= 0) {
                         continue;
                     }
 
-                    $key = trim((string) ($assignee['user_id'] ?? ''));
-                    if ($key === '') {
-                        $key = trim((string) ($assignee['user_name'] ?? ''));
-                    }
-                    if ($key === '') {
-                        $key = '未設定担当';
+                    $assignees = $this->assignmentNormalizer->normalizeAssignees((array) ($item['assignees'] ?? []));
+                    if (empty($assignees)) {
+                        $buckets[$monthKey]['unassigned_person_days'] += $allocatedPersonDays;
+                        continue;
                     }
 
-                    $displayName = trim((string) ($assignee['user_name'] ?? ''));
-                    if ($displayName === '') {
-                        $displayName = $key;
-                    }
+                    foreach ($assignees as $assignee) {
+                        $sharePercent = (float) ($assignee['share_percent'] ?? 0);
+                        if ($sharePercent <= 0) {
+                            continue;
+                        }
 
-                    if (!isset($buckets[$monthKey]['rows'][$key])) {
-                        $capacityPersonDays = $this->resolveAssigneeCapacityPersonDays($assignee, $capacityMap, $defaultCapacityPerPersonDays);
-                        $buckets[$monthKey]['rows'][$key] = [
-                            'user_key' => $key,
-                            'user_id' => $assignee['user_id'] ?? null,
-                            'name' => $displayName,
-                            'capacity_person_days' => $capacityPersonDays,
-                            'planned_person_days' => 0.0,
-                            'estimate_ids' => [],
-                            'latest_titles' => [],
-                        ];
-                    }
+                        $assignedPersonDays = $allocatedPersonDays * ($sharePercent / 100);
+                        if ($assignedPersonDays <= 0) {
+                            continue;
+                        }
 
-                    $buckets[$monthKey]['rows'][$key]['planned_person_days'] += $assignedPersonDays;
-                    $buckets[$monthKey]['rows'][$key]['estimate_ids'][(string) $estimate->id] = true;
-                    $title = trim((string) ($estimate->title ?? $item['name'] ?? ''));
-                    if ($title !== '' && count($buckets[$monthKey]['rows'][$key]['latest_titles']) < 3) {
-                        $buckets[$monthKey]['rows'][$key]['latest_titles'][$title] = $title;
+                        $key = trim((string) ($assignee['user_id'] ?? ''));
+                        if ($key === '') {
+                            $key = trim((string) ($assignee['user_name'] ?? ''));
+                        }
+                        if ($key === '') {
+                            $key = '未設定担当';
+                        }
+
+                        $displayName = trim((string) ($assignee['user_name'] ?? ''));
+                        if ($displayName === '') {
+                            $displayName = $key;
+                        }
+
+                        if (!isset($buckets[$monthKey]['rows'][$key])) {
+                            $capacityPersonDays = $this->resolveAssigneeCapacityPersonDays($assignee, $capacityMap, $defaultCapacityPerPersonDays);
+                            $buckets[$monthKey]['rows'][$key] = [
+                                'user_key' => $key,
+                                'user_id' => $assignee['user_id'] ?? null,
+                                'name' => $displayName,
+                                'capacity_person_days' => $capacityPersonDays,
+                                'planned_person_days' => 0.0,
+                                'estimate_ids' => [],
+                                'latest_titles' => [],
+                            ];
+                        }
+
+                        $buckets[$monthKey]['rows'][$key]['planned_person_days'] += $assignedPersonDays;
+                        $buckets[$monthKey]['rows'][$key]['estimate_ids'][(string) $estimate->id] = true;
+                        $title = trim((string) ($estimate->title ?? $item['name'] ?? ''));
+                        if ($title !== '' && count($buckets[$monthKey]['rows'][$key]['latest_titles']) < 3) {
+                            $buckets[$monthKey]['rows'][$key]['latest_titles'][$title] = $title;
+                        }
                     }
                 }
             }
@@ -177,8 +187,8 @@ class EstimateWorkloadSimulationService
 
         return [
             'basis' => [
-                'label' => '納期月ベース',
-                'detail' => '既存案件の納期月ごとの担当者予定工数に、この見積の担当者按分を重ねてシミュレーションします。失注・却下案件は除外します。',
+                'label' => '着手日〜納期の均等配賦ベース',
+                'detail' => '既存案件は着手日と納期がある場合に開始月から納品月まで均等配賦し、着手日未設定時は納期月へ一括、納期未設定時は見積期限日または見積日を仮の月として扱います。失注・却下案件は除外します。',
             ],
             'reference_year' => (int) $referenceAt->year,
             'staff_count' => $staffSetting->resolveOperationalStaffCount(),
@@ -204,19 +214,6 @@ class EstimateWorkloadSimulationService
         }
 
         return $defaultCapacityPerPersonDays;
-    }
-
-    private function resolveRecognitionDate(Estimate $estimate, string $timezone): ?Carbon
-    {
-        $recognizedAt = $estimate->delivery_date
-            ?? $estimate->due_date
-            ?? $estimate->issue_date;
-
-        if (!$recognizedAt) {
-            return null;
-        }
-
-        return Carbon::parse($recognizedAt, $timezone);
     }
 
     private function shouldExcludeEffortItem(array $item, array $productLookup): bool

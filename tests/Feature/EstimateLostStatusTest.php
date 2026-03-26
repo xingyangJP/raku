@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Estimate;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Inertia\Testing\AssertableInertia;
 use Tests\TestCase;
@@ -194,5 +195,90 @@ class EstimateLostStatusTest extends TestCase
                 ->where('quoteOperationsSummary.current_month.planned_person_days', fn ($value) => (float) $value === 20.0)
                 ->where('quoteOperationsSummary.current_month.available_person_days', fn ($value) => (float) $value === 5.0);
         });
+    }
+
+    public function test_quotes_page_evenly_allocates_confirmed_effort_across_start_and_delivery_months(): void
+    {
+        $this->travelTo(Carbon::parse('2026-04-10 10:00:00', 'Asia/Tokyo'));
+
+        $user = User::factory()->create([
+            'work_capacity_person_days' => 20,
+        ]);
+
+        Cache::forever('mf_quotes_last_sync_at_user_' . $user->id, now()->toIso8601String());
+
+        Estimate::factory()->create([
+            'status' => 'sent',
+            'is_order_confirmed' => true,
+            'start_date' => '2026-04-01',
+            'delivery_date' => '2026-06-30',
+            'items' => [
+                [
+                    'name' => '開発',
+                    'qty' => 9,
+                    'unit' => '人日',
+                    'price' => 100000,
+                    'cost' => 50000,
+                    'tax_category' => 'standard',
+                ],
+            ],
+        ]);
+
+        $response = $this->actingAs($user)->get(route('quotes.index'));
+
+        $response->assertOk();
+        $response->assertInertia(function (AssertableInertia $page): void {
+            $page->component('Quotes/Index')
+                ->where('quoteOperationsSummary.current_month.month', '2026-04')
+                ->where('quoteOperationsSummary.current_month.planned_person_days', fn ($value) => (float) $value === 3.0)
+                ->where('quoteOperationsSummary.next_month.month', '2026-05')
+                ->where('quoteOperationsSummary.next_month.planned_person_days', fn ($value) => (float) $value === 3.0)
+                ->where('quoteOperationsSummary.current_month.confirmed_count', 1)
+                ->where('quoteOperationsSummary.next_month.confirmed_count', 1);
+        });
+    }
+
+    public function test_order_confirmation_requires_start_and_delivery_dates(): void
+    {
+        $user = User::factory()->create();
+        $estimate = Estimate::factory()->create([
+            'status' => 'sent',
+            'is_order_confirmed' => false,
+            'start_date' => null,
+            'delivery_date' => null,
+        ]);
+
+        $response = $this->actingAs($user)->from(route('estimates.edit', $estimate))->post(route('estimates.orderConfirmation', $estimate), [
+            'confirmed' => true,
+        ]);
+
+        $response->assertRedirect(route('estimates.edit', $estimate));
+        $response->assertSessionHasErrors('order');
+        $this->assertFalse($estimate->fresh()->is_order_confirmed);
+    }
+
+    public function test_order_confirmation_persists_start_and_delivery_dates(): void
+    {
+        $user = User::factory()->create();
+        $estimate = Estimate::factory()->create([
+            'status' => 'sent',
+            'is_order_confirmed' => false,
+            'start_date' => null,
+            'delivery_date' => null,
+        ]);
+
+        $response = $this->actingAs($user)->from(route('estimates.edit', $estimate))->post(route('estimates.orderConfirmation', $estimate), [
+            'confirmed' => true,
+            'start_date' => '2026-04-01',
+            'delivery_date' => '2026-04-25',
+        ]);
+
+        $response->assertRedirect(route('estimates.edit', $estimate));
+        $response->assertSessionHasNoErrors();
+
+        $fresh = $estimate->fresh();
+        $this->assertTrue($fresh->is_order_confirmed);
+        $this->assertSame('2026-04-01', $fresh->start_date?->toDateString());
+        $this->assertSame('2026-04-25', $fresh->delivery_date?->toDateString());
     }
 }

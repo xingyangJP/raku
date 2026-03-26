@@ -40,6 +40,44 @@ const REQUIRED_FIELD_LABELS = {
     google_docs_url: '要件定義書',
 };
 
+const externalScriptPromises = new Map();
+
+const loadExternalScript = (src, readyCheck) => {
+    if (typeof window === 'undefined') {
+        return Promise.reject(new Error('ブラウザ環境でのみ利用できます。'));
+    }
+    if (readyCheck()) {
+        return Promise.resolve();
+    }
+    if (externalScriptPromises.has(src)) {
+        return externalScriptPromises.get(src);
+    }
+
+    const promise = new Promise((resolve, reject) => {
+        const existing = document.querySelector(`script[src="${src}"]`);
+        if (existing) {
+            existing.addEventListener('load', () => resolve(), { once: true });
+            existing.addEventListener('error', () => reject(new Error(`${src} の読み込みに失敗しました。`)), { once: true });
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`${src} の読み込みに失敗しました。`));
+        document.head.appendChild(script);
+    }).finally(() => {
+        if (!readyCheck()) {
+            externalScriptPromises.delete(src);
+        }
+    });
+
+    externalScriptPromises.set(src, promise);
+    return promise;
+};
+
 // --- Components defined outside EstimateCreate to prevent state loss on re-render ---
 
 function CustomerCombobox({ selectedCustomer, onCustomerChange }) {
@@ -367,6 +405,9 @@ const mapStructuredRequirements = (payload) => {
 
 export default function EstimateCreate({ auth, products, users = [], estimate = null, is_fully_approved = false, workloadSimulation = null }) {
     const isEditMode = estimate !== null;
+    const googleDriveClientId = (import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID || '').trim();
+    const googleDriveApiKey = (import.meta.env.VITE_GOOGLE_DRIVE_API_KEY || '').trim();
+    const googleDrivePickerEnabled = googleDriveClientId !== '' && googleDriveApiKey !== '';
 
     const [isInternalView, setIsInternalView] = useState(true);
     const normalizeNumber = (value, fallback = 0) => {
@@ -579,6 +620,18 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [aiDraftPreview, setAiDraftPreview] = useState([]);
     const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
     const [aiNotesSuggestion, setAiNotesSuggestion] = useState('');
+    const [googleDriveError, setGoogleDriveError] = useState(null);
+    const [googleAccessToken, setGoogleAccessToken] = useState('');
+    const [selectedRequirementDoc, setSelectedRequirementDoc] = useState(() => (
+        estimate?.google_docs_url
+            ? {
+                fileId: null,
+                name: '保存済みの要件定義書',
+                url: estimate.google_docs_url,
+                mimeType: null,
+            }
+            : null
+    ));
     const [selectedStaff, setSelectedStaff] = useState(() => initialSelectedStaff);
     const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
     const [approvers, setApprovers] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
@@ -601,45 +654,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
 
     const [openIssueMFQuoteConfirm, setOpenIssueMFQuoteConfirm] = useState(false);
     const [openConvertToInvoiceConfirm, setOpenConvertToInvoiceConfirm] = useState(false);
-    const [chatMessages, setChatMessages] = useState([]);
-    const [chatInput, setChatInput] = useState('');
-    const [chatLoading, setChatLoading] = useState(false);
-    const [requirementsMode, setRequirementsMode] = useState('chat'); // 'chat' | 'manual'
-    const createDraftChatKey = () => {
-        if (typeof window === 'undefined') {
-            return `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        }
-        try {
-            const existing = window.sessionStorage.getItem('reqchat-active-draft-key');
-            if (existing) {
-                return existing;
-            }
-            const generated = `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-            window.sessionStorage.setItem('reqchat-active-draft-key', generated);
-            return generated;
-        } catch (error) {
-            console.warn('Failed to init draft chat key', error);
-            return `draft-${Date.now().toString(36)}`;
-        }
-    };
-
-    const [draftChatKey, setDraftChatKey] = useState(() => (!estimate?.id ? createDraftChatKey() : null));
-    const draftLocalStorageKey = draftChatKey ? `reqchat-${draftChatKey}` : null;
-    const chatStorageKey = useMemo(() => {
-        if (estimate?.id) {
-            return `reqchat-estimate-${estimate.id}`;
-        }
-        return draftChatKey ? `reqchat-${draftChatKey}` : null;
-    }, [estimate?.id, draftChatKey]);
-    const lastAssistantMessage = useMemo(() => {
-        for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
-            if (chatMessages[i]?.role === 'assistant') {
-                return chatMessages[i];
-            }
-        }
-        return null;
-    }, [chatMessages]);
-    const lastAssistantContent = useMemo(() => lastAssistantMessage?.content?.trim() ?? '', [lastAssistantMessage]);
+    const googleTokenClientRef = useRef(null);
 
     const handleIssueMFQuote = () => {
         router.visit(route('estimates.createQuote.start', { estimate: estimate.id }));
@@ -658,13 +673,15 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         if (!estimate?.id) return;
         router.post(route('estimates.orderConfirmation', estimate.id), {
             confirmed: orderConfirmMode === 'confirm',
+            start_date: data.start_date || null,
+            delivery_date: data.delivery_date || null,
         }, {
             onSuccess: () => {
                 setOrderConfirmDialogOpen(false);
                 setData('is_order_confirmed', orderConfirmMode === 'confirm');
             },
             onError: (errors) => {
-                alert(errors?.order || '受注確定処理でエラーが発生しました。');
+                alert(errors?.order || errors?.start_date || errors?.delivery_date || '受注確定処理でエラーが発生しました。');
             },
             preserveScroll: true,
         });
@@ -695,6 +712,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         title: estimate?.title || '',
         issue_date: isEditMode ? formatDate(estimate?.issue_date) : issueDateDefault,
         due_date: isEditMode ? formatDate(estimate?.due_date) : dueDateDefault,
+        start_date: isEditMode ? formatDate(estimate?.start_date) : '',
         delivery_date: isEditMode ? formatDate(estimate?.delivery_date) : '',
         total_amount: estimate?.total_amount || 0,
         tax_amount: estimate?.tax_amount || 0,
@@ -714,10 +732,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     });
 
     const hasRequirementSummary = (data.requirement_summary ?? '').trim() !== '';
-    const canGenerateOverview = requirementsMode === 'chat'
-        ? Boolean(lastAssistantContent)
-        : hasRequirementSummary;
-    const canGenerateDraft = hasRequirementSummary || (requirementsMode === 'chat' && Boolean(lastAssistantContent));
+    const canGenerateDraftFromDocument = Boolean((data.google_docs_url ?? '').trim()) && googleAccessToken.trim() !== '';
 
     useEffect(() => {
         const hasContent = structuredRequirements.functional.length > 0
@@ -730,6 +745,127 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         } : null);
     }, [structuredRequirements]);
 
+    useEffect(() => {
+        if (!data.google_docs_url?.trim()) {
+            setSelectedRequirementDoc(null);
+        } else if (!selectedRequirementDoc?.url) {
+            setSelectedRequirementDoc({
+                fileId: null,
+                name: '保存済みの要件定義書',
+                url: data.google_docs_url,
+                mimeType: null,
+            });
+        }
+    }, [data.google_docs_url, selectedRequirementDoc?.url]);
+
+    const ensureGooglePickerReady = useCallback(async () => {
+        if (!googleDrivePickerEnabled) {
+            throw new Error('Google Drive Picker の設定が未完了です。');
+        }
+
+        await loadExternalScript('https://accounts.google.com/gsi/client', () => Boolean(window.google?.accounts?.oauth2));
+        await loadExternalScript('https://apis.google.com/js/api.js', () => Boolean(window.gapi));
+
+        await new Promise((resolve, reject) => {
+            window.gapi.load('picker', {
+                callback: resolve,
+                onerror: () => reject(new Error('Google Picker の初期化に失敗しました。')),
+            });
+        });
+    }, [googleDrivePickerEnabled]);
+
+    const requestGoogleDriveAccessToken = useCallback(async () => {
+        await ensureGooglePickerReady();
+
+        return new Promise((resolve, reject) => {
+            googleTokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+                client_id: googleDriveClientId,
+                scope: 'https://www.googleapis.com/auth/drive.readonly',
+                callback: (response) => {
+                    if (response?.error) {
+                        reject(new Error(response.error));
+                        return;
+                    }
+                    resolve(response?.access_token || '');
+                },
+                error_callback: () => reject(new Error('Google 認証に失敗しました。')),
+            });
+
+            googleTokenClientRef.current.requestAccessToken({
+                prompt: googleAccessToken ? '' : 'consent',
+            });
+        });
+    }, [ensureGooglePickerReady, googleDriveClientId, googleAccessToken]);
+
+    const openGoogleDrivePicker = useCallback(async () => {
+        setGoogleDriveError(null);
+
+        try {
+            const accessToken = await requestGoogleDriveAccessToken();
+            if (!accessToken) {
+                throw new Error('Google Drive のアクセストークンを取得できませんでした。');
+            }
+            setGoogleAccessToken(accessToken);
+
+            const myDriveView = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+                .setMimeTypes('application/vnd.google-apps.document')
+                .setSelectFolderEnabled(false)
+                .setIncludeFolders(true);
+
+            const sharedDriveView = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+                .setMimeTypes('application/vnd.google-apps.document')
+                .setEnableDrives(true)
+                .setSelectFolderEnabled(false)
+                .setIncludeFolders(true);
+
+            if (typeof myDriveView.setLabel === 'function') {
+                myDriveView.setLabel('マイドライブ');
+            }
+
+            if (typeof sharedDriveView.setLabel === 'function') {
+                sharedDriveView.setLabel('共有ドライブ');
+            }
+
+            let pickerBuilder = new window.google.picker.PickerBuilder()
+                .addView(myDriveView)
+                .addView(sharedDriveView)
+                .setOAuthToken(accessToken)
+                .setDeveloperKey(googleDriveApiKey)
+                .setCallback((pickerData) => {
+                    if (pickerData?.action !== window.google.picker.Action.PICKED) {
+                        return;
+                    }
+
+                    const doc = pickerData.docs?.[0];
+                    if (!doc) {
+                        setGoogleDriveError('Google Drive のファイル選択に失敗しました。');
+                        return;
+                    }
+
+                    const pickedUrl = doc.url || `https://docs.google.com/document/d/${doc.id}/edit`;
+                    setSelectedRequirementDoc({
+                        fileId: doc.id || null,
+                        name: doc.name || '要件定義書',
+                        url: pickedUrl,
+                        mimeType: doc.mimeType || null,
+                    });
+                    setData('google_docs_url', pickedUrl);
+                    setGoogleDriveError(null);
+                })
+            ;
+
+            if (window.google?.picker?.Feature?.SUPPORT_DRIVES) {
+                pickerBuilder = pickerBuilder.enableFeature(window.google.picker.Feature.SUPPORT_DRIVES);
+            }
+
+            const picker = pickerBuilder.build();
+
+            picker.setVisible(true);
+        } catch (error) {
+            setGoogleDriveError(error?.message || 'Google Drive Picker の起動に失敗しました。');
+        }
+    }, [googleDriveApiKey, requestGoogleDriveAccessToken, setData]);
+
     const [submitErrors, setSubmitErrors] = useState([]);
     const [hasRequiredError, setHasRequiredError] = useState(false);
     const [orderConfirmDialogOpen, setOrderConfirmDialogOpen] = useState(false);
@@ -738,75 +874,6 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     useEffect(() => {
         setLineItems(transformIncomingItems(estimate?.items, initialSelectedStaff));
     }, [estimate?.items, initialSelectedStaff]);
-
-    const clearDraftChatStorage = useCallback(() => {
-        if (typeof window !== 'undefined') {
-            if (draftLocalStorageKey) {
-                window.localStorage.removeItem(draftLocalStorageKey);
-            }
-            window.sessionStorage.removeItem('reqchat-active-draft-key');
-        }
-        setDraftChatKey(null);
-    }, [draftLocalStorageKey]);
-
-    useEffect(() => {
-        if (!estimate?.id) {
-            setDraftChatKey((prev) => {
-                if (prev) {
-                    return prev;
-                }
-                return createDraftChatKey();
-            });
-        }
-    }, [estimate?.id]);
-
-    useEffect(() => {
-        const syncDraftChat = async () => {
-            if (!estimate?.id || !draftLocalStorageKey || typeof window === 'undefined') {
-                return;
-            }
-            const cached = window.localStorage.getItem(draftLocalStorageKey);
-            if (!cached) {
-                clearDraftChatStorage();
-                return;
-            }
-            let parsed;
-            try {
-                parsed = JSON.parse(cached);
-            } catch (error) {
-                console.warn('Failed to parse draft chat cache', error);
-                clearDraftChatStorage();
-                return;
-            }
-            if (!Array.isArray(parsed) || parsed.length === 0) {
-                clearDraftChatStorage();
-                return;
-            }
-            try {
-                await axios.post(route('estimates.requirementChat.import', estimate.id), {
-                    messages: parsed.map(({ role, content }) => ({ role, content })),
-                });
-                clearDraftChatStorage();
-                loadChat();
-            } catch (error) {
-                console.error('Failed to import draft chat history', error);
-            }
-        };
-        syncDraftChat();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [estimate?.id, draftLocalStorageKey]);
-
-    useEffect(() => {
-        setChatMessages([]);
-        loadChat();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [estimate?.id, chatStorageKey]);
-
-    useEffect(() => () => {
-        if (!estimate?.id && typeof window !== 'undefined') {
-            window.sessionStorage.removeItem('reqchat-active-draft-key');
-        }
-    }, [estimate?.id]);
 
     useEffect(() => {
         if (data.status !== 'sent' && data.is_order_confirmed) {
@@ -1617,9 +1684,17 @@ useEffect(() => {
 
         try {
             setIsGeneratingNotes(true);
+            const payload = buildCurrentFormPayload();
             const response = await axios.post(route('estimates.generateNotes'), {
                 prompt: notePrompt,
-                estimate_id: data.id ?? null,
+                estimate_id: payload.id ?? null,
+                customer_name: payload.customer_name,
+                title: payload.title,
+                issue_date: payload.issue_date,
+                google_docs_url: payload.google_docs_url,
+                requirement_summary: payload.requirement_summary,
+                structured_requirements: payload.structured_requirements,
+                items: payload.items,
             });
             const generated = response?.data?.notes ?? '';
             if (generated !== '') {
@@ -1633,40 +1708,6 @@ useEffect(() => {
             setNotePromptError(message);
         } finally {
             setIsGeneratingNotes(false);
-        }
-    };
-
-    const handleGenerateRequirementOverview = async () => {
-        setStructureError(null);
-        let summarySource = (data.requirement_summary || '').trim();
-        if (requirementsMode === 'chat') {
-            if (!lastAssistantContent) {
-                setStructureError('AI整理結果がありません。');
-                return;
-            }
-            summarySource = lastAssistantContent;
-            setData('requirement_summary', lastAssistantContent);
-        } else if (summarySource === '') {
-            setStructureError('要件概要を入力してください。');
-            return;
-        }
-
-        try {
-            setIsStructuringRequirements(true);
-            const response = await axios.post(route('estimates.ai.structure'), {
-                requirement_summary: summarySource,
-                estimate_id: data.id ?? null,
-            });
-            setStructuredRequirements(mapStructuredRequirements({
-                functional: response?.data?.functional_requirements ?? [],
-                non_functional: response?.data?.non_functional_requirements ?? [],
-                unresolved: response?.data?.unresolved_requirements ?? [],
-            }));
-        } catch (error) {
-            const message = error?.response?.data?.message ?? '要件整理に失敗しました。';
-            setStructureError(message);
-        } finally {
-            setIsStructuringRequirements(false);
         }
     };
 
@@ -1711,35 +1752,61 @@ useEffect(() => {
 
     const handleGenerateAiDraft = async () => {
         setAiDraftError(null);
-        let summarySource = (data.requirement_summary || '').trim();
-        if (!summarySource && requirementsMode === 'chat' && lastAssistantContent) {
-            summarySource = lastAssistantContent;
-            setData('requirement_summary', lastAssistantContent);
+        setStructureError(null);
+        if (!(data.google_docs_url || '').trim()) {
+            setAiDraftError('要件定義書を選択してください。');
+            return;
         }
-        if (!summarySource) {
-            setAiDraftError('要件概要を入力してください。');
+        if (!googleAccessToken.trim()) {
+            setAiDraftError('Google Drive から要件定義書を選択してから実行してください。');
             return;
         }
 
         try {
             setIsGeneratingAiDraft(true);
-            const response = await axios.post(route('estimates.ai.generateDraft'), {
-                requirement_summary: summarySource,
-                functional_requirements: structuredRequirements.functional,
-                non_functional_requirements: structuredRequirements.nonFunctional,
-                unresolved_requirements: structuredRequirements.unresolved,
+            setIsStructuringRequirements(true);
+            const response = await axios.post(route('estimates.ai.generateDraftFromDoc'), {
+                google_docs_url: data.google_docs_url,
+                google_file_id: selectedRequirementDoc?.fileId ?? null,
+                google_access_token: googleAccessToken,
                 pm_required: pmSupportRequired,
                 estimate_id: data.id ?? null,
             });
 
+            const generatedSummary = response?.data?.requirement_summary ?? '';
+            const generatedStructured = mapStructuredRequirements({
+                functional: response?.data?.functional_requirements ?? [],
+                non_functional: response?.data?.non_functional_requirements ?? [],
+                unresolved: response?.data?.unresolved_requirements ?? [],
+            });
             const generatedItems = response?.data?.items ?? [];
+            if (generatedSummary) {
+                setData('requirement_summary', generatedSummary);
+            }
+            setStructuredRequirements(generatedStructured);
+            if ((response?.data?.notes_prompt ?? '').trim()) {
+                setNotePrompt(response.data.notes_prompt);
+            }
+            if (response?.data?.document) {
+                setSelectedRequirementDoc({
+                    fileId: response.data.document.file_id ?? selectedRequirementDoc?.fileId ?? null,
+                    name: response.data.document.name ?? selectedRequirementDoc?.name ?? '要件定義書',
+                    url: response.data.document.url ?? data.google_docs_url,
+                    mimeType: response.data.document.mime_type ?? null,
+                });
+                if (response.data.document.url) {
+                    setData('google_docs_url', response.data.document.url);
+                }
+            }
             setAiDraftPreview(generatedItems);
             setAiNotesSuggestion(response?.data?.notes ?? '');
             setAiPreviewOpen(true);
         } catch (error) {
             const message = error?.response?.data?.message ?? 'ドラフト生成に失敗しました。';
             setAiDraftError(message);
+            setStructureError(message);
         } finally {
+            setIsStructuringRequirements(false);
             setIsGeneratingAiDraft(false);
         }
     };
@@ -1793,29 +1860,29 @@ useEffect(() => {
 
         router.post(route('estimates.saveDraft'), payload, {
             onSuccess: (page) => {
-                if (!isEditMode) {
-                    const newEstimateId = page?.props?.estimate?.id
+                const persistedEstimateId = isEditMode
+                    ? (estimate?.id ?? payload.id ?? null)
+                    : (
+                        page?.props?.estimate?.id
                         || page?.props?.flash?.estimate_id
                         || page?.props?.estimate_id
-                        || null;
+                        || null
+                    );
 
-                    const redirectUrl = route('estimates.edit', newEstimateId);
+                const redirectUrl = persistedEstimateId
+                    ? route('estimates.edit', persistedEstimateId)
+                    : null;
 
-                    const syncAndRedirect = async () => {
-                        if (redirectUrl) {
-                            // サーバー側で同期する感覚が得られるよう軽微な遅延
-                            await new Promise((resolve) => setTimeout(resolve, 150));
-                            clearDraftChatStorage();
-                            window.location.href = redirectUrl;
-                        } else {
-                            window.location.reload();
-                        }
-                    };
+                const syncAndRedirect = async () => {
+                    if (redirectUrl) {
+                        await new Promise((resolve) => setTimeout(resolve, 150));
+                        window.location.href = redirectUrl;
+                    } else {
+                        window.location.reload();
+                    }
+                };
 
-                    syncAndRedirect();
-                } else {
-                    alert('下書きが保存されました。');
-                }
+                syncAndRedirect();
             },
             onError: (e) => console.error('下書き保存エラー:', e),
             preserveScroll: true,
@@ -1830,69 +1897,6 @@ useEffect(() => {
             setApprovalStatus('');
         }
         setOpenApproval(true);
-    };
-
-    const loadChat = async () => {
-        try {
-            setChatLoading(true);
-            if (!estimate?.id) {
-                if (!chatStorageKey) {
-                    setChatMessages([]);
-                    return;
-                }
-                const local = localStorage.getItem(chatStorageKey);
-                if (local) {
-                    setChatMessages(JSON.parse(local));
-                } else {
-                    setChatMessages([]);
-                }
-            } else {
-                const res = await axios.get(route('estimates.requirementChat.show', estimate.id));
-                setChatMessages(res.data?.messages || []);
-            }
-        } catch (e) {
-            console.error('requirement chat load failed', e);
-        } finally {
-            setChatLoading(false);
-        }
-    };
-
-    const sendChat = async () => {
-        if (chatInput.trim() === '') return;
-        const userMessage = {
-            id: `local-${Date.now()}`,
-            role: 'user',
-            content: chatInput,
-        };
-        setChatMessages((prev) => [...prev, userMessage]);
-        setChatInput('');
-
-        try {
-            setChatLoading(true);
-            if (!estimate?.id) {
-                const res = await axios.post(route('estimates.requirementChat.draft'), {
-                    messages: [...chatMessages, userMessage].map(m => ({ role: m.role, content: m.content })),
-                });
-                const assistant = res.data?.assistant;
-                const withAssistant = assistant
-                    ? [...chatMessages, userMessage, { id: `draft-assistant-${Date.now()}`, role: 'assistant', content: assistant }]
-                    : [...chatMessages, userMessage];
-                setChatMessages(withAssistant);
-                if (chatStorageKey) {
-                    localStorage.setItem(chatStorageKey, JSON.stringify(withAssistant));
-                }
-            } else {
-                const res = await axios.post(route('estimates.requirementChat.store', estimate.id), {
-                    message: userMessage.content,
-                });
-                setChatMessages(res.data?.messages || []);
-            }
-        } catch (e) {
-            console.error('requirement chat send failed', e);
-            setChatMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
-        } finally {
-            setChatLoading(false);
-        }
     };
 
     const submitWithApprovers = () => {
@@ -2119,7 +2123,7 @@ useEffect(() => {
                                         {errors.staff_name && <p className="text-sm text-red-600 mt-1">{errors.staff_name}</p>}
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
                                     <div className="space-y-2">
                                         <Label htmlFor="issue-date">発行日 <span className="text-red-500 ml-1">*</span></Label>
                                         <Input
@@ -2157,6 +2161,10 @@ useEffect(() => {
                                         <Input type="date" id="delivery-date" value={data.delivery_date || ''} onChange={(e) => setData('delivery_date', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
+                                        <Label htmlFor="start-date">着手日</Label>
+                                        <Input type="date" id="start-date" value={data.start_date || ''} onChange={(e) => setData('start_date', e.target.value)} />
+                                    </div>
+                                    <div className="space-y-2">
                                         <Label htmlFor="payment-terms">支払条件</Label>
                                         <Input id="payment-terms" defaultValue="月末締め翌月末払い" />
                                     </div>
@@ -2165,171 +2173,171 @@ useEffect(() => {
                                         <Input id="delivery-location" value={data.delivery_location} onChange={(e) => setData('delivery_location', e.target.value)} placeholder="お客様指定の場所" />
                                     </div>
                                 </div>
-                                <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4">
-                                    <button
-                                        type="button"
-                                        className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold text-slate-700"
-                                        onClick={() => setRequirementsOpen((prev) => !prev)}
-                                        aria-expanded={requirementsOpen}
-                                    >
-                                        <span>要件整理（内部用）</span>
-                                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                                            {requirementsOpen ? '閉じる' : '開く'}
-                                            <ChevronsUpDown className="h-4 w-4" />
-                                        </span>
-                                    </button>
-                                    {requirementsOpen && (
-                                        <>
-                                            <div className="flex flex-wrap items-center gap-2 justify-between">
-                                                <div className="flex gap-2">
-                                                    <Button type="button" variant={requirementsMode === 'chat' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('chat')}>要件整理チャット</Button>
-                                                    <Button type="button" variant={requirementsMode === 'manual' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('manual')}>手動入力</Button>
-                                                </div>
-                                                <span className="text-xs text-muted-foreground">要件を整理し、AIドラフトに渡す情報です。</span>
-                                            </div>
-                                            {requirementsMode === 'manual' && (
-                                            <div className="flex flex-col gap-3 md:flex-row md:items-start">
-                                                <div className="flex-1 space-y-2">
-                                                    <div className="flex items-center justify-between">
-                                                        <Label htmlFor="requirement-summary" className="text-sm font-medium">要件概要（AIプロンプト）</Label>
-                                                        <span className="text-xs text-muted-foreground">システム開発のみ対象</span>
-                                                    </div>
-                                                    <Textarea
-                                                        id="requirement-summary"
-                                                        value={data.requirement_summary || ''}
-                                                        maxLength={4000}
-                                                        rows={4}
-                                                        onChange={(e) => setData('requirement_summary', e.target.value)}
-                                                        placeholder="例: Salesforce連携と新承認フローの実装。ユーザー50名、モバイル対応必須。非機能として可用性99.9%と監査ログが必要。"
-                                                    />
-                                                </div>
-                                            </div>
-                                            )}
-                                            {requirementsMode === 'chat' && isInternalView && (
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label className="text-sm font-medium">要件整理チャット（内部用）</Label>
-                                                            <Button type="button" variant="outline" size="sm" onClick={loadChat} disabled={chatLoading || !isEditMode}>
-                                                                再読込
+                                {isInternalView && (
+                                    <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4">
+                                        <button
+                                            type="button"
+                                            className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold text-slate-700"
+                                            onClick={() => setRequirementsOpen((prev) => !prev)}
+                                            aria-expanded={requirementsOpen}
+                                        >
+                                            <span>要件定義書から AIドラフト生成（内部用）</span>
+                                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                                {requirementsOpen ? '閉じる' : '開く'}
+                                                <ChevronsUpDown className="h-4 w-4" />
+                                            </span>
+                                        </button>
+                                        {requirementsOpen && (
+                                            <>
+                                                <div className="rounded-lg border bg-white p-4 space-y-3">
+                                                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <Label htmlFor="google-docs-url" className="flex items-center gap-1 text-red-600">
+                                                                    要件定義書
+                                                                    {requiresInternalDocsLink && <span className="text-red-500 leading-none">*</span>}
+                                                                </Label>
+                                                                <Badge variant="outline">添付とAI解析を兼用</Badge>
+                                                            </div>
+                                                            <p className="text-xs text-slate-500">
+                                                                Google Drive から選ぶと、このリンクを添付要件としても AI 解析元としても使います。通常は別入力不要です。
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                onClick={openGoogleDrivePicker}
+                                                                disabled={!googleDrivePickerEnabled || isGeneratingAiDraft}
+                                                            >
+                                                                Google Driveから選択
                                                             </Button>
-                                                        </div>
-                                                        <div className="h-60 overflow-y-auto rounded border bg-white p-2 text-sm space-y-2">
-                                                            {chatLoading && <p className="text-xs text-muted-foreground">読み込み中...</p>}
-                                                            {!chatLoading && chatMessages.length === 0 && <p className="text-xs text-muted-foreground">メッセージはありません。</p>}
-                                                            {chatMessages.map((m, idx) => (
-                                                                <div key={m.id || idx} className={`rounded p-2 ${m.role === 'assistant' ? 'bg-slate-50 border' : ''}`}>
-                                                                    <p className="text-[11px] text-muted-foreground mb-1">{m.role === 'assistant' ? 'AI' : 'あなた'}</p>
-                                                                    <div className="whitespace-pre-wrap text-slate-800 text-sm">{m.content}</div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                        <div className="flex gap-2">
-                                                            <Input
-                                                                value={chatInput}
-                                                                onChange={(e) => setChatInput(e.target.value)}
-                                                                placeholder="不足情報や要望を入力"
-                                                                disabled={chatLoading}
-                                                            />
-                                                            <Button type="button" onClick={sendChat} disabled={chatLoading}>送信</Button>
-                                                        </div>
-                                                        {!estimate?.id && (
-                                                            <p className="text-xs text-muted-foreground">未保存の間はローカルで保持します（保存後はサーバに永続化されます）。</p>
-                                                        )}
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label className="text-sm font-medium">AI整理結果プレビュー</Label>
-                                                        <div className="rounded border bg-white p-3 text-sm h-60 overflow-y-auto whitespace-pre-wrap">
-                                                            {(() => {
-                                                                const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
-                                                                return lastAssistant ? lastAssistant.content : 'AI整理結果はまだありません。';
-                                                            })()}
+                                                            {data.google_docs_url?.trim() && (
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    onClick={() => window.open(data.google_docs_url, '_blank', 'noopener,noreferrer')}
+                                                                >
+                                                                    要件定義書を開く
+                                                                </Button>
+                                                            )}
                                                         </div>
                                                     </div>
+                                                    <Input
+                                                        id="google-docs-url"
+                                                        type="url"
+                                                        placeholder="Google Drive から選ぶと自動入力されます"
+                                                        value={data.google_docs_url}
+                                                        onChange={(e) => {
+                                                            setData('google_docs_url', e.target.value);
+                                                            setSelectedRequirementDoc((prev) => prev ? { ...prev, url: e.target.value } : null);
+                                                            setGoogleDriveError(null);
+                                                        }}
+                                                    />
+                                                    {selectedRequirementDoc?.url && (
+                                                        <div className="rounded border bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                                                            <div className="font-medium">{selectedRequirementDoc.name || '選択済みの要件定義書'}</div>
+                                                            <div className="mt-1 break-all text-xs text-slate-500">{selectedRequirementDoc.url}</div>
+                                                        </div>
+                                                    )}
+                                                    {!googleDrivePickerEnabled && (
+                                                        <p className="text-xs text-amber-700">
+                                                            Google Drive Picker の設定が未完了です。`VITE_GOOGLE_DRIVE_CLIENT_ID` と `VITE_GOOGLE_DRIVE_API_KEY` を設定してください。
+                                                        </p>
+                                                    )}
+                                                    {googleDriveError && (
+                                                        <p className="text-sm text-red-600">{googleDriveError}</p>
+                                                    )}
+                                                    {errors.google_docs_url && <p className="text-sm text-red-600">{errors.google_docs_url}</p>}
                                                 </div>
-                                            )}
-                                            <div className="space-y-2">
+
+                                                <div className="flex flex-wrap items-center gap-2 text-sm">
+                                                    <Checkbox
+                                                        id="pm-support-required"
+                                                        checked={pmSupportRequired}
+                                                        onCheckedChange={(checked) => setPmSupportRequired(checked === true)}
+                                                    />
+                                                    <Label htmlFor="pm-support-required" className="text-sm">
+                                                        PM支援が必要（プロジェクト管理品目を必須挿入）
+                                                    </Label>
+                                                </div>
+
                                                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        onClick={handleGenerateRequirementOverview}
-                                                        disabled={!canGenerateOverview || isStructuringRequirements}
-                                                    >
-                                                        {isStructuringRequirements ? '生成中...' : '要件概要を生成'}
-                                                    </Button>
                                                     <Button
                                                         type="button"
                                                         variant="secondary"
                                                         onClick={handleGenerateAiDraft}
-                                                        disabled={!canGenerateDraft || isGeneratingAiDraft}
+                                                        disabled={!canGenerateDraftFromDocument || isGeneratingAiDraft}
                                                     >
-                                                        {isGeneratingAiDraft ? '生成中...' : 'AIでドラフト見積生成'}
+                                                        {isGeneratingAiDraft ? '生成中...' : 'AIで要件定義書からドラフト見積生成'}
                                                     </Button>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        文書選択後、要件抽出・ドラフト見積・備考案までまとめて生成します。
+                                                    </p>
                                                 </div>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {requirementsMode === 'chat'
-                                                        ? '最新のAI整理結果をもとに要件概要と見積ドラフトを生成します。'
-                                                        : '要件概要の入力内容をもとに生成します。'}
-                                                </p>
-                                            </div>
-                                            {structureError && (
-                                                <p className="text-sm text-red-600">{structureError}</p>
-                                            )}
-                                            <div className="grid gap-4 md:grid-cols-3">
-                                                <div>
-                                                    <p className="text-xs font-semibold text-slate-500">機能要件</p>
-                                                    {structuredRequirements.functional.length > 0 ? (
-                                                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                                                            {structuredRequirements.functional.map((line, idx) => (
-                                                                <li key={`fr-${idx}`}>{line}</li>
-                                                            ))}
-                                                        </ul>
-                                                    ) : (
-                                                        <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
-                                                    )}
+
+                                                {structureError && (
+                                                    <p className="text-sm text-red-600">{structureError}</p>
+                                                )}
+                                                {hasRequirementSummary && (
+                                                    <div className="space-y-2 rounded-lg border bg-white p-4">
+                                                        <Label htmlFor="requirement-summary" className="text-sm font-medium">AI抽出の要件要約</Label>
+                                                        <Textarea
+                                                            id="requirement-summary"
+                                                            value={data.requirement_summary || ''}
+                                                            rows={5}
+                                                            onChange={(e) => setData('requirement_summary', e.target.value)}
+                                                            placeholder="AIが要件定義書から要約を生成するとここに表示されます。"
+                                                        />
+                                                    </div>
+                                                )}
+
+                                                <div className="grid gap-4 md:grid-cols-3">
+                                                    <div>
+                                                        <p className="text-xs font-semibold text-slate-500">機能要件</p>
+                                                        {structuredRequirements.functional.length > 0 ? (
+                                                            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                                {structuredRequirements.functional.map((line, idx) => (
+                                                                    <li key={`fr-${idx}`}>{line}</li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : (
+                                                            <p className="mt-1 text-xs text-muted-foreground">要件抽出前です。</p>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-semibold text-slate-500">非機能要件</p>
+                                                        {structuredRequirements.nonFunctional.length > 0 ? (
+                                                            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                                {structuredRequirements.nonFunctional.map((line, idx) => (
+                                                                    <li key={`nfr-${idx}`}>{line}</li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : (
+                                                            <p className="mt-1 text-xs text-muted-foreground">要件抽出前です。</p>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-semibold text-slate-500">未確定要件</p>
+                                                        {structuredRequirements.unresolved.length > 0 ? (
+                                                            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                                {structuredRequirements.unresolved.map((line, idx) => (
+                                                                    <li key={`unresolved-${idx}`}>{line}</li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : (
+                                                            <p className="mt-1 text-xs text-muted-foreground">要件抽出前です。</p>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-xs font-semibold text-slate-500">非機能要件</p>
-                                                    {structuredRequirements.nonFunctional.length > 0 ? (
-                                                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                                                            {structuredRequirements.nonFunctional.map((line, idx) => (
-                                                                <li key={`nfr-${idx}`}>{line}</li>
-                                                            ))}
-                                                        </ul>
-                                                    ) : (
-                                                        <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-semibold text-slate-500">未確定要件</p>
-                                                    {structuredRequirements.unresolved.length > 0 ? (
-                                                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                                                            {structuredRequirements.unresolved.map((line, idx) => (
-                                                                <li key={`unresolved-${idx}`}>{line}</li>
-                                                            ))}
-                                                        </ul>
-                                                    ) : (
-                                                        <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-wrap items-center gap-2 text-sm">
-                                                <Checkbox
-                                                    id="pm-support-required"
-                                                    checked={pmSupportRequired}
-                                                    onCheckedChange={(checked) => setPmSupportRequired(checked === true)}
-                                                />
-                                                <Label htmlFor="pm-support-required" className="text-sm">
-                                                    PM支援が必要（プロジェクト管理品目を必須挿入）
-                                                </Label>
-                                            </div>
-                                            {aiDraftError && (
-                                                <p className="text-sm text-red-600">{aiDraftError}</p>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
+
+                                                {aiDraftError && (
+                                                    <p className="text-sm text-red-600">{aiDraftError}</p>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                )}
                                 <div className="space-y-2">
                                     <Label htmlFor="external-remarks">備考（対外）</Label>
                                     <Textarea id="external-remarks" value={data.notes} onChange={(e) => setData('notes', e.target.value)} placeholder="お見積りの有効期限は発行後1ヶ月です。" />
@@ -2362,31 +2370,6 @@ useEffect(() => {
                                         <div className="space-y-2">
                                             <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
                                             <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
-                                        </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="google-docs-url" className="flex items-center gap-1 text-red-600">
-                                                要件定義書（必須）（設計/開発が含まれる場合のみ）
-                                                {requiresInternalDocsLink && <span className="text-red-500 leading-none">*</span>}
-                                            </Label>
-                                            <Input
-                                                id="google-docs-url"
-                                                type="url"
-                                                placeholder="https://docs.google.com/..."
-                                                value={data.google_docs_url}
-                                                onChange={(e) => setData('google_docs_url', e.target.value)}
-                                            />
-                                            {data.google_docs_url?.trim() && (
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => window.open(data.google_docs_url, '_blank', 'noopener,noreferrer')}
-                                                >
-                                                    要件定義書を開く
-                                                </Button>
-                                            )}
-                                            <p className="text-xs text-slate-500">設計/開発の明細がある場合は必須。見積書には表示されません。</p>
-                                            {errors.google_docs_url && <p className="text-sm text-red-600">{errors.google_docs_url}</p>}
                                         </div>
                                     </>
                                 )}
@@ -3366,10 +3349,34 @@ useEffect(() => {
                                 <DialogTitle>{orderConfirmMode === 'confirm' ? '受注を確定しますか？' : '受注確定を解除しますか？'}</DialogTitle>
                                 <DialogDescription>
                                     {orderConfirmMode === 'confirm'
-                                        ? '承認済みの見積を実績として計上します。'
+                                        ? '承認済みの見積を実績として計上します。工期として着手日と納品日を設定してください。'
                                         : 'この見積の受注確定を解除します。'}
                                 </DialogDescription>
                             </DialogHeader>
+                            {orderConfirmMode === 'confirm' && (
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="order-confirm-start-date">着手日 <span className="text-red-500 ml-1">*</span></Label>
+                                        <Input
+                                            id="order-confirm-start-date"
+                                            type="date"
+                                            value={data.start_date || ''}
+                                            onChange={(e) => setData('start_date', e.target.value)}
+                                        />
+                                        {errors.start_date && <p className="text-sm text-red-600">{errors.start_date}</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="order-confirm-delivery-date">納品日 <span className="text-red-500 ml-1">*</span></Label>
+                                        <Input
+                                            id="order-confirm-delivery-date"
+                                            type="date"
+                                            value={data.delivery_date || ''}
+                                            onChange={(e) => setData('delivery_date', e.target.value)}
+                                        />
+                                        {errors.delivery_date && <p className="text-sm text-red-600">{errors.delivery_date}</p>}
+                                    </div>
+                                </div>
+                            )}
                             <DialogFooter className="flex items-center gap-2">
                                 <Button type="button" variant="secondary" onClick={() => setOrderConfirmDialogOpen(false)}>
                                     いいえ

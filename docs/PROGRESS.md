@@ -988,3 +988,48 @@
   - 見積下書き保存で明細が消える報告を受け、`Estimates/Create.jsx` と `EstimateController@saveDraft` の保存経路を調査。
   - 原因は `lineItems` と `useForm.data.items` の二重管理にあり、最新の明細変更が `data.items` へ反映し切る前に保存送信される race と判断。
   - 同じ構造が承認申請送信にもあることを確認し、保存 payload を都度 `lineItems` から組み立てる方針で修正に着手。
+
+- Step 127 (2026-03-26 12:37 JST)
+  - 追加の不整合調査として `Estimates/Create.jsx` の全送信経路と `EstimateController@previewPdf` を照合。
+  - PDFプレビューだけは依然として `lineItems` キー前提で payload/view を組んでおり、保存・更新系の `items` 契約と分離していることを確認。
+  - 今回の報告では、実害が確認できたものを findings として整理し、特にプレビュー系の stale 明細リスクを優先報告する方針にした。
+
+- Step 128 (2026-03-26 13:02 JST)
+  - 見積作成画面の旧「要件整理（内部用）」を廃止し、Google Drive 上の要件定義書を単一ソースとして AIドラフト生成へ刷新する方針を確定。
+  - 既存の `google_docs_url` を添付用と AI解析用で兼用し、重複入力をなくす。旧 requirement chat routes/UI は撤去対象とした。
+  - 備考生成は未保存見積でも機能するよう、`estimate_id` 依存を外して現在フォームの文脈を直接送る方向で実装に着手。
+
+- Step 129 (2026-03-26 13:28 JST)
+  - Google Drive 要件定義書選択 UI、Drive API 取得サービス、要件定義書解析 API、AIドラフト生成 API、備考生成のフォーム文脈反映を実装。
+  - 旧 requirement chat routes/UI を撤去し、`google_docs_url` の重複入力を解消。`README_ESTIMATE` / `README_AI_ESTIMATE` / `.env.example` / バージョン表記も同期した。
+  - `EstimateController::http()` がテストで `Http::fake()` を通るよう補正し、Drive 解析と備考生成の Feature テストを安定化した。
+
+- Step 130 (2026-03-26 13:49 JST)
+  - 「下書き保存後に明細が消える」再報告に対応し、編集モードの下書き保存成功後も新規作成と同様に明示的に `estimates.edit` へ再読込するよう修正した。
+  - `EstimateItemAssignmentTest` に既存 draft 更新時の明細保持回帰テストを追加し、保存後に既存明細が空行へ置き換わらないことを backend 側で固定した。
+
+- Step 131 (2026-03-26 13:58 JST)
+  - GCP プロジェクト `kcs-portal-b0d21` の有効化状況を確認し、`drive.googleapis.com` と `picker.googleapis.com` が有効なことを確認。
+  - この機能専用の Browser API key `KCS Portal Drive Picker Browser Key` を新規作成し、`localhost / 127.0.0.1 / salesdev / sales` の referrer 制限と `drive.googleapis.com / picker.googleapis.com` の API 制限を設定した。
+  - local `.env` に `VITE_GOOGLE_DRIVE_API_KEY` を反映。残タスクは Web OAuth client の作成で、これは Cloud Console への本人再認証が必要な状態。
+
+- Step 132 (2026-03-26 14:05 JST)
+  - Cloud Console 上の既存 Web OAuth client `440151912207-54tmcfgi98r18di8026sa9g9r4vuoset.apps.googleusercontent.com` を編集し、`http://localhost:8000` `http://127.0.0.1:8000` `https://salesdev.xerographix.co.jp` `https://sales.xerographix.co.jp` を JavaScript origin に追加して保存した。
+  - local `.env` に `VITE_GOOGLE_DRIVE_CLIENT_ID` を反映し、Drive Picker に必要な GCP 側の credential 構成を local 用に揃えた。
+
+- Step 133 (2026-03-26 14:14 JST)
+  - local の失敗ログを確認し、要件定義書解析失敗の正体が Drive ではなく OpenAI の `429 insufficient_quota` であることを特定。
+  - AI失敗時に「解析失敗」だけで潰さず、利用上限超過などの具体的な OpenAI エラーをそのまま画面へ返すよう改善した。
+  - Google Picker は共有ドライブの Google Docs も選択できるよう `setEnableDrives(true)` と `SUPPORT_DRIVES` を有効化した。Drive export にも `supportsAllDrives=true` を追加。
+
+- Step 134: OpenAI利用枠回復後のlocal再検証を開始。ログ再確認とDrive/AI導線の実機確認に着手。
+
+- Step 135: Drive Pickerでマイドライブ非表示・共有ドライブ深い階層に辿れない問題を調査開始。Picker設定を点検。
+- Step 136: Drive Pickerをマイドライブ/共有ドライブの2ビュー構成に変更。フォルダ表示を有効化し、共有ドライブの深い階層遷移に対応。
+- Step 137: 受注済み見積の工数がどの月に反映されるかをコード調査開始。月次集計の判定日付と条件を確認。
+- Step 138: 受注確定時の着手日/納品日モーダル、商品再採番の衝突回避、ItemSeederの分類/原価backfillを実装。
+- Step 139: local seed商品の単価/原価逆転を確認。ItemSeederのbackfillルールを修正してlocal実データも補正する。
+- Step 140: ItemSeederの単価補正ロジックを修正し、localへ再seed適用。price >= cost を確認。
+- Step 141: 月跨ぎ案件の工数を着手日〜納期で均等配賦する改修に着手。対象サービスと既存テストを確認。
+- Step 142: `EstimateEffortAllocationService` を追加し、ダッシュボード・見積運用サマリー・工数シミュレーションで着手日〜納期の均等配賦を共通化。納期のみ案件は従来どおり納期月一括、ダッシュボードでは納期未設定を未配賦のまま維持。
+- Step 143: 月跨ぎ工数の回帰テストを Dashboard / Quotes / Workload Simulation に追加。UI表示バージョンを `v1.0.15` に更新。
