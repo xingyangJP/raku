@@ -974,3 +974,17 @@
   - `maintenance:capture-month-end` を修正し、`--month` 未指定時は本日が月末日でなければ何もせず終了するようにした。
   - `MaintenanceMonthEndSnapshotCommandTest` を 3 件へ拡張し、非月末スキップ / 新規作成 / manual snapshot 保護を固定。
   - `php artisan test --filter=MaintenanceMonthEndSnapshotCommandTest` 3件 pass、`MaintenanceFeeControllerTest` 5件 pass、構文確認も問題なし。
+
+- Step 124 (2026-03-23 00:42 JST)
+  - 利用者承認を受けて、Xserver の cron 設定変更を実施するフェーズへ移行。
+  - `salesdev` と `sales` の両方に対して、`28-31日 23:55` に `maintenance:capture-month-end` を直接実行する cron を追加する方針で操作を開始。
+
+- Step 125 (2026-03-23 00:49 JST)
+  - SSH で Xserver に接続し、既存 crontab を確認したうえで `salesdev` 用の月末保守 snapshot cron を追加。
+  - `rakudev` では `maintenance:capture-month-end` を手動実行して、非月末日のため安全にスキップすることを確認。
+  - `raku` 本番側はまだ `maintenance:capture-month-end` コマンド未反映で失敗したため、壊れた cron を残さないよう prod 用 cron はいったん削除し、main 反映後に再追加する方針へ切り替えた。
+
+- Step 126 (2026-03-26 12:18 JST)
+  - 見積下書き保存で明細が消える報告を受け、`Estimates/Create.jsx` と `EstimateController@saveDraft` の保存経路を調査。
+  - 原因は `lineItems` と `useForm.data.items` の二重管理にあり、最新の明細変更が `data.items` へ反映し切る前に保存送信される race と判断。
+  - 同じ構造が承認申請送信にもあることを確認し、保存 payload を都度 `lineItems` から組み立てる方針で修正に着手。

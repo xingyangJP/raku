@@ -685,7 +685,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     futureDate.setDate(today.getDate() + 30);
     const dueDateDefault = futureDate.toISOString().slice(0, 10);
 
-    const { data, setData, post, patch, processing, errors, reset } = useForm({
+    const { data, setData, processing, errors } = useForm({
         id: estimate?.id || null,
         customer_name: estimate?.customer_name || '',
         client_contact_name: estimate?.client_contact_name || '',
@@ -1301,6 +1301,36 @@ useEffect(() => {
     }));
 }, [lineItems, total, tax]);
 
+    const buildCurrentFormPayload = () => {
+        const payloadItems = lineItems.map((item) => ({
+            product_id: item.product_id,
+            code: item.code,
+            name: item.name,
+            description: item.description,
+            qty: normalizeDecimalForPayload(item.qty),
+            unit: item.unit,
+            price: normalizeNumber(item.price, 0),
+            cost: normalizeNumber(item.cost, 0),
+            tax_category: item.tax_category,
+            business_division: item.business_division ?? null,
+            display_mode: item.display_mode,
+            display_qty: item.display_mode === 'lump'
+                ? (normalizeDecimalForPayload(item.display_qty) || 1)
+                : null,
+            display_unit: item.display_mode === 'lump'
+                ? (item.display_unit || '式')
+                : null,
+            assignees: normalizeAssigneesForPayload(item.assignees),
+        }));
+
+        return {
+            ...data,
+            items: payloadItems,
+            total_amount: Math.round(total),
+            tax_amount: Math.round(tax),
+        };
+    };
+
     useEffect(() => {
         setData('approval_flow', approvers);
     }, [approvers]);
@@ -1759,7 +1789,9 @@ useEffect(() => {
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
     const saveDraft = () => {
-        post(route('estimates.saveDraft'), {
+        const payload = buildCurrentFormPayload();
+
+        router.post(route('estimates.saveDraft'), payload, {
             onSuccess: (page) => {
                 if (!isEditMode) {
                     const newEstimateId = page?.props?.estimate?.id
@@ -1786,6 +1818,7 @@ useEffect(() => {
                 }
             },
             onError: (e) => console.error('下書き保存エラー:', e),
+            preserveScroll: true,
         });
     };
 
@@ -1864,7 +1897,7 @@ useEffect(() => {
 
     const submitWithApprovers = () => {
         // 送信直前に明確な payload を構築して、状態更新の非同期に依存しない
-        const payload = { ...data, status: 'pending' };
+        const payload = { ...buildCurrentFormPayload(), status: 'pending' };
         const requiredErrors = [];
         if (!payload.title || payload.title.trim() === '') {
             requiredErrors.push('件名');
