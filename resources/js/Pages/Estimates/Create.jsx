@@ -2174,15 +2174,15 @@ useEffect(() => {
                                     </div>
                                 </div>
                                 {isInternalView && (
-                                    <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4">
+                                    <div className="space-y-3 rounded-lg border border-slate-950 bg-slate-50/70 p-4 shadow-sm">
                                         <button
                                             type="button"
-                                            className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold text-slate-700"
+                                            className="flex w-full items-center justify-between gap-2 rounded-lg bg-slate-950 px-4 py-3 text-left text-sm font-semibold text-white transition hover:bg-slate-900"
                                             onClick={() => setRequirementsOpen((prev) => !prev)}
                                             aria-expanded={requirementsOpen}
                                         >
                                             <span>要件定義書から AIドラフト生成（内部用）</span>
-                                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                            <span className="inline-flex items-center gap-1 text-xs text-slate-200">
                                                 {requirementsOpen ? '閉じる' : '開く'}
                                                 <ChevronsUpDown className="h-4 w-4" />
                                             </span>
