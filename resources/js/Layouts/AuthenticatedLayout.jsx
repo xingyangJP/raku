@@ -41,12 +41,12 @@ export default function AuthenticatedLayout({ header, children }) {
         { name: '商品管理', href: route('products.index'), icon: Package, current: route().current('products.index') },
         { name: '訪問前AIコーチ', href: route('sales-ai-coach.index'), icon: Brain, current: route().current('sales-ai-coach.index') },
         { name: '設定', href: route('admin.index'), icon: Settings, current: route().current('admin.index') },
-        { name: '更新履歴', href: `${route('help.index')}#release-history`, icon: Bell, current: route().current('help.index') },
+        { name: '更新履歴', href: route('release-notes.index'), icon: Bell, current: route().current('release-notes.index') },
         { name: 'ヘルプ', href: route('help.index'), icon: LifeBuoy, current: route().current('help.index') },
     ];
 
     const latestRelease = releaseNotes?.latest ?? null;
-    const helpHistoryUrl = `${route('help.index')}#release-history`;
+    const releaseNotesUrl = route('release-notes.index');
 
     const handleConfirmLatestRelease = () => {
         router.post(route('release-notes.readLatest'), {}, {
@@ -54,7 +54,7 @@ export default function AuthenticatedLayout({ header, children }) {
             preserveState: true,
             onSuccess: () => {
                 setReleaseModalOpen(false);
-                router.visit(helpHistoryUrl);
+                router.visit(releaseNotesUrl);
             },
         });
     };
@@ -76,10 +76,10 @@ export default function AuthenticatedLayout({ header, children }) {
                                 </p>
                             </div>
                             <Link
-                                href={helpHistoryUrl}
+                                href={releaseNotesUrl}
                                 className="text-sm font-medium text-slate-600 underline-offset-4 hover:text-slate-900 hover:underline"
                             >
-                                ヘルプの更新履歴を見る
+                                更新履歴ページを見る
                             </Link>
                         </div>
                         <p className="text-sm leading-7 text-slate-600">{latestRelease?.summary ?? ''}</p>

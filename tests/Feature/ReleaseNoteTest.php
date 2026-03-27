@@ -28,6 +28,22 @@ class ReleaseNoteTest extends TestCase
         });
     }
 
+    public function test_release_notes_page_renders_dedicated_component(): void
+    {
+        $user = User::factory()->create([
+            'last_read_release_version' => null,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('release-notes.index'));
+
+        $response->assertOk();
+        $response->assertInertia(function (AssertableInertia $page): void {
+            $page->component('ReleaseNotes/Index')
+                ->where('releaseNotes.latest.version', 'v1.0.19')
+                ->where('releaseNotes.unread', true);
+        });
+    }
+
     public function test_mark_latest_release_note_as_read_persists_user_flag(): void
     {
         $user = User::factory()->create([

@@ -1,5 +1,5 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, usePage } from '@inertiajs/react';
+import { Head } from '@inertiajs/react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/Components/ui/accordion';
 import { Badge } from '@/Components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
@@ -439,10 +439,8 @@ function SectionBlock({ group }) {
     );
 }
 
-export default function HelpIndex({ auth }) {
-    const { appVersion, releaseNotes } = usePage().props;
-    const version = releaseNotes?.current_version ?? appVersion ?? '最新版';
-    const releaseHistory = releaseNotes?.history ?? [];
+export default function HelpIndex({ appVersion }) {
+    const version = appVersion ?? '最新版';
 
     return (
         <AuthenticatedLayout header={<h2 className="text-2xl font-semibold text-slate-800">ヘルプ</h2>}>
@@ -524,49 +522,6 @@ export default function HelpIndex({ auth }) {
                             <CardContent className="text-sm leading-6 text-slate-700">{item.description}</CardContent>
                         </Card>
                     ))}
-                </section>
-
-                <section id="release-history" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-                        <div>
-                            <h2 className="text-2xl font-semibold text-slate-900">更新履歴</h2>
-                            <p className="mt-2 text-sm leading-6 text-slate-500">
-                                最新の変更内容をここで確認できます。未読の最新更新は、ログイン後に確認モーダルで表示します。
-                            </p>
-                        </div>
-                        <Badge className="bg-slate-900 text-white">最新 {releaseNotes?.latest?.version ?? version}</Badge>
-                    </div>
-
-                    <div className="mt-6 space-y-4">
-                        {releaseHistory.map((entry) => (
-                            <Card key={entry.version} className="border-slate-200 shadow-none">
-                                <CardHeader className="pb-3">
-                                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                                        <div>
-                                            <CardTitle className="text-lg text-slate-900">{entry.title}</CardTitle>
-                                            <CardDescription className="mt-1">{entry.summary}</CardDescription>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <Badge variant="outline">{entry.version}</Badge>
-                                            <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
-                                                {entry.released_at}
-                                            </Badge>
-                                        </div>
-                                    </div>
-                                </CardHeader>
-                                <CardContent>
-                                    <ul className="space-y-2 text-sm leading-6 text-slate-700">
-                                        {(entry.items ?? []).map((item) => (
-                                            <li key={`${entry.version}-${item}`} className="flex gap-3">
-                                                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-400" />
-                                                <span>{item}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
                 </section>
 
                 <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">

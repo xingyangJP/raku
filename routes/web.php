@@ -64,6 +64,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/maintenance-fees/items/{item}', [MaintenanceFeeController::class, 'deleteItem'])->name('maintenance-fees.items.delete');
     Route::get('/inventory', fn () => Inertia::render('Inventory/Index'))->name('inventory.index');
     Route::get('/help', fn () => Inertia::render('Help/Index'))->name('help.index');
+    Route::get('/release-notes', fn () => Inertia::render('ReleaseNotes/Index'))->name('release-notes.index');
     Route::post('/release-notes/read-latest', [ReleaseNoteController::class, 'markLatestAsRead'])->name('release-notes.readLatest');
     Route::get('/sales-ai-coach', fn () => Inertia::render('SalesAiCoach/Index'))->name('sales-ai-coach.index');
     Route::get('/sales-ai-coach/guide', [SalesAiCoachController::class, 'guide'])->name('sales-ai-coach.guide');
