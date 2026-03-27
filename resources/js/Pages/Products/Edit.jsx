@@ -40,6 +40,9 @@ export default function Edit({ auth, product, categories, businessDivisions, def
         description: product.description || '',
         attributes: product.attributes || {},
     });
+    const hasCategories = Array.isArray(categories) && categories.length > 0;
+    const categoryMissing = !hasCategories;
+    const productCategoryUnset = !data?.category_id;
 
     const submit = (e) => {
         e.preventDefault();
@@ -93,9 +96,13 @@ export default function Edit({ auth, product, categories, businessDivisions, def
                                     <div>
                                         <Label htmlFor="category_id">商品分類</Label>
                                         <div className="flex items-center space-x-2">
-                                            <Select onValueChange={(value) => setData('category_id', value)} value={String(data.category_id)}>
+                                            <Select
+                                                onValueChange={(value) => setData('category_id', value)}
+                                                value={String(data.category_id)}
+                                                disabled={!hasCategories}
+                                            >
                                                 <SelectTrigger className="w-full">
-                                                    <SelectValue placeholder="商品分類を選択" />
+                                                    <SelectValue placeholder={hasCategories ? '商品分類を選択' : '商品分類マスタがありません'} />
                                                 </SelectTrigger>
                                                 <SelectContent>
                                                     {categories.map((cat) => (
@@ -107,6 +114,16 @@ export default function Edit({ auth, product, categories, businessDivisions, def
                                             </Select>
                                             <Button type="button" variant="outline" onClick={() => setCategoryDialogOpen(true)}>+</Button>
                                         </div>
+                                        {categoryMissing && (
+                                            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                                商品分類マスタが空です。右の「+」から分類を追加してください。追加後に一覧を再読込すると選択できます。
+                                            </div>
+                                        )}
+                                        {!categoryMissing && productCategoryUnset && (
+                                            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                                                この商品は商品分類が未設定です。保存前に分類を選択してください。
+                                            </div>
+                                        )}
                                         <InputError message={errors.category_id} className="mt-2" />
                                     </div>
 

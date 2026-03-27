@@ -9,8 +9,13 @@ use App\Models\Partner;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\EstimateItemAssignmentNormalizer;
+use App\Services\EstimateWorkloadSimulationService;
+use App\Services\GoogleDriveDocumentService;
+use App\Services\MarkEstimateLostService;
 use App\Services\MoneyForwardApiService;
 use App\Services\MoneyForwardQuoteSynchronizer;
+use App\Services\QuoteOverdueFollowUpService;
+use App\Services\QuoteOperationsSummaryService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Http\Client\PendingRequest;
@@ -216,7 +221,12 @@ class EstimateController extends Controller
             );
         }
     }
-    public function index(Request $request, MoneyForwardQuoteSynchronizer $quoteSynchronizer)
+    public function index(
+        Request $request,
+        MoneyForwardQuoteSynchronizer $quoteSynchronizer,
+        QuoteOperationsSummaryService $quoteOperationsSummaryService,
+        QuoteOverdueFollowUpService $quoteOverdueFollowUpService
+    )
     {
         $syncStatus = $quoteSynchronizer->syncIfStale($request->user()?->id);
 
@@ -265,7 +275,11 @@ class EstimateController extends Controller
         }
 
         if ($status !== '') {
-            $estimatesQuery->where('status', $status);
+            if ($status === 'order_confirmed') {
+                $estimatesQuery->where('is_order_confirmed', true);
+            } else {
+                $estimatesQuery->where('status', $status);
+            }
         }
 
         $estimates = $estimatesQuery->get();
@@ -311,10 +325,18 @@ class EstimateController extends Controller
         $maintenanceTargetMonth = $fromMonth ?? $toMonth ?? $currentMonth->format('Y-m');
         $maintenanceMonthCarbon = Carbon::createFromFormat('Y-m', $maintenanceTargetMonth, $timezone) ?: $currentMonth;
         $maintenanceFee = $this->fetchMaintenanceTotal($maintenanceMonthCarbon);
+        $quoteOperationsSummary = $quoteOperationsSummaryService->summarize($timezone);
+        $overduePromptSource = Estimate::query()
+            ->whereNull('mf_deleted_at')
+            ->orderByDesc('issue_date')
+            ->orderByDesc('estimate_number')
+            ->orderByDesc('id')
+            ->get();
+
+        $overdueFollowUpPrompts = $quoteOverdueFollowUpService->findPromptCandidates($overduePromptSource, $timezone);
 
         return Inertia::render('Quotes/Index', [
             'estimates' => $estimates,
-            'products' => $products,
             'products' => $products,
             'syncStatus' => $syncStatus,
             'moneyForwardConfig' => $moneyForwardConfig,
@@ -325,6 +347,8 @@ class EstimateController extends Controller
             'customerPortalBase' => rtrim(config('services.customer_portal.base_url', 'https://pm.xerographix.co.jp/customers'), '/'),
             'maintenance_fee_total' => $maintenanceFee,
             'maintenance_month' => $maintenanceMonthCarbon->format('Y-m'),
+            'quoteOperationsSummary' => $quoteOperationsSummary,
+            'overdueFollowUpPrompts' => $overdueFollowUpPrompts,
         ]);
     }
 
@@ -459,6 +483,8 @@ class EstimateController extends Controller
                 ?? $estimate->due_date
                 ?? $estimate->issue_date;
             $recognizedDate = $formatDate($recognizedAt, $timezone);
+            $recognizedAtCarbon = $recognizedAt ? Carbon::parse($recognizedAt, $timezone)->startOfDay() : null;
+            $collectionMonth = $recognizedAtCarbon?->copy()->startOfMonth()->addMonth();
 
             $breakdown = collect($estimate->items ?? [])->reduce(function ($carry, $item) {
                 $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
@@ -521,9 +547,16 @@ class EstimateController extends Controller
                 'title' => (string) ($estimate->title ?? ''),
                 'staff_name' => (string) ($estimate->staff_name ?? ''),
                 'recognized_date' => $recognizedDate,
+                'recognized_at' => $recognizedAtCarbon?->toDateString(),
                 'issue_date' => $formatDate($estimate->issue_date, $timezone),
+                'issue_at' => $estimate->issue_date ? Carbon::parse($estimate->issue_date, $timezone)->toDateString() : null,
                 'due_date' => $formatDate($estimate->due_date, $timezone),
+                'due_at' => $estimate->due_date ? Carbon::parse($estimate->due_date, $timezone)->toDateString() : null,
+                'start_date' => $formatDate($estimate->start_date, $timezone),
+                'start_at' => $estimate->start_date ? Carbon::parse($estimate->start_date, $timezone)->toDateString() : null,
                 'delivery_date' => $formatDate($estimate->delivery_date, $timezone),
+                'delivery_at' => $estimate->delivery_date ? Carbon::parse($estimate->delivery_date, $timezone)->toDateString() : null,
+                'collection_month' => $collectionMonth?->format('Y-m'),
                 'total_amount' => (float) ($estimate->total_amount ?? 0),
                 'cost_amount' => $cost,
                 'gross_amount' => (float) (($estimate->total_amount ?? 0) - $cost),
@@ -729,11 +762,12 @@ class EstimateController extends Controller
         }
     }
 
-    public function create()
+    public function create(EstimateWorkloadSimulationService $workloadSimulation)
     {
         $products = $this->loadProducts();
         return Inertia::render('Estimates/Create', [
             'products' => $products,
+            'workloadSimulation' => $workloadSimulation->build(),
         ]);
     }
 
@@ -759,6 +793,7 @@ class EstimateController extends Controller
                 'title' => 'required|string|max:255',
                 'issue_date' => 'nullable|date',
                 'due_date' => 'nullable|date',
+                'start_date' => 'nullable|date',
                 'delivery_date' => 'nullable|date',
                 'total_amount' => 'required|integer',
                 'tax_amount' => 'required|integer',
@@ -767,16 +802,13 @@ class EstimateController extends Controller
                 'google_docs_url' => 'nullable|url|max:2048',
                 'delivery_location' => 'nullable|string',
                 'items' => 'required|array|min:1',
-                'items.*.assignees' => 'nullable|array',
-                'items.*.assignees.*.user_id' => 'nullable|string|max:255',
-                'items.*.assignees.*.user_name' => 'nullable|string|max:255',
-                'items.*.assignees.*.share_percent' => 'nullable|numeric|min:0|max:100',
                 'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
                 'staff_id' => 'nullable|integer',
                 'staff_name' => 'required|string|max:255',
                 'requirement_summary' => 'nullable|string|max:4000',
                 'structured_requirements' => 'nullable|array',
             ];
+            $rules = array_merge($rules, $this->estimateItemValidationRules());
 
             if (!Schema::hasColumn('estimates', 'client_contact_name')) {
                 unset($rules['client_contact_name'], $rules['client_contact_title']);
@@ -804,6 +836,7 @@ class EstimateController extends Controller
                 'title' => 'required|string|max:255',
                 'issue_date' => 'nullable|date',
                 'due_date' => 'nullable|date',
+                'start_date' => 'nullable|date',
                 'delivery_date' => 'nullable|date',
                 'total_amount' => 'required|integer',
                 'tax_amount' => 'required|integer',
@@ -812,16 +845,12 @@ class EstimateController extends Controller
                 'google_docs_url' => 'nullable|url|max:2048',
                 'delivery_location' => 'nullable|string',
                 'items' => 'required|array|min:1',
-                'items.*.assignees' => 'nullable|array',
-                'items.*.assignees.*.user_id' => 'nullable|string|max:255',
-                'items.*.assignees.*.user_name' => 'nullable|string|max:255',
-                'items.*.assignees.*.share_percent' => 'nullable|numeric|min:0|max:100',
                 'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
                 'staff_id' => 'nullable|integer',
                 'staff_name' => 'required|string|max:255',
                 'requirement_summary' => 'nullable|string|max:4000',
                 'structured_requirements' => 'nullable|array',
-            ]);
+            ] + $this->estimateItemValidationRules());
 
             $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
             $validated['items'] = app(EstimateItemAssignmentNormalizer::class)->normalizeItems($validated['items'] ?? []);
@@ -863,6 +892,7 @@ class EstimateController extends Controller
             'title' => 'required|string|max:255',
             'issue_date' => 'required|date',
             'due_date' => 'nullable|date',
+            'start_date' => 'nullable|date',
             'delivery_date' => 'nullable|date',
             'total_amount' => 'required|integer',
             'tax_amount' => 'required|integer',
@@ -871,19 +901,16 @@ class EstimateController extends Controller
             'google_docs_url' => 'nullable|url|max:2048',
             'delivery_location' => 'nullable|string',
             'items' => 'required|array',
-            'items.*.assignees' => 'nullable|array',
-            'items.*.assignees.*.user_id' => 'nullable|string|max:255',
-            'items.*.assignees.*.user_name' => 'nullable|string|max:255',
-            'items.*.assignees.*.share_percent' => 'nullable|numeric|min:0|max:100',
             'estimate_number' => 'nullable|string|max:255|unique:estimates,estimate_number',
             'staff_id' => 'nullable|integer',
             'staff_name' => 'nullable|string|max:255',
             'approval_flow' => 'nullable|array',
-            'status' => 'nullable|string|in:draft,pending,sent,rejected',
+            'status' => 'nullable|string|in:draft,pending,sent,rejected,lost',
             'is_order_confirmed' => 'sometimes|boolean',
             'requirement_summary' => 'nullable|string|max:4000',
             'structured_requirements' => 'nullable|array',
         ];
+        $rules = array_merge($rules, $this->estimateItemValidationRules());
 
         if (!Schema::hasColumn('estimates', 'client_contact_name')) {
             unset($rules['client_contact_name'], $rules['client_contact_title']);
@@ -898,6 +925,9 @@ class EstimateController extends Controller
         }
         if (!empty($validated['due_date'])) {
             $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
+        }
+        if (!empty($validated['start_date'])) {
+            $validated['start_date'] = date('Y-m-d', strtotime($validated['start_date']));
         }
         if (!empty($validated['delivery_date'])) {
             $validated['delivery_date'] = date('Y-m-d', strtotime($validated['delivery_date']));
@@ -997,7 +1027,7 @@ class EstimateController extends Controller
             ->with('approval_success_message', '承認申請を開始しました。');
     }
 
-    public function edit(Estimate $estimate)
+    public function edit(Estimate $estimate, EstimateWorkloadSimulationService $workloadSimulation)
     {
         $products = $this->loadProducts();
         $is_fully_approved = $estimate->status === 'sent';
@@ -1012,6 +1042,10 @@ class EstimateController extends Controller
             'estimate' => $estimate,
             'products' => $products,
             'is_fully_approved' => $is_fully_approved,
+            'workloadSimulation' => $workloadSimulation->build(
+                $estimate,
+                $estimate->delivery_date ?? $estimate->due_date ?? $estimate->issue_date
+            ),
         ]);
     }
 
@@ -1031,6 +1065,7 @@ class EstimateController extends Controller
             'title' => 'required|string|max:255',
             'issue_date' => 'required|date',
             'due_date' => 'nullable|date',
+            'start_date' => 'nullable|date',
             'delivery_date' => 'nullable|date',
             'total_amount' => 'required|integer',
             'tax_amount' => 'required|integer',
@@ -1039,19 +1074,15 @@ class EstimateController extends Controller
             'google_docs_url' => 'nullable|url|max:2048',
             'delivery_location' => 'nullable|string',
             'items' => 'required|array',
-            'items.*.assignees' => 'nullable|array',
-            'items.*.assignees.*.user_id' => 'nullable|string|max:255',
-            'items.*.assignees.*.user_name' => 'nullable|string|max:255',
-            'items.*.assignees.*.share_percent' => 'nullable|numeric|min:0|max:100',
             'estimate_number' => 'required|string|max:255|unique:estimates,estimate_number,' . $estimate->id,
             'staff_id' => 'nullable|integer',
             'staff_name' => 'nullable|string|max:255',
             'approval_flow' => 'nullable|array',
-            'status' => 'nullable|string|in:draft,pending,sent,rejected',
+            'status' => 'nullable|string|in:draft,pending,sent,rejected,lost',
             'is_order_confirmed' => 'sometimes|boolean',
             'requirement_summary' => 'nullable|string|max:4000',
             'structured_requirements' => 'nullable|array',
-        ]);
+        ] + $this->estimateItemValidationRules());
 
         $validated['structured_requirements'] = $this->normalizeStructuredRequirements($validated['structured_requirements'] ?? null);
         $validated['items'] = app(EstimateItemAssignmentNormalizer::class)->normalizeItems($validated['items'] ?? []);
@@ -1061,6 +1092,9 @@ class EstimateController extends Controller
         }
         if (!empty($validated['due_date'])) {
             $validated['due_date'] = date('Y-m-d', strtotime($validated['due_date']));
+        }
+        if (!empty($validated['start_date'])) {
+            $validated['start_date'] = date('Y-m-d', strtotime($validated['start_date']));
         }
         if (!empty($validated['delivery_date'])) {
             $validated['delivery_date'] = date('Y-m-d', strtotime($validated['delivery_date']));
@@ -1230,7 +1264,26 @@ class EstimateController extends Controller
             return redirect()->back()->withErrors(['order' => '承認済みの見積のみ受注確定できます。']);
         }
 
-        $confirmed = $request->boolean('confirmed');
+        $validated = $request->validate([
+            'confirmed' => 'required|boolean',
+            'start_date' => 'nullable|date',
+            'delivery_date' => 'nullable|date|after_or_equal:start_date',
+        ]);
+
+        $confirmed = (bool) $validated['confirmed'];
+
+        if ($confirmed) {
+            $startDate = $validated['start_date'] ?? $estimate->start_date?->toDateString();
+            $deliveryDate = $validated['delivery_date'] ?? $estimate->delivery_date?->toDateString();
+
+            if (!$startDate || !$deliveryDate) {
+                return redirect()->back()->withErrors(['order' => '受注確定時は着手日と納品日の設定が必要です。']);
+            }
+
+            $estimate->start_date = date('Y-m-d', strtotime($startDate));
+            $estimate->delivery_date = date('Y-m-d', strtotime($deliveryDate));
+        }
+
         $estimate->is_order_confirmed = $confirmed;
         $estimate->save();
 
@@ -1240,6 +1293,53 @@ class EstimateController extends Controller
         }
 
         return redirect()->back()->with('success', '受注確定を解除しました。');
+    }
+
+    public function markLost(Request $request, Estimate $estimate, MarkEstimateLostService $markEstimateLostService)
+    {
+        if ($estimate->is_order_confirmed) {
+            return redirect()->back()->withErrors(['lost' => '受注確定済みの見積は失注にできません。']);
+        }
+
+        $validated = $request->validate([
+            'lost_reason' => 'required|string|max:100',
+            'lost_note' => 'nullable|string|max:2000',
+            'lost_at' => 'nullable|date',
+        ]);
+
+        $markEstimateLostService->execute($estimate, $validated);
+
+        return redirect()->back()->with('success', '見積を失注として登録しました。');
+    }
+
+    public function acknowledgeOverduePrompt(Estimate $estimate, QuoteOverdueFollowUpService $quoteOverdueFollowUpService)
+    {
+        if ($estimate->status === 'lost' || $estimate->is_order_confirmed) {
+            return response()->json(['ok' => true]);
+        }
+
+        $quoteOverdueFollowUpService->acknowledgePrompt($estimate);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function extendOverdueFollowUp(
+        Request $request,
+        Estimate $estimate,
+        QuoteOverdueFollowUpService $quoteOverdueFollowUpService
+    ) {
+        if ($estimate->status === 'lost' || $estimate->is_order_confirmed) {
+            return redirect()->back()->withErrors(['follow_up' => 'この見積は追跡延長できません。']);
+        }
+
+        $validated = $request->validate([
+            'follow_up_due_date' => 'required|date|after:today',
+            'overdue_decision_note' => 'nullable|string|max:2000',
+        ]);
+
+        $quoteOverdueFollowUpService->extendFollowUp($estimate, $validated);
+
+        return redirect()->back()->with('success', '追跡期限を延長しました。');
     }
 
     public function previewPdf(Request $request)
@@ -1588,8 +1688,35 @@ class EstimateController extends Controller
         return false;
     }
 
+    private function estimateItemValidationRules(): array
+    {
+        return [
+            'items.*.product_id' => 'nullable|integer',
+            'items.*.code' => 'nullable|string|max:255',
+            'items.*.name' => 'nullable|string|max:255',
+            'items.*.description' => 'nullable|string|max:5000',
+            'items.*.qty' => 'nullable|numeric|min:0',
+            'items.*.unit' => 'nullable|string|max:50',
+            'items.*.price' => 'nullable|numeric|min:0',
+            'items.*.cost' => 'nullable|numeric|min:0',
+            'items.*.tax_category' => 'nullable|string|max:50',
+            'items.*.business_division' => 'nullable|string|max:255',
+            'items.*.display_mode' => 'nullable|string|in:calculated,lump',
+            'items.*.display_qty' => 'nullable|numeric|min:0',
+            'items.*.display_unit' => 'nullable|string|max:10',
+            'items.*.assignees' => 'nullable|array',
+            'items.*.assignees.*.user_id' => 'nullable|string|max:255',
+            'items.*.assignees.*.user_name' => 'nullable|string|max:255',
+            'items.*.assignees.*.share_percent' => 'nullable|numeric|min:0|max:100',
+        ];
+    }
+
     private function http(): PendingRequest
     {
+        if (app()->environment('testing')) {
+            return Http::withOptions([]);
+        }
+
         static $handlerStack = null;
         if ($handlerStack === null) {
             $handlerStack = HandlerStack::create(new StreamHandler());
@@ -1780,6 +1907,345 @@ class EstimateController extends Controller
         }
     }
 
+    private function extractOpenAiErrorMessage($response, string $fallback): string
+    {
+        $message = trim((string) data_get($response?->json(), 'error.message', ''));
+        $code = trim((string) data_get($response?->json(), 'error.code', ''));
+        $status = (int) ($response?->status() ?? 0);
+
+        if ($code === 'insufficient_quota' || $status === 429) {
+            return 'OpenAI API の利用上限に達しているため、AI解析を実行できません。時間を置くか、API利用枠をご確認ください。';
+        }
+
+        if ($message !== '') {
+            return $message;
+        }
+
+        return $fallback;
+    }
+
+    private function analyzeRequirementDocumentContent(string $documentText, string $documentName, ?int $estimateId = null, ?string $documentUrl = null): array
+    {
+        $config = $this->resolveOpenAiConfig();
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => 'You are a Japanese business analyst and sales engineer. '
+                    . 'Read the provided requirement document and return JSON only with the keys '
+                    . '"requirement_summary", "functional_requirements", "non_functional_requirements", "unresolved_requirements", "notes_prompt". '
+                    . 'requirement_summary must be 3〜6 concise Japanese sentences that summarize scope, users, integrations, and major constraints. '
+                    . 'functional_requirements / non_functional_requirements / unresolved_requirements must be arrays of 1〜6 short Japanese lines. '
+                    . 'notes_prompt must be one concise Japanese paragraph describing what should be reflected in customer-facing estimate remarks such as acceptance criteria, schedule assumptions, change handling, deliverables, warranty, and provided materials. '
+                    . 'If the document is ambiguous, explicitly list open assumptions in unresolved_requirements. '
+                    . 'Do not use markdown in requirement_summary or notes_prompt.',
+            ],
+            [
+                'role' => 'user',
+                'content' => "文書名: {$documentName}\n"
+                    . ($documentUrl ? "文書URL: {$documentUrl}\n\n" : "\n")
+                    . "要件定義書本文:\n{$documentText}",
+            ],
+        ];
+
+        $response = $this->http()
+            ->withHeaders([
+                'Authorization' => 'Bearer ' . $config['api_key'],
+                'Content-Type' => 'application/json',
+            ])
+            ->timeout(30)
+            ->post($config['base_url'] . '/v1/chat/completions', [
+                'model' => $config['model'],
+                'messages' => $messages,
+                'temperature' => 0.2,
+                'max_tokens' => 1200,
+                'response_format' => ['type' => 'json_object'],
+            ]);
+
+        if (!$response->successful()) {
+            Log::warning('要件定義書解析AI応答エラー', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            throw new \RuntimeException($this->extractOpenAiErrorMessage($response, '要件定義書の解析に失敗しました。'));
+        }
+
+        $rawContent = data_get($response->json(), 'choices.0.message.content', '');
+        $payload = $this->decodeAiJson($rawContent);
+        if (!is_array($payload)) {
+            throw new \RuntimeException('要件定義書のAI応答を解析できませんでした。');
+        }
+
+        $structured = $this->normalizeStructuredRequirements([
+            'functional' => $payload['functional_requirements'] ?? [],
+            'non_functional' => $payload['non_functional_requirements'] ?? [],
+            'unresolved' => $payload['unresolved_requirements'] ?? [],
+        ]) ?? ['functional' => [], 'non_functional' => [], 'unresolved' => []];
+
+        $summary = trim((string) ($payload['requirement_summary'] ?? ''));
+        $notesPrompt = trim((string) ($payload['notes_prompt'] ?? ''));
+
+        $this->logAiEvent(
+            $estimateId,
+            'analyze_requirement_document',
+            array_merge([
+                'summary' => $summary,
+                'document_name' => $documentName,
+                'document_url' => $documentUrl,
+            ], $structured),
+            $messages,
+            $rawContent
+        );
+
+        return [
+            'requirement_summary' => $summary,
+            'structured_requirements' => $structured,
+            'notes_prompt' => $notesPrompt,
+        ];
+    }
+
+    private function generateDraftPayloadFromRequirements(array $validated): array
+    {
+        $productQuery = Product::query()
+            ->select(['id', 'name', 'sku', 'price', 'cost', 'unit', 'business_division', 'description'])
+            ->where('is_active', true);
+        if (Schema::hasColumn('products', 'business_division')) {
+            $productQuery->where(function ($query) {
+                $query->where('business_division', 'fifth_business')
+                    ->orWhere('business_division', '第5種事業')
+                    ->orWhere('business_division', 5)
+                    ->orWhere('business_division', '5');
+            });
+        }
+        $products = $productQuery->orderBy('name')->get();
+
+        if ($products->isEmpty()) {
+            throw new \InvalidArgumentException('事業区分5（システム開発）の商品マスタが見つかりません。');
+        }
+
+        $productsById = $products->keyBy('id');
+        $catalogLines = $products->map(function ($product) {
+            $price = number_format((float) $product->price);
+            $summary = trim($product->description ?? '');
+            return sprintf('[%d] %s (SKU:%s, 単価:%s円) %s', $product->id, $product->name, $product->sku ?? '-', $price, $summary);
+        })->take(40)->implode("\n");
+
+        $pmInstruction = !empty($validated['pm_required'])
+            ? '必ずPM/プロジェクト管理系の品目を1件含めること。'
+            : 'PM系の品目は含めない。';
+
+        $functionalText = collect($validated['functional_requirements'] ?? [])
+            ->map(fn($line) => '- ' . $line)
+            ->implode("\n");
+        $nonFunctionalText = collect($validated['non_functional_requirements'] ?? [])
+            ->map(fn($line) => '- ' . $line)
+            ->implode("\n");
+        $unresolvedText = collect($validated['unresolved_requirements'] ?? [])
+            ->map(fn($line) => '- ' . $line)
+            ->implode("\n");
+
+        $requirementsBlock = "要件概要:\n{$validated['requirement_summary']}\n\n"
+            . ($functionalText ? "機能要件:\n{$functionalText}\n\n" : '')
+            . ($nonFunctionalText ? "非機能要件:\n{$nonFunctionalText}\n\n" : '')
+            . ($unresolvedText ? "未確定要件:\n{$unresolvedText}\n\n" : '')
+            . "数量は常に人日単位（1人日=8時間）。0.5人日刻みで表現し、0.5人日未満は0.5人日に切り上げること。";
+
+        $config = $this->resolveOpenAiConfig();
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => 'You are a Japanese sales engineer who proposes system development estimates. '
+                    . 'Only use the provided product catalog. '
+                    . 'Respond in JSON: { "items": [...], "notes": "..." }. '
+                    . 'Each item must have product_id(from catalog), summary(short JP sentence <=40 Japanese characters), person_days(number of person-days) '
+                    . 'and optional remarks. Make every summary concrete (feature + scope) and, when requirements mention specific technologies/frameworks/APIs/infrastructure, incorporate those keywords using compact notation (例: React+Nest, SAP連携). '
+                    . 'If additional nuance is needed, populate the optional remarks (<=40 Japanese characters) focusing on critical stack・連携条件. Items should cover設計/開発/テスト/PM at 3〜6 entries. '
+                    . 'Create separate items for each distinct feature or screen even if the same product is reused, and include the feature name inside the summary (e.g., 「開発｜ダッシュボード」). '
+                    . 'For UI/UX related tasks, split admin-side and end-user screens into different items when the requirements imply multiple audiences. '
+                    . 'Include only one testing line named 「総合テスト」 and do not output other test types. '
+                    . 'The notes field must be written in polite Japanese with multiple sections using full-width bracket headings '
+                    . 'such as 【検収基準】, 【納期】, 【前提条件】, 【変更管理】, 【保守保証】. '
+                    . 'Each section should contain 1〜2 sentences, separated by blank lines, and should omit bullet symbols.',
+            ],
+            [
+                'role' => 'user',
+                'content' => implode("\n\n", [
+                    "利用可能な商品一覧:\n{$catalogLines}",
+                    $pmInstruction,
+                    $requirementsBlock,
+                    'JSON形式の例: {"items":[{"product_id":12,"summary":"UI設計｜管理画面","person_days":10},{"product_id":12,"summary":"UI設計｜エンドユーザ画面","person_days":8},{"product_id":13,"summary":"開発｜ダッシュボード","person_days":25},{"product_id":14,"summary":"総合テスト","person_days":5}],"notes":"任意の注意書き"}。単価や原価は返さない。',
+                ]),
+            ],
+        ];
+
+        $response = $this->http()
+            ->withHeaders([
+                'Authorization' => 'Bearer ' . $config['api_key'],
+                'Content-Type' => 'application/json',
+            ])
+            ->timeout(30)
+            ->post($config['base_url'] . '/v1/chat/completions', [
+                'model' => $config['model'],
+                'messages' => $messages,
+                'temperature' => 0.4,
+                'max_tokens' => 900,
+            ]);
+
+        if (!$response->successful()) {
+            Log::warning('AIドラフト生成応答エラー', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            throw new \RuntimeException($this->extractOpenAiErrorMessage($response, 'ドラフト生成に失敗しました。'));
+        }
+
+        $rawContent = data_get($response->json(), 'choices.0.message.content', '');
+        $payload = $this->decodeAiJson($rawContent);
+        if (!is_array($payload) || empty($payload['items'])) {
+            throw new \RuntimeException('AI応答の解析に失敗しました。');
+        }
+
+        $aiItems = [];
+        foreach ($payload['items'] as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $productId = isset($item['product_id']) ? (int) $item['product_id'] : null;
+            $product = $productId ? ($productsById[$productId] ?? null) : null;
+            if (!$product) {
+                continue;
+            }
+
+            $personDays = $this->toFloat($item['person_days'] ?? null);
+            if ($personDays === null || $personDays <= 0) {
+                continue;
+            }
+            $normalizedPersonDays = $this->normalizePersonDays($personDays);
+            if ($normalizedPersonDays === null) {
+                continue;
+            }
+
+            $description = $this->resolveFeatureDescription(
+                $item['summary'] ?? null,
+                $product->name,
+                $product->description,
+                $item['detail'] ?? ($item['remarks'] ?? null)
+            );
+
+            $aiItems[] = [
+                'product_id' => $product->id,
+                'code' => $product->sku,
+                'name' => $product->name,
+                'description' => $description,
+                'qty' => $normalizedPersonDays,
+                'unit' => '人日',
+                'price' => (float) $product->price,
+                'cost' => (float) $product->cost,
+                'tax_category' => 'standard',
+                'business_division' => $product->business_division,
+            ];
+        }
+
+        if (empty($aiItems)) {
+            throw new \InvalidArgumentException('有効な品目を生成できませんでした。要件の補足を行ってください。');
+        }
+
+        $notes = trim((string) ($payload['notes'] ?? '')) ?: null;
+
+        $this->logAiEvent(
+            $validated['estimate_id'] ?? null,
+            'generate_draft',
+            [
+                'summary' => $validated['requirement_summary'],
+                'functional' => $validated['functional_requirements'] ?? [],
+                'non_functional' => $validated['non_functional_requirements'] ?? [],
+                'unresolved' => $validated['unresolved_requirements'] ?? [],
+                'pm_required' => (bool) $validated['pm_required'],
+            ],
+            $messages,
+            $rawContent
+        );
+
+        return [
+            'items' => $aiItems,
+            'notes' => $notes,
+        ];
+    }
+
+    private function buildEstimateContextPieces(?Estimate $estimate, array $requestContext = []): array
+    {
+        $contextPieces = [];
+
+        $customerName = trim((string) ($requestContext['customer_name'] ?? ($estimate->customer_name ?? '')));
+        if ($customerName !== '') {
+            $contextPieces[] = '顧客: ' . $customerName;
+        }
+
+        $title = trim((string) ($requestContext['title'] ?? ($estimate->title ?? '')));
+        if ($title !== '') {
+            $contextPieces[] = '案件タイトル: ' . $title;
+        }
+
+        $issueDate = $requestContext['issue_date'] ?? ($estimate->issue_date ?? null);
+        if ($issueDate) {
+            if ($issueDate instanceof Carbon) {
+                $issueDate = $issueDate->format('Y-m-d');
+            }
+            $contextPieces[] = '見積日: ' . (string) $issueDate;
+        }
+
+        $requirementSummary = trim((string) ($requestContext['requirement_summary'] ?? ($estimate->requirement_summary ?? '')));
+        if ($requirementSummary !== '') {
+            $contextPieces[] = '要件概要: ' . $requirementSummary;
+        }
+
+        $docsUrl = trim((string) ($requestContext['google_docs_url'] ?? ($estimate->google_docs_url ?? '')));
+        if ($docsUrl !== '') {
+            $contextPieces[] = '要件定義書: ' . $docsUrl;
+        }
+
+        $structured = $requestContext['structured_requirements'] ?? ($estimate->structured_requirements ?? null);
+        if (is_array($structured)) {
+            foreach ([
+                'functional' => '機能要件',
+                'non_functional' => '非機能要件',
+                'unresolved' => '未確定要件',
+            ] as $key => $label) {
+                $lines = array_values(array_filter(array_map('trim', (array) ($structured[$key] ?? []))));
+                if (!empty($lines)) {
+                    $contextPieces[] = $label . ': ' . implode(' / ', $lines);
+                }
+            }
+        }
+
+        $items = $requestContext['items'] ?? ($estimate->items ?? []);
+        if (is_array($items) && count($items) > 0) {
+            $summaries = collect($items)
+                ->take(8)
+                ->map(function ($item) {
+                    if (!is_array($item)) {
+                        return null;
+                    }
+                    $name = $item['name'] ?? ($item['description'] ?? '項目');
+                    $qty = $item['qty'] ?? $item['quantity'] ?? null;
+                    $unit = $item['unit'] ?? '';
+                    $price = $item['price'] ?? null;
+                    $parts = array_filter([
+                        $name,
+                        $qty !== null && $qty !== '' ? $qty . ($unit ? $unit : '') : null,
+                        $price !== null && $price !== '' ? '単価' . number_format((float) $price) . '円' : null,
+                    ]);
+                    return empty($parts) ? null : implode(' / ', $parts);
+                })
+                ->filter()
+                ->all();
+            if (!empty($summaries)) {
+                $contextPieces[] = '主要項目: ' . implode(', ', $summaries);
+            }
+        }
+
+        return $contextPieces;
+    }
+
     public function duplicate(Estimate $estimate)
     {
         $newEstimate = $estimate->replicate([
@@ -1939,6 +2405,68 @@ class EstimateController extends Controller
         ]);
     }
 
+    public function generateAiDraftFromDocument(Request $request, GoogleDriveDocumentService $googleDriveDocumentService)
+    {
+        $validated = $request->validate([
+            'google_docs_url' => 'required|url|max:2048',
+            'google_file_id' => 'nullable|string|max:255',
+            'google_access_token' => 'required|string|max:4096',
+            'pm_required' => 'required|boolean',
+            'estimate_id' => 'nullable|integer|exists:estimates,id',
+        ]);
+
+        try {
+            $document = $googleDriveDocumentService->fetchDocument(
+                $validated['google_access_token'],
+                $validated['google_file_id'] ?? null,
+                $validated['google_docs_url']
+            );
+            $analysis = $this->analyzeRequirementDocumentContent(
+                $document['content'],
+                $document['name'],
+                $validated['estimate_id'] ?? null,
+                $document['web_view_link'] ?? $validated['google_docs_url']
+            );
+
+            $draft = $this->generateDraftPayloadFromRequirements([
+                'requirement_summary' => $analysis['requirement_summary'],
+                'functional_requirements' => $analysis['structured_requirements']['functional'] ?? [],
+                'non_functional_requirements' => $analysis['structured_requirements']['non_functional'] ?? [],
+                'unresolved_requirements' => $analysis['structured_requirements']['unresolved'] ?? [],
+                'pm_required' => (bool) $validated['pm_required'],
+                'estimate_id' => $validated['estimate_id'] ?? null,
+            ]);
+
+            return response()->json([
+                'document' => [
+                    'file_id' => $document['file_id'],
+                    'name' => $document['name'],
+                    'mime_type' => $document['mime_type'],
+                    'url' => $document['web_view_link'] ?? $validated['google_docs_url'],
+                ],
+                'requirement_summary' => $analysis['requirement_summary'],
+                'functional_requirements' => $analysis['structured_requirements']['functional'] ?? [],
+                'non_functional_requirements' => $analysis['structured_requirements']['non_functional'] ?? [],
+                'unresolved_requirements' => $analysis['structured_requirements']['unresolved'] ?? [],
+                'notes_prompt' => $analysis['notes_prompt'] ?? '',
+                'items' => $draft['items'],
+                'notes' => $draft['notes'],
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\RuntimeException $e) {
+            $status = str_contains($e->getMessage(), 'OpenAI APIキー') ? 422 : 500;
+            return response()->json(['message' => $e->getMessage()], $status);
+        } catch (\Throwable $e) {
+            Log::error('要件定義書からのAIドラフト生成に失敗', [
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json([
+                'message' => '要件定義書の解析またはドラフト生成に失敗しました。',
+            ], 500);
+        }
+    }
+
     public function generateAiDraft(Request $request)
     {
         $validated = $request->validate([
@@ -1952,190 +2480,19 @@ class EstimateController extends Controller
             'pm_required' => 'required|boolean',
             'estimate_id' => 'nullable|integer|exists:estimates,id',
         ]);
-
-        $productQuery = Product::query()
-            ->select(['id', 'name', 'sku', 'price', 'cost', 'unit', 'business_division', 'description'])
-            ->where('is_active', true);
-        if (Schema::hasColumn('products', 'business_division')) {
-            $productQuery->where(function ($query) {
-                $query->where('business_division', 'fifth_business')
-                    ->orWhere('business_division', '第5種事業')
-                    ->orWhere('business_division', 5)
-                    ->orWhere('business_division', '5');
-            });
-        }
-        $products = $productQuery->orderBy('name')->get();
-
-        if ($products->isEmpty()) {
-            return response()->json([
-                'message' => '事業区分5（システム開発）の商品マスタが見つかりません。',
-            ], 422);
-        }
-
-        $productsById = $products->keyBy('id');
-        $catalogLines = $products->map(function ($product) {
-            $price = number_format((float) $product->price);
-            $summary = trim($product->description ?? '');
-            return sprintf('[%d] %s (SKU:%s, 単価:%s円) %s', $product->id, $product->name, $product->sku ?? '-', $price, $summary);
-        })->take(40)->implode("\n");
-
-        $pmInstruction = $validated['pm_required']
-            ? '必ずPM/プロジェクト管理系の品目を1件含めること。'
-            : 'PM系の品目は含めない。';
-
-        $functionalText = collect($validated['functional_requirements'] ?? [])
-            ->map(fn($line) => '- ' . $line)
-            ->implode("\n");
-        $nonFunctionalText = collect($validated['non_functional_requirements'] ?? [])
-            ->map(fn($line) => '- ' . $line)
-            ->implode("\n");
-        $unresolvedText = collect($validated['unresolved_requirements'] ?? [])
-            ->map(fn($line) => '- ' . $line)
-            ->implode("\n");
-
-        $requirementsBlock = "要件概要:\n{$validated['requirement_summary']}\n\n"
-            . ($functionalText ? "機能要件:\n{$functionalText}\n\n" : '')
-            . ($nonFunctionalText ? "非機能要件:\n{$nonFunctionalText}\n\n" : '')
-            . ($unresolvedText ? "未確定要件:\n{$unresolvedText}\n\n" : '')
-            . "数量は常に人日単位（1人日=8時間）。0.5人日刻みで表現し、0.5人日未満は0.5人日に切り上げること。";
-
         try {
-            $config = $this->resolveOpenAiConfig();
-        } catch (\RuntimeException $e) {
+            $draft = $this->generateDraftPayloadFromRequirements($validated);
+            return response()->json($draft);
+        } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
-        }
-        $messages = [
-            [
-                'role' => 'system',
-                'content' => 'You are a Japanese sales engineer who proposes system development estimates. '
-                    . 'Only use the provided product catalog. '
-                    . 'Respond in JSON: { "items": [...], "notes": "..." }. '
-                    . 'Each item must have product_id(from catalog), summary(short JP sentence <=40 Japanese characters), person_days(number of person-days) '
-                    . 'and optional remarks. Make every summary concrete (feature + scope) and, when requirements mention specific technologies/frameworks/APIs/infrastructure, incorporate those keywords using compact notation (例: React+Nest, SAP連携). '
-                    . 'If additional nuance is needed, populate the optional remarks (<=40 Japanese characters) focusing on critical stack・連携条件. Items should cover設計/開発/テスト/PM at 3〜6 entries. '
-                    . 'Create separate items for each distinct feature or screen even if the same product is reused, and include the feature name inside the summary (e.g., 「開発｜ダッシュボード」). '
-                    . 'For UI/UX related tasks, split admin-side and end-user screens into different items when the requirements imply multiple audiences. '
-                    . 'Include only one testing line named 「総合テスト」 and do not output other test types. '
-                    . 'The notes field must be written in polite Japanese with multiple sections using full-width bracket headings '
-                    . 'such as 【検収基準】, 【納期】, 【前提条件】, 【変更管理】, 【保守保証】. '
-                    . 'Each section should contain 1〜2 sentences, separated by blank lines, and should omit bullet symbols.',
-            ],
-            [
-                'role' => 'user',
-                'content' => implode("\n\n", [
-                    "利用可能な商品一覧:\n{$catalogLines}",
-                    $pmInstruction,
-                    $requirementsBlock,
-                    'JSON形式の例: {"items":[{"product_id":12,"summary":"UI設計｜管理画面","person_days":10},{"product_id":12,"summary":"UI設計｜エンドユーザ画面","person_days":8},{"product_id":13,"summary":"開発｜ダッシュボード","person_days":25},{"product_id":14,"summary":"総合テスト","person_days":5}],"notes":"任意の注意書き"}。単価や原価は返さない。',
-                ]),
-            ],
-        ];
-
-        try {
-            $response = $this->http()
-                ->withHeaders([
-                    'Authorization' => 'Bearer ' . $config['api_key'],
-                    'Content-Type' => 'application/json',
-                ])
-                ->timeout(30)
-                ->post($config['base_url'] . '/v1/chat/completions', [
-                    'model' => $config['model'],
-                    'messages' => $messages,
-                    'temperature' => 0.4,
-                    'max_tokens' => 900,
-                ]);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
         } catch (\Throwable $e) {
             Log::error('AIドラフト生成呼び出し失敗', ['exception' => $e->getMessage()]);
             return response()->json([
                 'message' => 'ドラフト生成に失敗しました。時間を置いて再度お試しください。',
             ], 500);
         }
-
-        if (!$response->successful()) {
-            Log::warning('AIドラフト生成応答エラー', [
-                'status' => $response->status(),
-                'body' => $response->body(),
-            ]);
-            return response()->json([
-                'message' => 'ドラフト生成に失敗しました。',
-            ], 500);
-        }
-
-        $rawContent = data_get($response->json(), 'choices.0.message.content', '');
-        $payload = $this->decodeAiJson($rawContent);
-        if (!is_array($payload) || empty($payload['items'])) {
-            return response()->json([
-                'message' => 'AI応答の解析に失敗しました。',
-            ], 500);
-        }
-
-        $aiItems = [];
-        foreach ($payload['items'] as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-            $productId = isset($item['product_id']) ? (int) $item['product_id'] : null;
-            $product = $productId ? ($productsById[$productId] ?? null) : null;
-            if (!$product) {
-                continue;
-            }
-
-            $personDays = $this->toFloat($item['person_days'] ?? null);
-            if ($personDays === null || $personDays <= 0) {
-                continue;
-            }
-            $normalizedPersonDays = $this->normalizePersonDays($personDays);
-            if ($normalizedPersonDays === null) {
-                continue;
-            }
-
-            $description = $this->resolveFeatureDescription(
-                $item['summary'] ?? null,
-                $product->name,
-                $product->description,
-                $item['detail'] ?? ($item['remarks'] ?? null)
-            );
-
-            $aiItems[] = [
-                'product_id' => $product->id,
-                'code' => $product->sku,
-                'name' => $product->name,
-                'description' => $description,
-                'qty' => $normalizedPersonDays,
-                'unit' => '人日',
-                'price' => (float) $product->price,
-                'cost' => (float) $product->cost,
-                'tax_category' => 'standard',
-                'business_division' => $product->business_division,
-            ];
-        }
-
-        if (empty($aiItems)) {
-            return response()->json([
-                'message' => '有効な品目を生成できませんでした。要件の補足を行ってください。',
-            ], 422);
-        }
-
-        $notes = trim((string) ($payload['notes'] ?? '')) ?: null;
-
-        $this->logAiEvent(
-            $validated['estimate_id'] ?? null,
-            'generate_draft',
-            [
-                'summary' => $validated['requirement_summary'],
-                'functional' => $validated['functional_requirements'] ?? [],
-                'non_functional' => $validated['non_functional_requirements'] ?? [],
-                'unresolved' => $validated['unresolved_requirements'] ?? [],
-                'pm_required' => (bool) $validated['pm_required'],
-            ],
-            $messages,
-            $rawContent
-        );
-
-        return response()->json([
-            'items' => $aiItems,
-            'notes' => $notes,
-        ]);
     }
 
     public function generateNotes(Request $request)
@@ -2143,6 +2500,13 @@ class EstimateController extends Controller
         $validated = $request->validate([
             'prompt' => ['required', 'string', 'max:2000'],
             'estimate_id' => ['nullable', 'integer', 'exists:estimates,id'],
+            'customer_name' => ['nullable', 'string', 'max:255'],
+            'title' => ['nullable', 'string', 'max:255'],
+            'issue_date' => ['nullable', 'date'],
+            'google_docs_url' => ['nullable', 'url', 'max:2048'],
+            'requirement_summary' => ['nullable', 'string', 'max:4000'],
+            'structured_requirements' => ['nullable', 'array'],
+            'items' => ['nullable', 'array'],
         ]);
 
         $apiKey = (string) config('services.openai.key', '');
@@ -2155,45 +2519,8 @@ class EstimateController extends Controller
         $baseUrl = rtrim((string) config('services.openai.base_url', 'https://api.openai.com'), '/');
         $model = (string) config('services.openai.model', 'gpt-4o-mini');
 
-        $contextPieces = [];
-        if (!empty($validated['estimate_id'])) {
-            $estimate = Estimate::find($validated['estimate_id']);
-            if ($estimate) {
-                if (!empty($estimate->customer_name)) {
-                    $contextPieces[] = '顧客: ' . $estimate->customer_name;
-                }
-                if (!empty($estimate->title)) {
-                    $contextPieces[] = '案件タイトル: ' . $estimate->title;
-                }
-                if (!empty($estimate->issue_date)) {
-                    $issueDate = $estimate->issue_date instanceof Carbon
-                        ? $estimate->issue_date->format('Y-m-d')
-                        : (string) $estimate->issue_date;
-                    $contextPieces[] = '見積日: ' . $issueDate;
-                }
-                if (is_array($estimate->items) && count($estimate->items) > 0) {
-                    $summaries = collect($estimate->items)
-                        ->take(5)
-                        ->map(function ($item) {
-                            $name = $item['name'] ?? ($item['description'] ?? '項目');
-                            $qty = $item['qty'] ?? $item['quantity'] ?? null;
-                            $unit = $item['unit'] ?? '';
-                            $price = $item['price'] ?? null;
-                            $parts = array_filter([
-                                $name,
-                                $qty ? $qty . ($unit ? $unit : '') : null,
-                                $price ? '単価' . number_format((float) $price) . '円' : null,
-                            ]);
-                            return implode(' / ', $parts);
-                        })
-                        ->filter()
-                        ->all();
-                    if (!empty($summaries)) {
-                        $contextPieces[] = '主要項目: ' . implode(', ', $summaries);
-                    }
-                }
-            }
-        }
+        $estimate = !empty($validated['estimate_id']) ? Estimate::find($validated['estimate_id']) : null;
+        $contextPieces = $this->buildEstimateContextPieces($estimate, $validated);
 
         $userPrompt = trim($validated['prompt']);
         $userContent = $userPrompt;
@@ -2237,14 +2564,16 @@ class EstimateController extends Controller
                 'body' => $response->body(),
             ]);
             return response()->json([
-                'message' => '備考の生成に失敗しました。',
-            ], 500);
+                'message' => $this->extractOpenAiErrorMessage($response, '備考の生成に失敗しました。'),
+            ], $response->status() === 429 ? 422 : 500);
         }
 
         $notes = trim((string) data_get($response->json(), 'choices.0.message.content', ''));
         if ($notes !== '') {
-            $lines = array_filter(array_map('rtrim', preg_split("/\r?\n/", $notes)), static fn($line) => $line !== '');
-            $notes = implode("\n", $lines);
+            $notes = preg_replace("/\r\n?/", "\n", $notes) ?? $notes;
+            $notes = preg_replace("/[ \t]+\n/", "\n", $notes) ?? $notes;
+            $notes = preg_replace("/\n{3,}/", "\n\n", $notes) ?? $notes;
+            $notes = trim($notes);
         }
         if ($notes === '') {
             return response()->json([
@@ -2880,69 +3209,21 @@ class EstimateController extends Controller
         return null;
     }
 
-    private function fetchMaintenanceTotal(Carbon $month = null): float
+    private function fetchMaintenanceTotal(?Carbon $month = null): float
     {
         $month = $month ?? Carbon::now();
         $monthKey = $month->copy()->startOfMonth()->toDateString();
         $cacheKey = "maintenance_fee_total_quotes_{$monthKey}";
 
-        // スナップショット最優先
-        if (Schema::hasTable('maintenance_fee_snapshots')) {
-            $snap = \App\Models\MaintenanceFeeSnapshot::where('month', $monthKey)->first();
-            if ($snap) {
-                Cache::put($cacheKey, (float) $snap->total_fee, 300);
-                return (float) ($snap->total_fee ?? 0);
-            }
-        }
-
         if (Cache::has($cacheKey)) {
             return (float) Cache::get($cacheKey);
         }
 
-        $base = rtrim((string) env('EXTERNAL_API_BASE', 'https://api.xerographix.co.jp/public/api'), '/');
-        $token = (string) env('EXTERNAL_API_TOKEN', '');
-
-        $total = 0.0;
-        try {
-            $response = Http::withHeaders([
-                'Accept' => 'application/json',
-                'Authorization' => $token ? 'Bearer ' . $token : null,
-            ])->withOptions([
-                'verify' => env('SSL_VERIFY', true),
-            ])->get($base . '/customers');
-
-            if ($response->successful()) {
-                $customers = $response->json();
-                if (is_array($customers)) {
-                    foreach ($customers as $c) {
-                        $fee = (float) ($c['maintenance_fee'] ?? 0);
-                        if ($fee <= 0) continue;
-                        $status = (string) ($c['status'] ?? $c['customer_status'] ?? $c['status_name'] ?? '');
-                        if ($status !== '' && (mb_stripos($status, '休止') !== false || mb_strtolower($status) === 'inactive')) continue;
-                        $total += $fee;
-                    }
-                }
-            } else {
-                \Log::warning('Failed to fetch maintenance customers for quotes', [
-                    'status' => $response->status(),
-                    'url' => $base . '/customers',
-                    'body' => $response->body(),
-                ]);
-            }
-        } catch (\Throwable $e) {
-            \Log::error('Error fetching maintenance customers for quotes', [
-                'message' => $e->getMessage(),
-            ]);
-        }
-
-        if (Schema::hasTable('maintenance_fee_snapshots')) {
-            \App\Models\MaintenanceFeeSnapshot::updateOrCreate(
-                ['month' => $monthKey],
-                ['total_fee' => $total, 'total_gross' => $total, 'source' => 'api']
-            );
-        }
+        $total = app(\App\Services\MaintenanceFeeSyncService::class)
+            ->getTotalForMonth($month);
 
         Cache::put($cacheKey, $total, 300);
+
         return $total;
     }
 }

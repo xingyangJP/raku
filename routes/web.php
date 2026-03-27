@@ -11,7 +11,6 @@ use App\Models\Estimate; // Add this import
 use Illuminate\Support\Facades\Auth; // Add this import
 use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CategoryController;
-use App\Http\Controllers\RequirementChatController;
 use App\Http\Controllers\SalesAiCoachController;
 use App\Http\Controllers\AdminController;
 
@@ -84,17 +83,15 @@ Route::middleware('auth')->group(function () {
     Route::get('/quotes/mf/callback', [App\Http\Controllers\EstimateController::class, 'handleQuoteSyncCallback'])->name('quotes.auth.callback.legacy');
 
     Route::post('/estimates/preview-pdf', [App\Http\Controllers\EstimateController::class, 'previewPdf'])->name('estimates.previewPdf');
-    // 要件整理チャット（ドラフト・内部用）
-    Route::get('/estimates/{estimate}/requirement-chat', [RequirementChatController::class, 'show'])->name('estimates.requirementChat.show');
-    Route::post('/estimates/{estimate}/requirement-chat', [RequirementChatController::class, 'store'])->name('estimates.requirementChat.store');
-    Route::post('/estimates/{estimate}/requirement-chat/import', [RequirementChatController::class, 'importDraft'])->name('estimates.requirementChat.import');
-    // 新規見積用の一時チャット（永続化なし）
-    Route::post('/requirement-chat/draft', [RequirementChatController::class, 'draft'])->name('estimates.requirementChat.draft');
     Route::post('/estimates/ai/structure', [App\Http\Controllers\EstimateController::class, 'structureRequirementSummary'])->name('estimates.ai.structure');
     Route::post('/estimates/ai/generate-draft', [App\Http\Controllers\EstimateController::class, 'generateAiDraft'])->name('estimates.ai.generateDraft');
+    Route::post('/estimates/ai/generate-draft-from-doc', [App\Http\Controllers\EstimateController::class, 'generateAiDraftFromDocument'])->name('estimates.ai.generateDraftFromDoc');
     Route::post('/estimates', [App\Http\Controllers\EstimateController::class, 'store'])->name('estimates.store');
     Route::post('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'update'])->whereNumber('estimate')->name('estimates.update');
     Route::patch('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'update'])->whereNumber('estimate');
+    Route::patch('/estimates/{estimate}/lost', [App\Http\Controllers\EstimateController::class, 'markLost'])->whereNumber('estimate')->name('estimates.markLost');
+    Route::patch('/estimates/{estimate}/overdue-prompt', [App\Http\Controllers\EstimateController::class, 'acknowledgeOverduePrompt'])->whereNumber('estimate')->name('estimates.acknowledgeOverduePrompt');
+    Route::patch('/estimates/{estimate}/follow-up', [App\Http\Controllers\EstimateController::class, 'extendOverdueFollowUp'])->whereNumber('estimate')->name('estimates.extendOverdueFollowUp');
     Route::post('/estimates/{estimate}/order-confirmation', [App\Http\Controllers\EstimateController::class, 'updateOrderConfirmation'])->whereNumber('estimate')->name('estimates.orderConfirmation');
     Route::patch('estimates/{estimate}/cancel', [App\Http\Controllers\EstimateController::class, 'cancel'])->name('estimates.cancel');
     Route::delete('/estimates/{estimate}', [App\Http\Controllers\EstimateController::class, 'destroy'])->whereNumber('estimate')->name('estimates.destroy');

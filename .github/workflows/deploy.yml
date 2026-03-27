@@ -32,6 +32,9 @@ jobs:
 
     - name: Build Frontend Assets
       run: npm run build
+      env:
+        VITE_GOOGLE_DRIVE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_DRIVE_CLIENT_ID }}
+        VITE_GOOGLE_DRIVE_API_KEY: ${{ secrets.VITE_GOOGLE_DRIVE_API_KEY }}
 
     - name: Determine Deployment Paths
       id: paths
@@ -78,6 +81,11 @@ jobs:
           chmod -R 777 storage bootstrap/cache
           /opt/php-8.2.28-2/bin/php artisan config:clear
           /opt/php-8.2.28-2/bin/php artisan migrate --force --seed
+          if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            /opt/php-8.2.28-2/bin/php artisan dashboard:purge-demo-data
+            /opt/php-8.2.28-2/bin/php artisan db:seed --class=DashboardDemoSeeder --force
+            /opt/php-8.2.28-2/bin/php artisan maintenance:refresh-snapshots --legacy-only
+          fi
           /opt/php-8.2.28-2/bin/php artisan cache:clear
           /opt/php-8.2.28-2/bin/php artisan route:cache
           /opt/php-8.2.28-2/bin/php artisan view:cache

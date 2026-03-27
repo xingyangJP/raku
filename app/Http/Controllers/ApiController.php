@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Throwable;
 use Illuminate\Support\Facades\Schema;
 use App\Models\Partner;
+use App\Models\User;
 
 class ApiController extends Controller
 {
@@ -73,6 +74,24 @@ class ApiController extends Controller
             curl_close($ch);
 
             if ($httpcode >= 200 && $httpcode < 300) {
+                $decoded = json_decode((string) $response, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+                    $filtered = collect($decoded)
+                        ->reject(function ($row) {
+                            if (!is_array($row)) {
+                                return false;
+                            }
+
+                            return User::isHiddenFromBusiness(
+                                (string) ($row['name'] ?? ''),
+                                isset($row['email']) ? (string) $row['email'] : null
+                            );
+                        })
+                        ->values();
+
+                    return response()->json($filtered);
+                }
+
                 return response($response)->header('Content-Type', 'application/json');
             }
 

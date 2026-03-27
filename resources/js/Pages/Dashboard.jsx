@@ -1,5 +1,5 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table';
@@ -7,7 +7,7 @@ import { Badge } from '@/Components/ui/badge';
 import { Button } from '@/Components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/Components/ui/toggle-group';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/Components/ui/tabs';
-import { Activity, BarChart3, Brain, ClipboardList, FileText, Gauge, Info, Landmark, LineChart as LineChartIcon, ListChecks, ShoppingCart, TrendingUp, Users } from 'lucide-react';
+import { Activity, BarChart3, Brain, ChevronDown, ClipboardList, FileText, Gauge, Info, Landmark, LineChart as LineChartIcon, ListChecks, ShoppingCart, TrendingUp, Users } from 'lucide-react';
 import EstimateDetailSheet from '@/Components/EstimateDetailSheet';
 import SyncButton from '@/Components/SyncButton';
 import { formatCurrency } from '@/lib/utils';
@@ -330,6 +330,7 @@ export default function Dashboard({
     partnerSyncFlash = {},
     partnerSyncMeta = null,
     dashboardMetrics = null,
+    businessDivisionReport = null,
     salesRanking = [],
 }) {
     const { flash } = usePage().props;
@@ -345,7 +346,9 @@ export default function Dashboard({
     const defaultSection = dashboardMetrics?.default_section && sections[dashboardMetrics.default_section]
         ? dashboardMetrics.default_section
         : sectionOrder[0] ?? 'overall';
-    const analysis = Array.isArray(dashboardMetrics?.analysis) ? dashboardMetrics.analysis : [];
+    const overallAnalysis = Array.isArray(dashboardMetrics?.analysis) ? dashboardMetrics.analysis : [];
+    const overallAnalysisMeta = dashboardMetrics?.analysis_meta ?? {};
+    const overallAnalysisOverview = dashboardMetrics?.analysis_overview ?? {};
     const currentPeriodLabel = periods?.current?.label ?? '今月';
     const previousPeriodLabel = periods?.previous?.label ?? '先月';
     const previousYearCurrentLabel = periods?.previous_year_current?.label ?? '前年同月';
@@ -358,11 +361,42 @@ export default function Dashboard({
         value: index + 1,
         label: `${index + 1}月`,
     }));
+    const businessDivisionLabels = businessDivisionReport?.division_labels ?? {};
+    const businessDivisionTotals = businessDivisionReport?.division_totals ?? {};
+    const businessDivisionGrandTotal = Number(businessDivisionReport?.grand_total ?? 0);
+    const businessDivisionFocusMonthLabel = businessDivisionReport?.period?.focus_month_label ?? currentPeriodLabel;
+    const businessDivisionMonthlyData = Array.isArray(businessDivisionReport?.monthly_data) ? businessDivisionReport.monthly_data : [];
+    const businessDivisionDetailRows = Array.isArray(businessDivisionReport?.detail_rows) ? businessDivisionReport.detail_rows : [];
+    const businessDivisionBasis = businessDivisionReport?.basis ?? {};
+    const businessDivisionCards = Object.entries(businessDivisionLabels)
+        .map(([key, label]) => {
+            const amount = Number(businessDivisionTotals?.[key] ?? 0);
+
+            return {
+                key,
+                label,
+                amount,
+                share: businessDivisionGrandTotal > 0 ? (amount / businessDivisionGrandTotal) * 100 : 0,
+            };
+        })
+        .filter((card) => card.amount > 0)
+        .sort((a, b) => b.amount - a.amount);
+    const businessDivisionChartSeries = businessDivisionCards.slice(0, 4).map((card, index) => ({
+        key: card.key,
+        label: card.label,
+        color: ['#0f172a', '#2563eb', '#16a34a', '#f59e0b'][index] ?? '#64748b',
+    }));
+    const businessDivisionChartRows = businessDivisionMonthlyData.map((row) => ({
+        month: row.label,
+        ...Object.fromEntries(Object.entries(row.divisions ?? {}).map(([key, value]) => [key, Number(value ?? 0)])),
+    }));
 
     const [activeSection, setActiveSection] = useState(defaultSection);
     const [filter, setFilter] = useState('all');
     const [openSheet, setOpenSheet] = useState(false);
     const [selectedEstimate, setSelectedEstimate] = useState(null);
+    const [selectedBusinessDivision, setSelectedBusinessDivision] = useState('all');
+    const [isOverviewOpen, setIsOverviewOpen] = useState(false);
 
     const selected = sections[activeSection] ?? sections[defaultSection] ?? {};
     const budgetCurrent = selected?.budget?.current ?? {};
@@ -380,7 +414,6 @@ export default function Dashboard({
     const overallForecastMonths = Array.isArray(overallSection?.forecast?.months) ? overallSection.forecast.months : [];
 
     const hasSalesRanking = Array.isArray(salesRanking) && salesRanking.length > 0;
-
     const filteredTasks = useMemo(() => {
         if (filter === 'mine') {
             return (toDoEstimates || []).filter((task) => task.is_current_user_in_flow);
@@ -388,6 +421,13 @@ export default function Dashboard({
 
         return toDoEstimates || [];
     }, [filter, toDoEstimates]);
+    const filteredBusinessDivisionDetails = useMemo(() => {
+        if (selectedBusinessDivision === 'all') {
+            return businessDivisionDetailRows;
+        }
+
+        return businessDivisionDetailRows.filter((row) => row.division_key === selectedBusinessDivision);
+    }, [businessDivisionDetailRows, selectedBusinessDivision]);
 
     const summaryCards = [
         {
@@ -605,6 +645,89 @@ export default function Dashboard({
                     </div>
                 </div>
 
+                <Card className="overflow-hidden border-slate-900 bg-slate-950 text-white shadow-lg">
+                    <button
+                        type="button"
+                        className="flex w-full items-start justify-between gap-4 p-6 text-left"
+                        onClick={() => setIsOverviewOpen((current) => !current)}
+                        aria-expanded={isOverviewOpen}
+                    >
+                        <div className="space-y-3">
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                                <span className="inline-flex items-center rounded-full bg-white/10 px-3 py-1 font-medium text-white/90">
+                                    <Brain className="mr-1.5 h-3.5 w-3.5" />
+                                    {currentPeriodLabel} の経営総評
+                                </span>
+                                <span className={`inline-flex items-center rounded-full px-3 py-1 font-medium ${overallAnalysisMeta?.source === 'ai' ? 'bg-violet-400/20 text-violet-100' : 'bg-slate-700 text-slate-100'}`}>
+                                    {overallAnalysisMeta?.source === 'ai' ? 'AI分析' : 'ルール分析'}
+                                </span>
+                                {overallAnalysisMeta?.generated_at_label && (
+                                    <span className="text-white/60">生成: {overallAnalysisMeta.generated_at_label}</span>
+                                )}
+                            </div>
+                            <div>
+                                <div className="text-sm font-medium text-sky-200">
+                                    {overallAnalysisOverview?.headline ?? `${currentPeriodLabel}の経営総評`}
+                                </div>
+                                <div className="mt-2 text-sm text-white/70">
+                                    {isOverviewOpen ? 'クリックで閉じる' : 'クリックで開く'}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-3">
+                            <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">
+                                {isOverviewOpen ? '表示中' : '非表示'}
+                            </span>
+                            <ChevronDown className={`h-5 w-5 text-white/70 transition-transform ${isOverviewOpen ? 'rotate-180' : ''}`} />
+                        </div>
+                    </button>
+                    {isOverviewOpen && (
+                        <CardContent className="border-t border-white/10 p-0">
+                            <div className="grid gap-0 lg:grid-cols-[1.2fr_0.8fr]">
+                                <div className="space-y-4 p-6">
+                                    <div>
+                                        <p className="max-w-3xl text-base leading-7 text-slate-100">
+                                            {overallAnalysisOverview?.summary ?? '売上差異、工数充足率、資金繰りの3点を優先して確認してください。'}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="grid gap-4 border-t border-white/10 bg-white/5 p-6 lg:border-l lg:border-t-0">
+                                    <div>
+                                        <div className="text-xs font-semibold tracking-wide text-white/60">何がポイントか</div>
+                                        <div className="mt-3 space-y-2">
+                                            {(overallAnalysisOverview?.focus_points ?? []).map((point, index) => (
+                                                <div key={`focus-${index}`} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100">
+                                                    {point}
+                                                </div>
+                                            ))}
+                                            {(overallAnalysisOverview?.focus_points ?? []).length === 0 && (
+                                                <div className="rounded-xl border border-dashed border-white/15 px-3 py-2 text-sm text-white/60">
+                                                    注目ポイントは下の分析カードを参照
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="text-xs font-semibold tracking-wide text-white/60">何を改善すべきか</div>
+                                        <div className="mt-3 space-y-2">
+                                            {(overallAnalysisOverview?.actions ?? []).map((action, index) => (
+                                                <div key={`action-${index}`} className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-50">
+                                                    {action}
+                                                </div>
+                                            ))}
+                                            {(overallAnalysisOverview?.actions ?? []).length === 0 && (
+                                                <div className="rounded-xl border border-dashed border-white/15 px-3 py-2 text-sm text-white/60">
+                                                    改善アクションは下の分析カードを参照
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </CardContent>
+                    )}
+                </Card>
+
                 <Card className="border-slate-200">
                     <CardHeader className="pb-2">
                         <div>
@@ -640,7 +763,7 @@ export default function Dashboard({
                                 <Info className="h-4 w-4 text-amber-500" />
                                 集計ルールと補足
                             </div>
-                            <div className="grid gap-2 text-sm text-slate-600 md:grid-cols-3">
+                            <div className="grid gap-2 text-sm text-slate-600 md:grid-cols-4">
                                 <div className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-amber-100">
                                     {basis.recognition_fallback ?? ''}
                                 </div>
@@ -649,6 +772,9 @@ export default function Dashboard({
                                 </div>
                                 <div className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-amber-100">
                                     {basis.maintenance_rule ?? ''}
+                                </div>
+                                <div className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-amber-100">
+                                    {basis.cash_rule ?? ''}
                                 </div>
                             </div>
                         </div>
@@ -736,8 +862,17 @@ export default function Dashboard({
                         const currentCash = section?.cash_flow?.current ?? {};
                         const currentForecast = Array.isArray(section?.forecast?.months) ? section.forecast.months : [];
                         const currentAlerts = Array.isArray(section?.alerts) ? section.alerts : [];
+                        const currentAnalysis = Array.isArray(section?.analysis)
+                            ? section.analysis
+                            : (key === 'overall' ? overallAnalysis : []);
+                        const currentAnalysisMeta = section?.analysis_meta ?? (key === 'overall' ? dashboardMetrics?.analysis_meta ?? {} : {});
                         const customerRanking = Array.isArray(section?.rankings?.customers) ? section.rankings.customers : [];
                         const staffRanking = Array.isArray(section?.rankings?.staff) ? section.rankings.staff : [];
+                        const peoplePayload = section?.people ?? {};
+                        const peopleSummary = peoplePayload?.summary ?? {};
+                        const peopleRows = Array.isArray(peoplePayload?.rows) ? peoplePayload.rows : [];
+                        const peopleTopAvailable = Array.isArray(peoplePayload?.top_available) ? peoplePayload.top_available : [];
+                        const peopleTopLoad = Array.isArray(peoplePayload?.top_load) ? peoplePayload.top_load : [];
                         const currentRows = currentForecast.map((row) => ({
                             month: row.month_label,
                             budgetSales: row.budget_sales,
@@ -983,9 +1118,22 @@ export default function Dashboard({
                                                 経営分析 / アラート
                                             </CardTitle>
                                             <CardDescription>先月比と予算差異をもとにしたコメントと注意点</CardDescription>
+                                            {key === 'overall' && (
+                                                <div className="flex flex-wrap items-center gap-2 pt-2 text-xs text-slate-500">
+                                                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 font-medium ${currentAnalysisMeta?.source === 'ai' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'}`}>
+                                                        {currentAnalysisMeta?.source === 'ai' ? 'AI日次分析' : 'ルール分析'}
+                                                    </span>
+                                                    {currentAnalysisMeta?.generated_at_label && (
+                                                        <span>生成: {currentAnalysisMeta.generated_at_label}</span>
+                                                    )}
+                                                    {currentAnalysisMeta?.model && (
+                                                        <span>モデル: {currentAnalysisMeta.model}</span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </CardHeader>
                                         <CardContent className="space-y-3">
-                                            {analysis.map((item, index) => (
+                                            {currentAnalysis.map((item, index) => (
                                                 <div key={`${item.title}-${index}`} className={`rounded-lg border p-3 ${insightTone(item.tone)}`}>
                                                     <div className="text-sm font-semibold text-slate-900">{item.title}</div>
                                                     <div className="mt-1 text-sm text-slate-700">{item.body}</div>
@@ -997,7 +1145,7 @@ export default function Dashboard({
                                                     <div className="mt-1 text-sm text-slate-700">{item.detail}</div>
                                                 </div>
                                             ))}
-                                            {analysis.length === 0 && currentAlerts.length === 0 && (
+                                            {currentAnalysis.length === 0 && currentAlerts.length === 0 && (
                                                 <div className="text-sm text-slate-500">現時点で強いアラートはありません。</div>
                                             )}
                                         </CardContent>
@@ -1092,6 +1240,135 @@ export default function Dashboard({
                                             <div>実績件数: {currentActual?.count ?? 0}件</div>
                                             <div>計画生産性: {formatProductivity(currentBudget?.productivity ?? 0)}</div>
                                             <div>粗利率: {formatPercent(section?.highlights?.gross_margin_current ?? 0)}</div>
+                                        </CardContent>
+                                    </Card>
+                                </div>
+
+                                <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                                    <Card className="border-slate-200">
+                                        <CardHeader>
+                                            <CardTitle className="flex items-center gap-2">
+                                                <Users className="h-4 w-4" />
+                                                担当者別の空き状況
+                                            </CardTitle>
+                                            <CardDescription>担当者按分が入力された明細だけを対象に、当月の予定工数を集計</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-4">
+                                            <div className="grid gap-3 sm:grid-cols-2">
+                                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                    <div className="text-xs text-slate-500">集計対象担当者</div>
+                                                    <div className="mt-2 text-2xl font-semibold text-slate-900">{peopleSummary?.tracked_people_count ?? 0}人</div>
+                                                    <div className="mt-1 text-xs text-slate-500">個別キャパ設定のある担当者を含めて集計</div>
+                                                </div>
+                                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                    <div className="text-xs text-slate-500">未割当工数</div>
+                                                    <div className="mt-2 text-2xl font-semibold text-amber-600">{formatPersonDays(peopleSummary?.unassigned_person_days ?? 0)}</div>
+                                                    <div className="mt-1 text-xs text-slate-500">担当者未設定の見積明細</div>
+                                                </div>
+                                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                    <div className="text-xs text-slate-500">高稼働人数</div>
+                                                    <div className="mt-2 text-2xl font-semibold text-rose-600">{peopleSummary?.high_load_count ?? 0}人</div>
+                                                    <div className="mt-1 text-xs text-slate-500">稼働率 85%以上</div>
+                                                </div>
+                                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                    <div className="text-xs text-slate-500">まだ空きがある担当者</div>
+                                                    <div className="mt-2 text-2xl font-semibold text-emerald-600">{peopleSummary?.available_people_count ?? 0}人</div>
+                                                    <div className="mt-1 text-xs text-slate-500">個別キャパに対して残余あり</div>
+                                                </div>
+                                            </div>
+                                            <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+                                                <div className="flex items-center justify-between">
+                                                    <span>集計済み計画工数</span>
+                                                    <span className="font-semibold text-slate-900">{formatPersonDays(peopleSummary?.planned_person_days ?? 0)}</span>
+                                                </div>
+                                                <div className="mt-2 flex items-center justify-between">
+                                                    <span>追跡済み担当者の残余合計</span>
+                                                    <span className={`font-semibold ${varianceTone(peopleSummary?.available_person_days ?? 0)}`}>{formatPersonDays(peopleSummary?.available_person_days ?? 0)}</span>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Card className="border-slate-200">
+                                        <CardHeader>
+                                            <CardTitle>担当者別稼働一覧</CardTitle>
+                                            <CardDescription>空きの多い順と高稼働順を並べて確認</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-4">
+                                            {peopleRows.length === 0 ? (
+                                                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+                                                    当月は担当者按分データがありません。見積明細の「担当者按分」を入力すると表示されます。
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="grid gap-4 md:grid-cols-2">
+                                                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                            <div className="text-sm font-semibold text-slate-900">空きが多い順</div>
+                                                            <div className="mt-3 space-y-3">
+                                                                {peopleTopAvailable.map((row) => (
+                                                                    <div key={`${key}-available-${row.rank}-${row.name}`} className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2">
+                                                                        <div>
+                                                                            <div className="font-medium text-slate-900">{row.name}</div>
+                                                                            <div className="text-xs text-slate-500">予定 {formatPersonDays(row.planned_person_days)} / 稼働率 {formatPercent(row.utilization_rate)}</div>
+                                                                        </div>
+                                                                        <div className={`text-sm font-semibold ${varianceTone(row.available_person_days)}`}>
+                                                                            {formatPersonDays(row.available_person_days)}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                                            <div className="text-sm font-semibold text-slate-900">高稼働順</div>
+                                                            <div className="mt-3 space-y-3">
+                                                                {peopleTopLoad.map((row) => (
+                                                                    <div key={`${key}-load-${row.rank}-${row.name}`} className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2">
+                                                                        <div>
+                                                                            <div className="font-medium text-slate-900">{row.name}</div>
+                                                                            <div className="text-xs text-slate-500">残余 {formatPersonDays(row.available_person_days)} / 案件 {row.estimate_count}件</div>
+                                                                        </div>
+                                                                        <div className={`text-sm font-semibold ${varianceTone(100 - row.utilization_rate)}`}>
+                                                                            {formatPercent(row.utilization_rate)}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <Table>
+                                                        <TableHeader>
+                                                            <TableRow>
+                                                                <TableHead className="w-[56px]">順位</TableHead>
+                                                                <TableHead>担当者</TableHead>
+                                                                <TableHead className="text-right">予定工数</TableHead>
+                                                                <TableHead className="text-right">残余</TableHead>
+                                                                <TableHead className="text-right">稼働率</TableHead>
+                                                                <TableHead className="text-right">案件数</TableHead>
+                                                            </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {peopleRows.map((row) => (
+                                                                <TableRow key={`${key}-people-${row.rank}-${row.name}`}>
+                                                                    <TableCell>{row.rank}</TableCell>
+                                                                    <TableCell>
+                                                                        <div className="font-medium text-slate-900">{row.name}</div>
+                                                                        {Array.isArray(row.latest_titles) && row.latest_titles.length > 0 && (
+                                                                            <div className="mt-1 text-[11px] text-slate-500">
+                                                                                {row.latest_titles.slice(0, 2).join(' / ')}
+                                                                            </div>
+                                                                        )}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-right">{formatPersonDays(row.planned_person_days)}</TableCell>
+                                                                    <TableCell className={`text-right ${varianceTone(row.available_person_days)}`}>{formatPersonDays(row.available_person_days)}</TableCell>
+                                                                    <TableCell className={`text-right ${varianceTone(100 - row.utilization_rate)}`}>{formatPercent(row.utilization_rate)}</TableCell>
+                                                                    <TableCell className="text-right">{row.estimate_count}件</TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </>
+                                            )}
                                         </CardContent>
                                     </Card>
                                 </div>
@@ -1220,6 +1497,168 @@ export default function Dashboard({
                         );
                     })}
                 </Tabs>
+
+                <Card className="border-slate-200">
+                    <CardHeader className="space-y-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                            <div>
+                                <CardTitle className="flex items-center gap-2">
+                                    <BarChart3 className="h-4 w-4" />
+                                    事業区分分析
+                                </CardTitle>
+                                <CardDescription className="mt-2">
+                                    {businessDivisionBasis.label ?? '請求実績ベース'}で事業区分ごとの請求構成を確認
+                                </CardDescription>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="border-slate-200 bg-slate-50">
+                                    対象: {businessDivisionReport?.period?.label ?? `${selectedYear}年`}
+                                </Badge>
+                                <Button asChild variant="outline" size="sm">
+                                    <Link href={route('products.index')}>商品管理で区分を修正</Link>
+                                </Button>
+                            </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                            <div className="font-medium text-slate-900">集計根拠</div>
+                            <div className="mt-1">{businessDivisionBasis.detail ?? '請求データと商品マスタの事業区分設定を使います。'}</div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {businessDivisionCards.length > 0 ? (
+                            <>
+                                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                                    {businessDivisionCards.map((card) => (
+                                        <div key={card.key} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                                            <div className="text-xs text-slate-500">{card.label}</div>
+                                            <div className="mt-2 text-xl font-semibold text-slate-900">{formatCurrency(card.amount)}</div>
+                                            <div className="mt-1 text-xs text-slate-500">構成比 {formatPercent(card.share)}</div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <Card className="border-slate-200">
+                                    <CardHeader>
+                                        <CardTitle className="text-base">月次推移グラフ</CardTitle>
+                                        <CardDescription>上位事業区分の請求実績を月別に比較</CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="h-[320px]">
+                                        {businessDivisionChartSeries.length > 0 ? (
+                                            <SimpleComboChart
+                                                data={businessDivisionChartRows}
+                                                bars={businessDivisionChartSeries}
+                                            />
+                                        ) : (
+                                            <EmptyChartState message="グラフ化できる事業区分データがありません。" />
+                                        )}
+                                    </CardContent>
+                                </Card>
+
+                                <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+                                    <Card className="border-slate-200">
+                                        <CardHeader>
+                                            <CardTitle className="text-base">月別推移</CardTitle>
+                                            <CardDescription>{businessDivisionReport?.period?.label ?? `${selectedYear}年`} の請求実績</CardDescription>
+                                        </CardHeader>
+                                        <CardContent>
+                                            <div className="overflow-x-auto">
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow>
+                                                            <TableHead className="min-w-[100px]">月</TableHead>
+                                                            {Object.entries(businessDivisionLabels).map(([key, label]) => (
+                                                                <TableHead key={key} className="min-w-[120px] text-right">{label}</TableHead>
+                                                            ))}
+                                                            <TableHead className="min-w-[120px] text-right">合計</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {businessDivisionMonthlyData.map((row) => (
+                                                            <TableRow key={row.month}>
+                                                                <TableCell className="font-medium">{row.label}</TableCell>
+                                                                {Object.keys(businessDivisionLabels).map((key) => (
+                                                                    <TableCell key={key} className="text-right">{formatCurrency(row.divisions?.[key] ?? 0)}</TableCell>
+                                                                ))}
+                                                                <TableCell className="text-right font-semibold">{formatCurrency(row.total ?? 0)}</TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableBody>
+                                                </Table>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+
+                                    <Card className="border-slate-200">
+                                        <CardHeader>
+                                            <CardTitle className="text-base">{businessDivisionFocusMonthLabel} の請求明細</CardTitle>
+                                            <CardDescription>事業区分の中身を明細で確認</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-3">
+                                            <div className="flex flex-wrap gap-2">
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    variant={selectedBusinessDivision === 'all' ? 'default' : 'outline'}
+                                                    onClick={() => setSelectedBusinessDivision('all')}
+                                                >
+                                                    全て
+                                                </Button>
+                                                {businessDivisionCards.map((card) => (
+                                                    <Button
+                                                        key={card.key}
+                                                        type="button"
+                                                        size="sm"
+                                                        variant={selectedBusinessDivision === card.key ? 'default' : 'outline'}
+                                                        onClick={() => setSelectedBusinessDivision(card.key)}
+                                                    >
+                                                        {card.label}
+                                                    </Button>
+                                                ))}
+                                            </div>
+                                            <div className="max-h-[360px] overflow-auto">
+                                                <Table>
+                                                    <TableHeader>
+                                                        <TableRow>
+                                                            <TableHead>顧客</TableHead>
+                                                            <TableHead>品目</TableHead>
+                                                            <TableHead className="text-right">売上</TableHead>
+                                                            <TableHead className="text-right">粗利</TableHead>
+                                                        </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                        {filteredBusinessDivisionDetails.length === 0 && (
+                                                            <TableRow>
+                                                                <TableCell colSpan={4} className="text-slate-500">対象明細はありません。</TableCell>
+                                                            </TableRow>
+                                                        )}
+                                                        {filteredBusinessDivisionDetails.map((row, index) => (
+                                                            <TableRow key={`${row.customer_name}-${row.item_name}-${index}`}>
+                                                                <TableCell>
+                                                                    <div className="font-medium">{row.customer_name}</div>
+                                                                    <div className="text-xs text-slate-500">{row.division_label}</div>
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    <div className="font-medium">{row.item_name}</div>
+                                                                    {row.detail && <div className="text-xs text-slate-500">{row.detail}</div>}
+                                                                </TableCell>
+                                                                <TableCell className="text-right">{formatCurrency(row.amount)}</TableCell>
+                                                                <TableCell className="text-right">{formatCurrency(row.gross_profit)}</TableCell>
+                                                            </TableRow>
+                                                        ))}
+                                                    </TableBody>
+                                                </Table>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                                請求実績がまだ無いため、事業区分分析は表示できません。
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
 
                 <div className="grid gap-6 md:grid-cols-2">
                     <Card>

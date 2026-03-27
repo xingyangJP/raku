@@ -21,10 +21,6 @@ class ItemSeeder extends Seeder
             $this->command?->warn('Skipping ItemSeeder: products table not found.');
             return;
         }
-        if (\DB::table('products')->count() > 0) {
-            $this->command?->info('ItemSeeder: 既存の商品データがあるため投入をスキップしました。');
-            return;
-        }
 
         // 明示仕様に基づく投入データ
     $plan = [
@@ -134,6 +130,7 @@ class ItemSeeder extends Seeder
 
             foreach ($items as $item) {
                 $name = $item['name'];
+                $sku = $item['sku'];
                 $price = $item['price'];
                 $cost = $item['cost'];
                 $unit = $item['unit'];
@@ -143,67 +140,119 @@ class ItemSeeder extends Seeder
                     default => config('business_divisions.default', 'fifth_business'),
                 };
 
-                // Idempotent: skip if a product by this name already exists
-                $existsByName = DB::table('products')->where('name', $name)->exists();
-                if ($existsByName) continue;
-
-                $this->createProductWithIncrementedSku($category->id, $category->code, $name, $price, $cost, $unit, $description, $businessDivision);
+                $this->upsertSeedProduct(
+                    (int) $category->id,
+                    (string) $category->code,
+                    $sku,
+                    $name,
+                    $price,
+                    $cost,
+                    $unit,
+                    $description,
+                    $businessDivision
+                );
             }
         }
     }
 
-    private function createProductWithIncrementedSku(int $categoryId, string $categoryCode, string $name, int $price, int $cost, string $unit, ?string $description, ?string $businessDivision = null): void
+    private function upsertSeedProduct(
+        int $categoryId,
+        string $categoryCode,
+        string $sku,
+        string $name,
+        int $price,
+        int $cost,
+        string $unit,
+        ?string $description,
+        ?string $businessDivision = null
+    ): void
     {
-        $attempts = 0;
-        $maxAttempts = 7;
-        while ($attempts < $maxAttempts) {
-            $attempts++;
-            try {
-                DB::transaction(function () use ($categoryId, $categoryCode, $name, $price, $cost, $unit, $description, $businessDivision) {
-                    // lock this category row and fetch updated seq
-                    $row = DB::table('categories')->where('id', $categoryId)->lockForUpdate()->first(['id', 'last_item_seq']);
-                    $seq = (int) $row->last_item_seq + 1;
-                    $sku = sprintf('%s-%03d', $categoryCode, $seq);
-
-                    // create product (sku is unique)
-                    $payload = [
-                        'sku' => $sku,
-                        'name' => $name,
-                        'unit' => $unit,
-                        'price' => $price,
-                        'cost' => $cost,
-                        'tax_category' => 'ten_percent',
-                        'is_active' => true,
-                        'description' => $description,
-                        'attributes' => null,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ];
-                    if (\Illuminate\Support\Facades\Schema::hasColumn('products', 'business_division')) {
-                        $payload['business_division'] = $businessDivision ?? config('business_divisions.default', 'fifth_business');
-                    }
-                    // Optional columns when schema supports
-                    if (\Illuminate\Support\Facades\Schema::hasColumn('products', 'category_id')) {
-                        $payload['category_id'] = $categoryId;
-                    }
-                    if (\Illuminate\Support\Facades\Schema::hasColumn('products', 'seq')) {
-                        $payload['seq'] = $seq;
-                    }
-                    DB::table('products')->insert($payload);
-
-                    // bump seq only after successful insert
-                    DB::table('categories')->where('id', $categoryId)->update([
-                        'last_item_seq' => $seq,
-                        'updated_at' => now(),
-                    ]);
-                }, 3);
-                return; // success
-            } catch (\Throwable $e) {
-                // likely unique sku conflict; backoff and retry
-                usleep(100000 * $attempts);
+        DB::transaction(function () use ($categoryId, $categoryCode, $sku, $name, $price, $cost, $unit, $description, $businessDivision) {
+            $category = DB::table('categories')->where('id', $categoryId)->lockForUpdate()->first(['id', 'last_item_seq']);
+            if (!$category) {
+                return;
             }
+
+            $seq = $this->extractSeqFromSku($sku, $categoryCode);
+            $existing = DB::table('products')
+                ->where('sku', $sku)
+                ->orWhere('name', $name)
+                ->orderByRaw('CASE WHEN sku = ? THEN 0 ELSE 1 END', [$sku])
+                ->first(['id', 'sku', 'name', 'category_id', 'seq', 'price', 'cost', 'unit', 'description', 'business_division', 'tax_category']);
+
+            $payload = [
+                'name' => $name,
+                'unit' => $existing && !empty($existing->unit) ? $existing->unit : $unit,
+                'price' => $this->resolveSeedPrice($existing?->price ?? null, $existing?->cost ?? null, $price, $cost),
+                'cost' => $this->resolveSeedCost($existing?->cost ?? null, $cost),
+                'tax_category' => $existing && !empty($existing->tax_category) ? $existing->tax_category : 'ten_percent',
+                'is_active' => true,
+                'description' => $existing && !empty($existing->description) ? $existing->description : $description,
+                'attributes' => null,
+                'updated_at' => now(),
+            ];
+
+            if (Schema::hasColumn('products', 'business_division')) {
+                $payload['business_division'] = !empty($existing?->business_division)
+                    ? $existing->business_division
+                    : ($businessDivision ?? config('business_divisions.default', 'fifth_business'));
+            }
+            if (Schema::hasColumn('products', 'category_id')) {
+                $payload['category_id'] = $categoryId;
+            }
+            if (Schema::hasColumn('products', 'seq')) {
+                $payload['seq'] = $seq;
+            }
+
+            if ($existing) {
+                DB::table('products')->where('id', $existing->id)->update($payload);
+            } else {
+                DB::table('products')->insert([
+                    ...$payload,
+                    'sku' => $sku,
+                    'created_at' => now(),
+                ]);
+            }
+
+            DB::table('categories')->where('id', $categoryId)->update([
+                'last_item_seq' => max((int) $category->last_item_seq, $seq),
+                'updated_at' => now(),
+            ]);
+        }, 3);
+    }
+
+    private function extractSeqFromSku(string $sku, string $categoryCode): int
+    {
+        if (preg_match('/^' . preg_quote($categoryCode, '/') . '-(\d+)$/', $sku, $matches)) {
+            return (int) $matches[1];
         }
-        $this->command?->warn("ItemSeeder: failed to create product '$name' after retries.");
+
+        return 1;
+    }
+
+    private function resolveSeedCost(mixed $currentCost, int $seedCost): int
+    {
+        if (is_numeric($currentCost) && (float) $currentCost > 0) {
+            return (int) $currentCost;
+        }
+
+        return $seedCost;
+    }
+
+    private function resolveSeedPrice(mixed $currentPrice, mixed $currentCost, int $seedPrice, int $seedCost): int
+    {
+        if (!is_numeric($currentPrice) || (float) $currentPrice <= 0) {
+            return $seedPrice;
+        }
+
+        $normalizedPrice = (int) $currentPrice;
+        $normalizedCost = $this->resolveSeedCost($currentCost, $seedCost);
+
+        if ($normalizedPrice < $normalizedCost) {
+            return max($seedPrice, $normalizedCost);
+        }
+
+        return $normalizedPrice;
     }
 
     // 価格推定関数は明示指定に置き換えたため不要

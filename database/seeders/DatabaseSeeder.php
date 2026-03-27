@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\App;
 
 class DatabaseSeeder extends Seeder
 {
+    private const DASHBOARD_DEMO_SEED_FLAG = 'DASHBOARD_DEMO_SEED_ENABLED';
+
     /**
      * Seed the application's database.
      */
@@ -44,5 +46,13 @@ class DatabaseSeeder extends Seeder
         // 見積書・請求書シードは実施しない
         // $this->call(QuoteSeeder::class);
         // $this->call(InvoiceSeeder::class);
+
+        // ダッシュボード確認用のデモデータは明示許可時のみ投入する。
+        if (
+            App::environment('development')
+            && filter_var(env(self::DASHBOARD_DEMO_SEED_FLAG, false), FILTER_VALIDATE_BOOL)
+        ) {
+            $this->call(DashboardDemoSeeder::class);
+        }
     }
 }

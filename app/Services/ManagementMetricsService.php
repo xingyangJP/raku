@@ -14,6 +14,10 @@ use Illuminate\Support\Facades\Schema;
 
 class ManagementMetricsService
 {
+    public function __construct(private readonly EstimateEffortAllocationService $effortAllocation)
+    {
+    }
+
     public function build(?int $selectedYear = null, ?int $selectedMonth = null): array
     {
         $timezone = config('app.sales_timezone', config('app.timezone', 'Asia/Tokyo'));
@@ -52,8 +56,9 @@ class ManagementMetricsService
         $productLookup = $this->buildProductLookup();
         $staffSetting = CompanySetting::current();
         $monthlyCapacity = $staffSetting->resolveMonthlyCapacityPersonDays();
-        $personDaysPerMonth = (float) config('app.person_days_per_person_month', 20);
+        $personDaysPerMonth = $staffSetting->resolveDefaultCapacityPerPersonDays();
         $personHoursPerDay = (float) config('app.person_hours_per_person_day', 8);
+        $capacityMap = $staffSetting->resolveUserCapacityMap();
 
         $sections = [
             'overall' => $this->createSectionMeta('総合', '全社の予実、資金繰り、工数を俯瞰'),
@@ -71,18 +76,26 @@ class ManagementMetricsService
             'sales' => ['customers' => [], 'staff' => []],
             'maintenance' => ['customers' => [], 'staff' => []],
         ];
+        $peopleBuckets = [
+            'overall' => [],
+            'development' => [],
+            'sales' => [],
+            'maintenance' => [],
+        ];
+        $currentMonthKey = $currentStart->toDateString();
 
         $effortAssignedTotal = 0.0;
         $effortUnscheduledTotal = 0.0;
 
         $estimates = Estimate::query()
             ->whereNull('mf_deleted_at')
-            ->whereNotIn('status', ['rejected'])
+            ->whereNotIn('status', ['rejected', 'lost'])
             ->get([
                 'id',
                 'status',
                 'issue_date',
                 'due_date',
+                'start_date',
                 'delivery_date',
                 'total_amount',
                 'items',
@@ -105,7 +118,7 @@ class ManagementMetricsService
 
             $sectionAmounts = $this->summarizeEstimateBySection($estimate, $productLookup);
             $estimateEffort = (float) ($sectionAmounts['overall']['effort'] ?? 0);
-            $deliveryAt = $estimate->delivery_date ? Carbon::parse($estimate->delivery_date, $timezone) : null;
+            $effortAllocations = $this->effortAllocation->resolveMonthlyEffort($estimate, $estimateEffort, $timezone, false);
 
             foreach (['overall', 'development', 'sales'] as $sectionKey) {
                 $amounts = $sectionAmounts[$sectionKey] ?? null;
@@ -137,12 +150,15 @@ class ManagementMetricsService
 
                 $monthlyBySection[$sectionKey]->put($monthKey, $row);
 
-                if ($deliveryAt && $sectionKey !== 'maintenance') {
-                    $deliveryMonthKey = $deliveryAt->copy()->startOfMonth()->toDateString();
-                    if ($monthlyBySection[$sectionKey]->has($deliveryMonthKey)) {
-                        $deliveryRow = $monthlyBySection[$sectionKey]->get($deliveryMonthKey);
-                        $deliveryRow['budget_effort'] += (float) ($amounts['effort'] ?? 0);
-                        $monthlyBySection[$sectionKey]->put($deliveryMonthKey, $deliveryRow);
+                if ($sectionKey !== 'maintenance' && !empty($effortAllocations)) {
+                    foreach ($effortAllocations as $effortMonthKey => $allocatedEffort) {
+                        if ($allocatedEffort <= 0 || !$monthlyBySection[$sectionKey]->has($effortMonthKey)) {
+                            continue;
+                        }
+
+                        $deliveryRow = $monthlyBySection[$sectionKey]->get($effortMonthKey);
+                        $deliveryRow['budget_effort'] += (float) $allocatedEffort;
+                        $monthlyBySection[$sectionKey]->put($effortMonthKey, $deliveryRow);
                     }
                 }
 
@@ -169,7 +185,12 @@ class ManagementMetricsService
                 }
             }
 
-            if ($deliveryAt) {
+            $currentMonthRatio = $this->effortAllocation->resolveMonthlyRatios($estimate, $timezone)[$currentMonthKey] ?? null;
+            if ($currentMonthRatio !== null && $currentMonthRatio > 0) {
+                $this->appendPeopleAssignments($peopleBuckets, $estimate, $productLookup, $currentMonthKey, $capacityMap, $personDaysPerMonth, (float) $currentMonthRatio);
+            }
+
+            if (!empty($effortAllocations)) {
                 $effortAssignedTotal += $estimateEffort;
             } else {
                 $effortUnscheduledTotal += $estimateEffort;
@@ -192,8 +213,17 @@ class ManagementMetricsService
                 $previousYearStart,
                 $previousYearEnd,
                 $monthlyCapacity,
-                $rankingBuckets[$sectionKey] ?? ['customers' => [], 'staff' => []]
+                $rankingBuckets[$sectionKey] ?? ['customers' => [], 'staff' => []],
+                $peopleBuckets[$sectionKey] ?? [],
+                $personDaysPerMonth,
+                $capacityMap
             );
+        }
+
+        foreach (array_keys($sectionPayloads) as $sectionKey) {
+            $sectionPayloads[$sectionKey]['analysis'] = $sectionKey === 'overall'
+                ? $this->buildAnalysis($sectionPayloads['overall'], $sectionPayloads['development'], $sectionPayloads['maintenance'])
+                : $this->buildSectionAnalysis($sectionKey, $sectionPayloads[$sectionKey]);
         }
 
         $sectionPayloads['overall']['effort']['summary'] = [
@@ -208,8 +238,9 @@ class ManagementMetricsService
                 'recognition' => '納期ベース',
                 'recognition_fallback' => '納期未設定時は見積期限日、さらに未設定時は見積日を使用',
                 'effort' => '計画工数（見積ベース）',
-                'effort_rule' => '納期あり見積のみ月次計画工数に配賦（納期未設定は未配賦として別管理）',
+                'effort_rule' => '着手日と納期がある案件は開始月から納品月まで均等配賦、着手日未設定は納期月へ一括配賦、納期未設定は未配賦として別管理',
                 'maintenance_rule' => '保守は月次スナップショットを売上・粗利同額として計上',
+                'cash_rule' => '受注確定案件の回収予測は注文書納期の翌月入金、未受注案件は見積期限日を仮の回収予定として試算',
             ],
             'capacity' => [
                 'staff_count' => $staffSetting->resolveOperationalStaffCount(),
@@ -253,7 +284,7 @@ class ManagementMetricsService
             ],
             'sections' => $sectionPayloads,
             'default_section' => 'overall',
-            'analysis' => $this->buildAnalysis($sectionPayloads['overall'], $sectionPayloads['development'], $sectionPayloads['maintenance']),
+            'analysis' => $sectionPayloads['overall']['analysis'] ?? [],
         ];
     }
 
@@ -499,7 +530,10 @@ class ManagementMetricsService
         Carbon $previousYearStart,
         Carbon $previousYearEnd,
         float $monthlyCapacity,
-        array $rankingBucket
+        array $rankingBucket,
+        array $peopleBucket,
+        float $capacityPerPersonDays,
+        array $capacityMap
     ): array
     {
         $currentRow = $monthly->get($currentStart->toDateString(), []);
@@ -618,6 +652,7 @@ class ManagementMetricsService
                 'customers' => $this->normalizeRankingRows($rankingBucket['customers'] ?? []),
                 'staff' => $this->normalizeRankingRows($rankingBucket['staff'] ?? []),
             ],
+            'people' => $this->buildPeoplePayload($peopleBucket, $capacityPerPersonDays, $capacityMap),
             'alerts' => $this->buildSectionAlerts($currentRow, $monthlyCapacity),
         ];
     }
@@ -730,6 +765,218 @@ class ManagementMetricsService
                 ];
             })
             ->all();
+    }
+
+    private function appendPeopleAssignments(array &$peopleBuckets, Estimate $estimate, array $productLookup, string $currentMonthKey, array $capacityMap, float $defaultCapacityPersonDays, float $monthRatio = 1.0): void
+    {
+        if ($monthRatio <= 0) {
+            return;
+        }
+
+        $items = is_array($estimate->items) ? $estimate->items : [];
+
+        foreach ($items as $item) {
+            if (!is_array($item) || $this->shouldExcludeEffortItem($item, $productLookup)) {
+                continue;
+            }
+
+            $qty = (float) (data_get($item, 'qty') ?? data_get($item, 'quantity', 1));
+            if ($qty === 0.0) {
+                $qty = 1.0;
+            }
+
+            $personDays = $this->toPersonDays($qty, (string) (data_get($item, 'unit') ?? '')) * $monthRatio;
+            if ($personDays <= 0) {
+                continue;
+            }
+
+            $sectionKey = $this->resolveSectionKeyForItem($item, $productLookup) ?? 'development';
+            $assignees = collect(data_get($item, 'assignees', []))
+                ->filter(fn ($assignee) => is_array($assignee))
+                ->values();
+
+            if ($assignees->isEmpty()) {
+                $this->appendUnassignedPeopleEffort($peopleBuckets['overall'], $personDays);
+                if (isset($peopleBuckets[$sectionKey])) {
+                    $this->appendUnassignedPeopleEffort($peopleBuckets[$sectionKey], $personDays);
+                }
+
+                continue;
+            }
+
+            foreach ($assignees as $assignee) {
+                $sharePercent = (float) ($assignee['share_percent'] ?? 0);
+                if ($sharePercent <= 0) {
+                    continue;
+                }
+
+                $assignedPersonDays = $personDays * ($sharePercent / 100);
+                if ($assignedPersonDays <= 0) {
+                    continue;
+                }
+
+                $this->appendPeopleBucketRow($peopleBuckets['overall'], $assignee, $assignedPersonDays, $estimate, $item, $currentMonthKey, $capacityMap, $defaultCapacityPersonDays);
+                if (isset($peopleBuckets[$sectionKey])) {
+                    $this->appendPeopleBucketRow($peopleBuckets[$sectionKey], $assignee, $assignedPersonDays, $estimate, $item, $currentMonthKey, $capacityMap, $defaultCapacityPersonDays);
+                }
+            }
+        }
+    }
+
+    private function appendPeopleBucketRow(array &$bucket, array $assignee, float $assignedPersonDays, Estimate $estimate, array $item, string $currentMonthKey, array $capacityMap, float $defaultCapacityPersonDays): void
+    {
+        $key = trim((string) ($assignee['user_id'] ?? ''));
+        if ($key === '') {
+            $key = trim((string) ($assignee['user_name'] ?? ''));
+        }
+        if ($key === '') {
+            $key = '未設定担当';
+        }
+
+        $displayName = trim((string) ($assignee['user_name'] ?? ''));
+        if ($displayName === '') {
+            $displayName = $key;
+        }
+
+        if (!isset($bucket['rows'][$key])) {
+            $capacityPersonDays = $this->resolveAssigneeCapacityPersonDays($assignee, $capacityMap, $defaultCapacityPersonDays);
+            $bucket['rows'][$key] = [
+                'user_id' => $assignee['user_id'] ?? null,
+                'name' => $displayName,
+                'capacity_person_days' => $capacityPersonDays,
+                'planned_person_days' => 0.0,
+                'estimate_ids' => [],
+                'item_count' => 0,
+                'share_assignments' => 0,
+                'latest_titles' => [],
+            ];
+        }
+
+        $bucket['rows'][$key]['planned_person_days'] += $assignedPersonDays;
+        $bucket['rows'][$key]['item_count'] += 1;
+        $bucket['rows'][$key]['share_assignments'] += 1;
+        $bucket['rows'][$key]['estimate_ids'][(string) $estimate->id] = true;
+
+        $title = trim((string) ($estimate->title ?? data_get($item, 'name') ?? $currentMonthKey));
+        if ($title !== '' && count($bucket['rows'][$key]['latest_titles']) < 3) {
+            $bucket['rows'][$key]['latest_titles'][$title] = $title;
+        }
+    }
+
+    private function appendUnassignedPeopleEffort(array &$bucket, float $personDays): void
+    {
+        $bucket['unassigned_person_days'] = (float) ($bucket['unassigned_person_days'] ?? 0) + $personDays;
+    }
+
+    private function buildPeoplePayload(array $bucket, float $capacityPerPersonDays, array $capacityMap): array
+    {
+        foreach (($capacityMap['rows'] ?? []) as $capacityRow) {
+            $capacityUserId = isset($capacityRow['id']) ? (string) $capacityRow['id'] : null;
+            $capacityName = trim((string) ($capacityRow['name'] ?? ''));
+            $key = $capacityUserId !== null && $capacityUserId !== '' ? $capacityUserId : $capacityName;
+
+            if ($key === '' || isset($bucket['rows'][$key])) {
+                continue;
+            }
+
+            $bucket['rows'][$key] = [
+                'user_id' => $capacityRow['id'] ?? null,
+                'name' => $capacityName !== '' ? $capacityName : '未設定担当',
+                'capacity_person_days' => (float) ($capacityRow['resolved_capacity_person_days'] ?? $capacityPerPersonDays),
+                'planned_person_days' => 0.0,
+                'estimate_ids' => [],
+                'item_count' => 0,
+                'share_assignments' => 0,
+                'latest_titles' => [],
+            ];
+        }
+
+        $rows = collect($bucket['rows'] ?? [])
+            ->map(function (array $row) use ($capacityPerPersonDays, $capacityMap) {
+                $plannedPersonDays = (float) ($row['planned_person_days'] ?? 0);
+                $resolvedCapacityPersonDays = (float) ($row['capacity_person_days'] ?? 0);
+                if ($resolvedCapacityPersonDays <= 0) {
+                    $resolvedCapacityPersonDays = $this->resolveAssigneeCapacityPersonDays([
+                        'user_id' => $row['user_id'] ?? null,
+                        'user_name' => $row['name'] ?? null,
+                    ], $capacityMap, $capacityPerPersonDays);
+                }
+                $availablePersonDays = $resolvedCapacityPersonDays - $plannedPersonDays;
+
+                return [
+                    'user_id' => $row['user_id'] ?? null,
+                    'name' => (string) ($row['name'] ?? '未設定担当'),
+                    'planned_person_days' => round($plannedPersonDays, 1),
+                    'capacity_person_days' => round($resolvedCapacityPersonDays, 1),
+                    'available_person_days' => round($availablePersonDays, 1),
+                    'utilization_rate' => round($this->calculateRate($plannedPersonDays, $resolvedCapacityPersonDays), 1),
+                    'estimate_count' => count($row['estimate_ids'] ?? []),
+                    'item_count' => (int) ($row['item_count'] ?? 0),
+                    'latest_titles' => array_values($row['latest_titles'] ?? []),
+                ];
+            })
+            ->sortByDesc('planned_person_days')
+            ->values()
+            ->map(function (array $row, int $index) {
+                return [
+                    'rank' => $index + 1,
+                    ...$row,
+                ];
+            })
+            ->all();
+
+        $trackedPeopleCount = count($rows);
+        $plannedTotal = collect($rows)->sum('planned_person_days');
+        $availableTotal = collect($rows)->sum('available_person_days');
+        $overCapacityCount = collect($rows)->filter(fn (array $row) => ($row['utilization_rate'] ?? 0) > 100)->count();
+        $highLoadCount = collect($rows)->filter(fn (array $row) => ($row['utilization_rate'] ?? 0) >= 85)->count();
+        $availablePeopleCount = collect($rows)->filter(fn (array $row) => ($row['available_person_days'] ?? 0) > 0)->count();
+        $topAvailable = collect($rows)
+            ->sortByDesc('available_person_days')
+            ->take(5)
+            ->values()
+            ->all();
+        $topLoad = collect($rows)
+            ->sortByDesc('utilization_rate')
+            ->take(5)
+            ->values()
+            ->all();
+
+        return [
+            'tracked_only' => false,
+            'capacity_per_person_days' => round($capacityPerPersonDays, 1),
+            'summary' => [
+                'tracked_people_count' => $trackedPeopleCount,
+                'capacity_person_days' => round((float) collect($rows)->sum('capacity_person_days'), 1),
+                'planned_person_days' => round((float) $plannedTotal, 1),
+                'available_person_days' => round((float) $availableTotal, 1),
+                'over_capacity_count' => $overCapacityCount,
+                'high_load_count' => $highLoadCount,
+                'available_people_count' => $availablePeopleCount,
+                'unassigned_person_days' => round((float) ($bucket['unassigned_person_days'] ?? 0), 1),
+            ],
+            'rows' => $rows,
+            'top_available' => $topAvailable,
+            'top_load' => $topLoad,
+        ];
+    }
+
+    private function resolveAssigneeCapacityPersonDays(array $assignee, array $capacityMap, float $defaultCapacityPersonDays): float
+    {
+        $userId = isset($assignee['user_id']) && $assignee['user_id'] !== ''
+            ? (string) $assignee['user_id']
+            : null;
+        $userName = trim((string) ($assignee['user_name'] ?? ''));
+
+        if ($userId !== null && isset($capacityMap['by_id'][$userId])) {
+            return (float) $capacityMap['by_id'][$userId];
+        }
+
+        if ($userName !== '' && isset($capacityMap['by_name'][$userName])) {
+            return (float) $capacityMap['by_name'][$userName];
+        }
+
+        return $defaultCapacityPersonDays;
     }
 
     private function buildSectionAlerts(array $currentRow, float $monthlyCapacity): array
@@ -884,6 +1131,95 @@ class ManagementMetricsService
         return $items;
     }
 
+    private function buildSectionAnalysis(string $sectionKey, array $section): array
+    {
+        $items = [];
+        $currentBudget = $section['budget']['current'] ?? [];
+        $currentActual = $section['actual']['current'] ?? [];
+        $currentEffort = $section['effort']['current'] ?? [];
+        $currentCash = $section['cash_flow']['current'] ?? [];
+        $yoyCurrent = $section['year_over_year']['current'] ?? [];
+
+        $salesVariance = (float) (($currentActual['sales'] ?? 0) - ($currentBudget['sales'] ?? 0));
+        $grossVariance = (float) (($currentActual['gross_profit'] ?? 0) - ($currentBudget['gross_profit'] ?? 0));
+        $netCashVariance = (float) (($currentCash['net_actual'] ?? 0) - ($currentCash['net_budget'] ?? 0));
+        $yoySalesRate = (float) ($yoyCurrent['sales']['rate'] ?? 0);
+        $yoyGrossRate = (float) ($yoyCurrent['gross_profit']['rate'] ?? 0);
+        $utilization = (float) ($currentEffort['planned_fill_rate'] ?? 0);
+
+        if (($currentBudget['sales'] ?? 0) > 0 || ($currentActual['sales'] ?? 0) > 0) {
+            $items[] = [
+                'title' => '売上差異',
+                'body' => $salesVariance >= 0
+                    ? '当月売上は計画を上回っています。前倒し計上や継続案件の寄与を確認してください。'
+                    : '当月売上は計画未達です。未受注案件、納期後ろ倒し、請求タイミングを確認してください。',
+                'tone' => $salesVariance >= 0 ? 'positive' : 'negative',
+            ];
+        }
+
+        if (($currentBudget['gross_profit'] ?? 0) > 0 || ($currentActual['gross_profit'] ?? 0) > 0) {
+            $items[] = [
+                'title' => $sectionKey === 'sales' ? '販売粗利' : '粗利状況',
+                'body' => $grossVariance >= 0
+                    ? '粗利は計画水準を維持しています。高粗利案件の再現性を確認してください。'
+                    : '粗利が計画を下回っています。値引き、外注比率、原価未反映の有無を確認してください。',
+                'tone' => $grossVariance >= 0 ? 'positive' : 'negative',
+            ];
+        }
+
+        if ($sectionKey === 'development') {
+            $items[] = [
+                'title' => '開発稼働',
+                'body' => $utilization >= 100
+                    ? '開発工数は過負荷です。担当者別配員見直しと納期調整が必要です。'
+                    : ($utilization >= 85
+                        ? '開発工数は高稼働です。追加受注時は担当者余力の確認を優先してください。'
+                        : '開発工数にはまだ余力があります。前倒し着手や追加提案の余地があります。'),
+                'tone' => $utilization >= 100 ? 'negative' : ($utilization >= 85 ? 'neutral' : 'positive'),
+            ];
+        }
+
+        if ($sectionKey === 'sales') {
+            $items[] = [
+                'title' => '販売回収',
+                'body' => $netCashVariance >= 0
+                    ? '販売案件のネットキャッシュは計画以上です。納品月と請求月のズレがないかだけ確認してください。'
+                    : '販売案件のネットキャッシュが計画未達です。納品済み案件の請求・回収予定を優先確認してください。',
+                'tone' => $netCashVariance >= 0 ? 'positive' : 'negative',
+            ];
+        }
+
+        if ($sectionKey === 'maintenance') {
+            $items[] = [
+                'title' => '保守継続',
+                'body' => $yoySalesRate >= 0
+                    ? '保守売上は前年水準以上です。単価改定や解約抑止の効果を確認してください。'
+                    : '保守売上は前年を下回っています。解約、単価低下、未請求顧客の有無を確認してください。',
+                'tone' => $yoySalesRate >= 0 ? 'positive' : 'negative',
+            ];
+        }
+
+        if (count($items) === 0) {
+            $items[] = [
+                'title' => '概況',
+                'body' => 'この区分は大きな変動が少ない状態です。前年差と案件一覧を見て差分要因を確認してください。',
+                'tone' => 'neutral',
+            ];
+        } elseif ($sectionKey !== 'maintenance') {
+            $items[] = [
+                'title' => '前年比',
+                'body' => $yoySalesRate >= 0
+                    ? ($yoyGrossRate >= 0
+                        ? '前年同月比では売上・粗利ともに改善傾向です。増加要因が継続案件か単発案件かを切り分けてください。'
+                        : '売上は前年超えですが粗利が弱含みです。値引きと原価増を重点確認してください。')
+                    : '前年同月比で弱含みです。失注や納期ズレの影響を洗い出してください。',
+                'tone' => $yoySalesRate >= 0 && $yoyGrossRate >= 0 ? 'positive' : ($yoySalesRate >= 0 ? 'neutral' : 'negative'),
+            ];
+        }
+
+        return $items;
+    }
+
     private function resolveRecognitionDate(Estimate $estimate, string $timezone): ?Carbon
     {
         $recognizedAt = $estimate->delivery_date
@@ -912,6 +1248,18 @@ class ManagementMetricsService
 
     private function resolveCollectionDate(Estimate $estimate, string $timezone): ?Carbon
     {
+        if ((bool) $estimate->is_order_confirmed === true) {
+            $confirmedBaseAt = $estimate->delivery_date
+                ?? $estimate->due_date
+                ?? $estimate->issue_date;
+
+            if (!$confirmedBaseAt) {
+                return null;
+            }
+
+            return Carbon::parse($confirmedBaseAt, $timezone)->addMonthNoOverflow();
+        }
+
         $collectionAt = $estimate->due_date;
         if (!$collectionAt) {
             $recognizedAt = $this->resolveRecognitionDate($estimate, $timezone);

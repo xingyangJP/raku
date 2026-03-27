@@ -1,369 +1,571 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head } from '@inertiajs/react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/Components/ui/accordion';
 import { Badge } from '@/Components/ui/badge';
-import { RefreshCw, Plug, Info, ShieldCheck, Workflow, AlertTriangle, Flag, CheckCircle, PenSquare, Send, FileCheck2 } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
+import {
+    BarChart3,
+    BookOpen,
+    Boxes,
+    Brain,
+    CircleCheckBig,
+    ClipboardList,
+    FileText,
+    Link as LinkIcon,
+    Package,
+    RefreshCw,
+    Settings2,
+    ShoppingCart,
+    TriangleAlert,
+    Users,
+    Workflow,
+} from 'lucide-react';
 
-const syncTimings = [
+const navigationGroups = [
+    { id: 'overview', label: 'まずここ', icon: BookOpen },
+    { id: 'dashboard', label: 'ダッシュボード', icon: BarChart3 },
+    { id: 'estimates', label: '見積作成・編集', icon: FileText },
+    { id: 'quotes', label: '見積一覧 /quotes', icon: ClipboardList },
+    { id: 'orders', label: '注文書一覧 /orders', icon: ShoppingCart },
+    { id: 'products', label: '商品管理', icon: Package },
+    { id: 'settings', label: '設定 / キャパ', icon: Settings2 },
+    { id: 'sync', label: 'MF連携', icon: RefreshCw },
+    { id: 'faq', label: '困ったとき', icon: Workflow },
+];
+
+const quickGuides = [
     {
+        title: '経営数値を見る',
+        subtitle: '売上・粗利・工数・資金繰り・AI総評',
+        destination: 'ダッシュボード',
+        anchor: '#dashboard',
+        icon: Brain,
+        tone: 'border-slate-200 bg-slate-50',
+    },
+    {
+        title: '見積を作る / 直す',
+        subtitle: '品目、承認、担当者按分、負荷確認',
+        destination: '見積作成・編集',
+        anchor: '#estimates',
+        icon: FileText,
+        tone: 'border-sky-200 bg-sky-50',
+    },
+    {
+        title: '営業案件をさばく',
+        subtitle: '承認待ち、失注、追跡期限、MF未発行',
+        destination: '見積一覧 /quotes',
+        anchor: '#quotes',
+        icon: ClipboardList,
+        tone: 'border-amber-200 bg-amber-50',
+    },
+    {
+        title: '受注後を回す',
+        subtitle: '納期、回収予定、担当、次アクション',
+        destination: '注文書一覧 /orders',
+        anchor: '#orders',
+        icon: ShoppingCart,
+        tone: 'border-emerald-200 bg-emerald-50',
+    },
+];
+
+const highlights = [
+    {
+        title: '総合タブだけ AI 経営総評',
+        description: 'ダッシュボード最上部の総評は、対象年月ごとに日次保存した AI 分析です。section 別の分析/アラートはルールベースです。',
+        tone: 'border-violet-200 bg-violet-50',
+    },
+    {
+        title: '第1種と第5種で工数ルールが分かれる',
+        description: '第1種は仕入れ販売なので担当者按分不要、第5種は工数対象なので担当者按分と負荷シミュレーション対象です。',
+        tone: 'border-rose-200 bg-rose-50',
+    },
+    {
+        title: '個別キャパで負荷を見る',
+        description: '全員一律 20 人日ではなく、ユーザー別の月間開発キャパを設定してダッシュボードと見積判断に反映します。',
+        tone: 'border-sky-200 bg-sky-50',
+    },
+    {
+        title: '一覧の役割を分けた',
+        description: '見積一覧は営業運用、注文書一覧は受注後の実行/回収管理、経営分析はダッシュボードへ寄せています。',
+        tone: 'border-emerald-200 bg-emerald-50',
+    },
+];
+
+const coreRules = [
+    '第1種 = 仕入れ販売。金額管理対象ですが、工数計画・担当者按分の対象外です。',
+    '第5種 = 開発/設計など。担当者按分、空き工数、負荷シミュレーションの対象です。',
+    '一式表示は表示切替だけです。工数対象かどうかの判定には使いません。',
+    '総合タブの経営総評だけ AI 日次分析です。開発/販売/保守タブの分析とアラートはルールベースです。',
+    '見積一覧の期限超過モーダルは、受注済・失注済を除いた未受注案件だけを対象にします。',
+];
+
+const sectionGroups = [
+    {
+        id: 'dashboard',
         title: 'ダッシュボード',
-        description: '画面表示時に Money Forward の取引先同期を自動実行します。完了すると最新の取引先が ToDo や選択肢に反映されます。',
-        color: 'bg-gradient-to-r from-sky-50 to-sky-100 border-sky-200',
+        icon: BarChart3,
+        summary: '経営判断用です。総合タブで AI 総評、各タブで売上・粗利・工数・資金繰りを見ます。',
+        chips: ['経営判断', 'AI総評', '工数/資金繰り'],
+        sections: [
+            {
+                title: '画面の役割',
+                items: [
+                    'ダッシュボードは経営判断用です。売上、粗利、前年比、資金繰り、事業区分、空き状況をまとめて見ます。',
+                    '営業の案件処理は /quotes、受注後の納期/回収管理は /orders に分けています。',
+                ],
+            },
+            {
+                title: 'AI経営総評の見方',
+                items: [
+                    '経営ダッシュボード最上部の総評は、総合タブだけに出る AI 日次分析です。表示中の年月を切り替えると、その年月の総評に変わります。',
+                    'AI は当日の最初のアクセス時だけ生成して保存し、当日中は同じ結果を再利用します。API未設定や失敗時はルール分析へ自動 fallback します。',
+                    '総評は「何がポイントか」「何を改善すべきか」を短く読むための要約です。詳細数値の根拠は下のカードやグラフで確認します。',
+                ],
+            },
+            {
+                title: 'tab別の分析/アラート',
+                items: [
+                    '総合以外の tab は、現時点では AI ではなくルールベースです。開発は稼働、仕入れ販売は粗利/回収、保守は継続性を中心に見ます。',
+                    'アラートは予算差異、粗利差異、工数充足率、ネットCFなどのしきい値で出ています。',
+                ],
+            },
+            {
+                title: '工数の見方',
+                items: [
+                    '担当者別の空き状況は、個別キャパ設定済みの担当者を母集団に集計します。',
+                    '未割当工数は、第1種以外で担当者按分が無い明細を、delivery_date → due_date → issue_date の順で当月判定して集計します。',
+                    '見積で担当者按分を入れないと、空き状況と負荷シミュレーションは実態より甘く見えます。',
+                ],
+            },
+            {
+                title: '資金繰りの見方',
+                items: [
+                    '受注済み案件は注文書納期を優先し、納期月請求・翌月入金の近似で回収予測を出します。',
+                    '未受注案件は見込みなので、確定資金繰りとは分けて読みます。',
+                    '実入金日までは持っていないため、現状は予測管理です。',
+                ],
+            },
+            {
+                title: '事業区分分析',
+                items: [
+                    '旧「事業区分集計」はダッシュボードへ統合しました。',
+                    '分析はダッシュボード、商品の事業区分修正は商品管理で行います。',
+                ],
+            },
+        ],
     },
     {
-        title: '見積管理',
-        description: '一覧を開くたびに最新の Money Forward 見積を自動取得。右上の「MF同期」ボタンで手動差分同期も可能です。',
-        color: 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-200',
+        id: 'estimates',
+        title: '見積作成・編集',
+        icon: FileText,
+        summary: '明細、承認、担当者按分、負荷シミュレーションをまとめて扱う画面です。',
+        chips: ['見積作成', '担当者按分', '負荷判断'],
+        sections: [
+            {
+                title: '明細入力の基本',
+                items: [
+                    '明細は商品マスタを選んで作ります。旧見積は product_id が無くても code/name から既存商品へ補完して表示します。',
+                    '第1種明細は担当者設定不要、第5種明細は担当者按分の対象です。',
+                    '赤い担当者警告は「第1種以外で未設定」のときだけ出ます。',
+                ],
+            },
+            {
+                title: '担当者按分',
+                items: [
+                    '複数人で分担する場合は担当者を追加し、按分率を入力します。保存時に合計100%へ正規化します。',
+                    '旧見積でヘッダ担当者しか無い場合は、編集画面で初期表示時に 100% 按分として補完します。',
+                    '第1種は工数管理対象外なので、担当者按分の赤警告は出しません。',
+                ],
+            },
+            {
+                title: '担当者負荷シミュレーション',
+                items: [
+                    '対象月の合計キャパ、既存余力、この見積の追加工数、未割当工数を確認できます。',
+                    '個人ごとの月間キャパ設定をそのまま使うため、営業や総務は小さいキャパで評価されます。',
+                    '担当者未設定の明細があると、シミュレーション精度は落ちます。',
+                ],
+            },
+            {
+                title: '保存前の見方',
+                items: [
+                    '未設定警告は保存を止めませんが、ダッシュボードと工数判断に影響します。',
+                    '第1種にまで担当者を入れないこと。ここを混ぜると空き工数が壊れます。',
+                ],
+            },
+        ],
     },
     {
-        title: '請求・売掛管理',
-        description: 'ページ読み込みで Money Forward 請求一覧を同期し、ローカル請求書とマージ表示します。画面上部の「MF同期」を押すと再取得します。',
-        color: 'bg-gradient-to-r from-emerald-50 to-emerald-100 border-emerald-200',
+        id: 'quotes',
+        title: '見積一覧 /quotes',
+        icon: ClipboardList,
+        summary: '営業・見積運用の作業台です。承認、失注、追跡期限、工数注意をここで処理します。',
+        chips: ['営業運用', '保存ビュー', '期限超過'],
+        sections: [
+            {
+                title: '画面の役割',
+                items: [
+                    '承認待ち、失注、追跡期限、MF未発行、担当未設定などをさばくための一覧です。',
+                    '経営分析を見る画面ではありません。経営数値はダッシュボードを見ます。',
+                ],
+            },
+            {
+                title: '保存ビュー',
+                items: [
+                    '保存ビューは見積一覧の直上にあり、一覧に対するフィルタをワンクリックで切り替えます。',
+                    '全件 / 承認待ち / 自分担当 / MF未発行 / 期限超過 / 失注 / 要フォローを使います。',
+                    '一覧の内容が切り替わったかどうかは、この保存ビューの active 状態で確認します。',
+                ],
+            },
+            {
+                title: '工数注意',
+                items: [
+                    '第1種以外で担当者が無い明細は「担当未割当」、按分が空なら「按分未設定」として優先表示します。',
+                    '未設定が無ければ、今月/来月の受注ベース工数から余力あり・逼迫・過負荷を出します。',
+                    '第1種は工数管理対象外なので、担当者未設定ラベルは出しません。',
+                ],
+            },
+            {
+                title: '期限超過・失注・追跡期限',
+                items: [
+                    '見積期限を過ぎた未受注案件は、一覧アクセス時に判断モーダルを出します。',
+                    '「失注にする」か「まだ追う」を選べます。「まだ追う」は追跡期限を延長して次回確認日として扱います。',
+                    '複数件ある場合は古い期限順に連続処理できます。受注済と失注済は対象外です。',
+                ],
+            },
+        ],
     },
     {
+        id: 'orders',
+        title: '注文書一覧 /orders',
+        icon: ShoppingCart,
+        summary: '受注後の実行管理・回収管理の画面です。',
+        chips: ['受注後運用', '納期', '回収'],
+        sections: [
+            {
+                title: '画面の役割',
+                items: [
+                    '受注済み案件の納期、回収予定、担当、工数を追う画面です。',
+                    '見積一覧 /quotes は受注前運用、注文書一覧 /orders は受注後運用、という役割分担です。',
+                ],
+            },
+            {
+                title: '見るべきKPI',
+                items: [
+                    '今月納期件数、今月納期受注額、今月回収予定額、計画工数を優先して見ます。',
+                    '粗利総額や全社資金繰りの深掘りはダッシュボードへ寄せています。',
+                ],
+            },
+            {
+                title: '次アクションの考え方',
+                items: [
+                    '請求準備、回収確認、納期確認、担当設定など、受注後に何を処理するかを一覧で判断します。',
+                    '第1種/第5種の混在案件でも、受注後は納期・回収・担当の整合を優先して見ます。',
+                ],
+            },
+        ],
+    },
+    {
+        id: 'products',
         title: '商品管理',
-        description: '一覧表示時にローカル商品と Money Forward 品目を突き合わせて同期。ボタンから一括／個別同期を実行できます。',
-        color: 'bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200',
+        icon: Boxes,
+        summary: '商品マスタ、事業区分、分類を正しく保つ画面です。',
+        chips: ['商品マスタ', '事業区分', '分類コード'],
+        sections: [
+            {
+                title: '商品分類と分類コード',
+                items: [
+                    '商品分類は A〜G の分類コードを持ち、SKU採番の基準になります。',
+                    '分類追加時の英字コードは自動採番です。手入力ではありません。',
+                ],
+            },
+            {
+                title: '事業区分の意味',
+                items: [
+                    '第1種は仕入れ販売なので、見積では担当者設定不要です。',
+                    '第5種は工数対象なので、見積作成/編集とダッシュボードへ影響します。',
+                    '商品管理では、事業区分を正しく保つことが最重要です。',
+                ],
+            },
+        ],
+    },
+    {
+        id: 'settings',
+        title: '設定 / キャパ',
+        icon: Users,
+        summary: 'ユーザー別の月間開発キャパを設定し、工数判断の基準を揃えます。',
+        chips: ['個別キャパ', '対象人数', '全社合計'],
+        sections: [
+            {
+                title: '何を設定するか',
+                items: [
+                    '標準人数設定は使わず、ユーザーごとの月間開発キャパを設定します。',
+                    '営業や総務は小さいキャパ、開発中心の人は大きいキャパで設定してください。',
+                ],
+            },
+            {
+                title: 'どこに反映されるか',
+                items: [
+                    'ダッシュボードの担当者別空き状況',
+                    '見積作成/編集の担当者負荷シミュレーション',
+                    '見積一覧の受注ベース工数の目安',
+                ],
+            },
+        ],
+    },
+    {
+        id: 'sync',
+        title: 'Money Forward連携',
+        icon: LinkIcon,
+        summary: '画面ごとに同期対象が違います。',
+        chips: ['取引先', '見積', '請求'],
+        sections: [
+            {
+                title: '同期の考え方',
+                items: [
+                    'ダッシュボードは取引先、見積一覧は見積、請求管理は請求、商品管理は品目の同期が中心です。',
+                    '外部で直接更新したものを取り込みたいときは、対象画面で手動同期を使います。',
+                ],
+            },
+            {
+                title: 'ダッシュボードの取引先同期',
+                items: [
+                    'ダッシュボードの取引先同期はクールダウン付き自動同期です。必要なときだけ手動更新できます。',
+                    '最終同期時刻と次回自動同期可能時刻は画面に表示されます。',
+                ],
+            },
+            {
+                title: '再認証が必要なとき',
+                items: [
+                    'トークンが失効すると再認証が必要です。再認証メッセージが出た画面からやり直してください。',
+                ],
+            },
+        ],
     },
 ];
 
-const screenTips = [
+const troubleCards = [
     {
-        name: 'ダッシュボード',
-        points: [
-            '自動同期された取引先をもとに ToDo や通知が更新されます。',
-            '同期エラー時は画面右上に警告が表示されるので、再同期または後述のアカウント連携を実施してください。',
-        ],
+        title: '経営数値を見たい',
+        description: '売上、粗利、前年比、資金繰り、AI総評',
+        answer: 'ダッシュボードを見ます。',
     },
     {
-        name: '見積管理（一覧）',
-        points: [
-            '「MF同期」ボタンは Money Forward API のレート制限に配慮した差分同期です。更新・削除した見積が 1～2 分で反映されます。',
-            'ローカルで削除すると一覧から非表示になりますが、Money Forward 上の見積は残ります。MF 側の削除が必要な場合は Money Forward 管理画面で実施してください。',
-            '金額編集や承認ステータス変更後は自動的にローカル DB へ保存され、必要に応じて MF 送信メニューから送信します。',
-            '見積書発行は Money Forward 側でのみ可能です。ローカルで承認登録した後、「MFで見積書発行」ボタンから Money Forward に遷移して作成します。',
-        ],
+        title: '案件をさばきたい',
+        description: '承認待ち、失注、追跡期限、MF未発行',
+        answer: '見積一覧 /quotes を見ます。',
     },
     {
-        name: '見積編集・承認フロー',
-        points: [
-            '見積作成手順：①基礎情報・明細を入力 → ②「下書き保存」で草稿確定 → ③承認ルートを設定 → ④「承認申請」で次承認者へ回付します。',
-            '承認申請を送るとローカルの承認状態が更新され、担当者の ToDo に反映されます。申請ステータスは見積番号横のバッジで確認できます。',
-            '承認担当者は詳細画面の「承認する」ボタンから承認／差戻しを選択します。差戻し時はコメントを必ず入力してください。',
-            '承認済み見積を編集するとステータスが自動的に「承認待ち（再申請）」へ戻り、全承認者の再承認が必要になります。緊急修正時はチャット等で関係者に通知してください。',
-            '承認取消は見積詳細の「承認申請を取り消す」から実行できます。取消時は承認履歴に記録され、再申請が可能になります。',
-            '「MFで見積書発行」ボタンで Money Forward に見積を作成します。発行後の修正はローカルと MF の両方で行う必要があります。',
-            '見積を請求に変換すると、ローカルの請求草稿が生成され、必要に応じて Money Forward 請求へ送信できます。変換後に明細を修正した場合は再度同期してください。',
-        ],
+        title: '受注後の納期や回収を見たい',
+        description: '納期、回収予定、請求準備、担当',
+        answer: '注文書一覧 /orders を見ます。',
     },
     {
-        name: '請求・売掛管理',
-        points: [
-            'ローカル請求を編集すると自動で差分が保存されます。「MFへ送信」から Money Forward 請求に変換すると、同期フラグが更新されます。',
-            'Money Forward 側で行った変更は次回同期時に反映されます。未同期のローカル請求にはフラグが表示されます。',
-            'ローカルで削除した請求は Money Forward へ削除依頼は送信しません。連携済み請求の削除は MF 管理画面で行ってください。',
-        ],
-    },
-    {
-        name: '商品管理',
-        points: [
-            '商品を新規作成すると `<商品分類コード>-XXX` でSKUが採番され、同時に Money Forward 同期対象に登録されます。',
-            '同期時に「第1種/第5種事業」などの事業区分が Money Forward へも付帯情報として送信されます（API 側で保持されない場合でもログに残ります）。',
-            '商品を削除するとローカル登録が非活性化され、次回同期で Money Forward 側も非表示にするリクエストを送ります。',
-        ],
+        title: '明細や工数を直したい',
+        description: '品目、担当者按分、負荷シミュレーション',
+        answer: '見積作成/編集画面を使います。',
     },
 ];
 
-const estimateFlow = [
-    {
-        icon: Flag,
-        title: '1. 下書き作成',
-        description: '顧客・部門・案件名を入力し、明細を追加。保存前でも途中保存が可能です。',
-        detail: '「下書き保存」でSKU採番・発番が完了し、ドラフトとして一覧に表示されます。',
-        accent: 'from-blue-50 to-blue-100 border-blue-200',
-    },
-    {
-        icon: PenSquare,
-        title: '2. 承認ルート設定',
-        description: '承認者シーケンスを設定し、必要ならコメントや添付資料を追加。',
-        detail: '部署標準フローを読み込むか、個別に承認者を並べ替えてください。',
-        accent: 'from-indigo-50 to-indigo-100 border-indigo-200',
-    },
-    {
-        icon: Send,
-        title: '3. 承認申請',
-        description: '「承認申請」ボタンで次承認者に通知。ToDo とメール通知で連絡されます。',
-        detail: '申請中はローカルの編集が制限されます。差し戻し・取消で再編集が可能です。',
-        accent: 'from-amber-50 to-amber-100 border-amber-200',
-    },
-    {
-        icon: CheckCircle,
-        title: '4. 承認処理',
-        description: '承認担当者は詳細画面から承認／差戻し／取消を選択。コメントが履歴に残ります。',
-        detail: '全員承認でステータスが「承認済」に変わり、下部のMoney Forward操作が有効化。',
-        accent: 'from-emerald-50 to-emerald-100 border-emerald-200',
-    },
-    {
-        icon: FileCheck2,
-        title: '5. Money Forward 発行',
-        description: '「MFで見積書発行」を押して Money Forward に遷移し、見積書を発行します。',
-        detail: 'ローカルでの発行はできません。修正が必要な場合は再承認後に再発行し、不要になったMF見積は手動で無効化してください。',
-        accent: 'from-purple-50 to-purple-100 border-purple-200',
-    },
-    {
-        icon: AlertTriangle,
-        title: '6. 修正・再申請',
-        description: '承認後に編集するとステータスが「承認待ち（再申請）」へ自動で戻ります。',
-        detail: '緊急修正時はチャット等で関係者に周知し、必要に応じて Money Forward 側の見積も更新してください。',
-        accent: 'from-rose-50 to-rose-100 border-rose-200',
-    },
-];
-
-const accountLinks = [
-    {
-        title: 'Money Forward アカウント連携が必要な理由',
-        description: '各モジュールで Money Forward API を利用するためには、利用者ごとに OAuth 連携を完了させる必要があります。アクセストークンは 24 時間で更新、90 日で再認証が必要です。',
-        items: [
-            '初回連携：画面の「MF同期」や「Money Forwardへ送信」ボタンを押すと、認可画面が開きます。承認後は自動的に元の画面に戻ります。',
-            'トークン失効時：自動同期が失敗し、画面上部に再認証メッセージが表示されます。案内に従い再度認証してください。',
-            '権限スコープ：見積（read/write）、請求（read/write）、商品（read/write）、取引先（read/write）が必要です。申請時にまとめて許可してください。',
-        ],
-        color: 'bg-white border border-orange-300 shadow-[0_0_20px_rgba(249,115,22,0.2)]',
-        icon: ShieldCheck,
-    },
-    {
-        title: '連携モジュール一覧',
-        description: '各画面で必要となる Money Forward の連携ポイントです。操作前に対象スコープが許可済みか確認してください。',
-        items: [
-            'ダッシュボード：取引先（Partners）同期。初回に「MF取引先連携」を求められます。',
-            '見積管理：見積 read/write。MF発行・請求変換・PDF表示で必要。',
-            '請求・売掛管理：請求 read/write。ローカル請求→MF送信やPDF取得時に required。',
-            '商品管理：品目 read/write。自動・手動同期の双方で必要。',
-        ],
-        color: 'bg-white border border-sky-300 shadow-[0_0_20px_rgba(14,165,233,0.25)]',
-        icon: Plug,
-    },
-];
-
-export default function HelpIndex({ auth }) {
+function SideNavLink({ id, label, icon: Icon }) {
     return (
-        <AuthenticatedLayout
-            header={<h2 className="text-2xl font-semibold text-slate-800">ヘルプ & 操作マニュアル</h2>}
+        <a
+            href={`#${id}`}
+            className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
         >
-            <Head title="ヘルプ" />
-            <div className="space-y-8">
-                <section className="rounded-3xl bg-gradient-to-r from-indigo-500 via-sky-500 to-cyan-500 p-[1px] shadow-xl">
-                    <div className="rounded-3xl bg-white/95 p-8 backdrop-blur-sm">
-                        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                            <div>
-                                <div className="flex items-center gap-3">
-                                    <Badge className="bg-indigo-600 text-white text-xs uppercase tracking-wider px-3 py-1">社員向けドキュメント</Badge>
-                                    <span className="text-sm text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">ver. {auth?.user?.manual_version ?? '2025.03'}</span>
-                                </div>
-                                <h1 className="mt-4 text-3xl font-bold text-slate-900">RAKUSHIRU Cloud 運用ガイド</h1>
-                                <p className="mt-2 text-slate-600 leading-relaxed">
-                                    このページでは Money Forward との同期タイミング・アカウント連携・画面ごとの操作ポイントなど、
-                                    社内運用で押さえておきたい情報をまとめています。新入社員・引継ぎ時のトレーニング資料としてご利用ください。
-                                </p>
-                            </div>
-                            <div className="rounded-3xl bg-gradient-to-br from-indigo-500 to-sky-600 text-white p-6 shadow-lg w-full max-w-sm">
-                                <div className="flex items-center gap-3">
-                                    <RefreshCw className="h-10 w-10" />
-                                    <div>
-                                        <p className="text-xs uppercase tracking-wide text-white/70">同期ステータス</p>
-                                        <p className="text-lg font-semibold">すべて正常</p>
-                                    </div>
-                                </div>
-                                <div className="my-4 h-px bg-white/20" />
-                                <ul className="space-y-2 text-sm text-white/90">
-                                    <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-300" />取引先同期：自動</li>
-                                    <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-300" />見積同期：画面表示＋手動ボタン</li>
-                                    <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-300" />商品同期：初期表示＋個別同期</li>
+            <Icon className="h-4 w-4 text-slate-500" />
+            <span>{label}</span>
+        </a>
+    );
+}
+
+function SectionBlock({ group }) {
+    const Icon = group.icon;
+
+    return (
+        <section id={group.id} className="scroll-mt-24 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="flex items-start gap-4">
+                    <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
+                        <Icon className="h-5 w-5" />
+                    </div>
+                    <div className="space-y-1">
+                        <h2 className="text-2xl font-semibold text-slate-900">{group.title}</h2>
+                        <p className="text-sm leading-6 text-slate-500">{group.summary}</p>
+                    </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {group.chips.map((chip) => (
+                        <Badge key={chip} variant="outline" className="rounded-full border-slate-200 bg-slate-50 text-slate-600">
+                            {chip}
+                        </Badge>
+                    ))}
+                </div>
+            </div>
+
+            <Accordion type="multiple" className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/70 px-4">
+                {group.sections.map((section, index) => (
+                    <AccordionItem key={section.title} value={`${group.id}-${index}`}>
+                        <AccordionTrigger className="text-left text-base font-semibold text-slate-900 hover:no-underline">
+                            {section.title}
+                        </AccordionTrigger>
+                        <AccordionContent>
+                            <div className="rounded-2xl bg-white p-4">
+                                <ul className="space-y-3 text-sm leading-7 text-slate-700">
+                                    {section.items.map((item) => (
+                                        <li key={item} className="flex gap-3">
+                                            <span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-400" />
+                                            <span>{item}</span>
+                                        </li>
+                                    ))}
                                 </ul>
                             </div>
-                        </div>
-                    </div>
-                </section>
+                        </AccordionContent>
+                    </AccordionItem>
+                ))}
+            </Accordion>
+        </section>
+    );
+}
 
-                <section className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <Info className="h-5 w-5 text-slate-500" />
-                        <h2 className="text-xl font-semibold text-slate-800">同期タイミングと手動操作</h2>
-                    </div>
-                    <p className="text-sm text-slate-600">
-                        システムは画面ごとに Money Forward との同期タイミングを持っています。自動同期で追いつかないケース（急ぎの反映・失敗後の再試行など）は手動同期を実行してください。
-                    </p>
-                    <div className="grid gap-4 lg:grid-cols-2">
-                        {syncTimings.map((item) => (
-                            <Card key={item.title} className={`${item.color} border`}>
+export default function HelpIndex({ auth }) {
+    const version = auth?.user?.manual_version ?? '最新版';
+
+    return (
+        <AuthenticatedLayout header={<h2 className="text-2xl font-semibold text-slate-800">ヘルプ</h2>}>
+            <Head title="ヘルプ" />
+
+            <div className="space-y-8">
+                <section id="overview" className="rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 p-[1px] shadow-xl">
+                    <div className="rounded-3xl bg-white p-8">
+                        <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+                            <div className="max-w-4xl space-y-4">
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <Badge className="bg-slate-900 text-white">最新版ガイド</Badge>
+                                    <Badge variant="outline">ver. {version}</Badge>
+                                    <Badge variant="outline" className="border-violet-200 bg-violet-50 text-violet-700">2026年3月改定</Badge>
+                                </div>
+                                <div>
+                                    <h1 className="text-3xl font-bold text-slate-900">RAKUSHIRU Cloud 操作ガイド</h1>
+                                    <p className="mt-3 text-sm leading-7 text-slate-600">
+                                        今回の改修で、ダッシュボード、見積作成、見積一覧、注文書一覧、工数キャパ、失注/追跡期限、商品分類の扱いが変わっています。
+                                        このページは、現行仕様に合わせて「どこで何を判断するか」を整理した最新版です。
+                                    </p>
+                                </div>
+                            </div>
+
+                            <Card className="w-full max-w-md border-slate-200 bg-slate-50 shadow-none">
                                 <CardHeader>
-                                    <CardTitle className="text-lg text-slate-800">{item.title}</CardTitle>
-                                </CardHeader>
-                                <CardContent className="text-sm text-slate-600 leading-relaxed">
-                                    {item.description}
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                    <div className="rounded-2xl border border-amber-300 bg-amber-50/70 p-4 text-sm text-amber-700 flex items-start gap-3">
-                        <AlertTriangle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                        <div>
-                            <p className="font-semibold">手動同期が必要になる代表的なケース</p>
-                            <ul className="mt-2 list-disc pl-5 space-y-1">
-                                <li>Money Forward 側で直接編集した内容をアプリに即時反映したいとき</li>
-                                <li>トークン失効や通信エラーで自動同期が失敗した後にリトライしたいとき</li>
-                                <li>承認後すぐに請求へ進めたいなど、リアルタイム性が必要な業務フロー</li>
-                            </ul>
-                        </div>
-                    </div>
-                </section>
-
-                <section className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <Workflow className="h-5 w-5 text-slate-500" />
-                        <h2 className="text-xl font-semibold text-slate-800">見積ワークフロー（社内承認 → Money Forward 発行）</h2>
-                    </div>
-                    <p className="text-sm text-slate-600">以下の順序で操作すると、社内承認と Money Forward 発行がスムーズに行えます。各ステップはステータスバッジとして一覧にも反映されます。</p>
-                    <div className="relative mx-auto max-w-5xl">
-                        <div className="absolute left-6 top-6 bottom-6 hidden border-l-2 border-dashed border-slate-200 md:block" aria-hidden="true" />
-                        <div className="space-y-6">
-                            {estimateFlow.map((step, index) => {
-                                const Icon = step.icon;
-                                return (
-                                    <div
-                                        key={step.title}
-                                        className={`relative border ${step.accent} rounded-2xl p-5 shadow-sm transition hover:shadow-md bg-white/90`}
-                                    >
-                                        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-inner border border-white/60">
-                                                    <Icon className="h-6 w-6 text-slate-700" />
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Step {index + 1}</p>
-                                                    <h3 className="text-lg font-semibold text-slate-800">{step.title}</h3>
-                                                </div>
-                                            </div>
-                                            <div className="ml-auto hidden text-sm font-medium text-slate-500 md:block">{step.description}</div>
-                                        </div>
-                                        <div className="mt-3 text-sm leading-relaxed text-slate-700 md:hidden">{step.description}</div>
-                                        <div className="mt-3 rounded-xl bg-white/80 p-4 text-sm text-slate-600">
-                                            {step.detail}
-                                        </div>
-                                        {index < estimateFlow.length - 1 && (
-                                            <div className="md:absolute md:left-[22px] md:top-full md:h-6 md:w-4 md:translate-y-1">
-                                                <div className="mx-auto hidden h-full w-[2px] bg-gradient-to-b from-slate-200 to-transparent md:block" />
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </section>
-
-                <section className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <Plug className="h-5 w-5 text-slate-500" />
-                        <h2 className="text-xl font-semibold text-slate-800">Money Forward アカウント連携</h2>
-                    </div>
-                    <div className="grid gap-4 lg:grid-cols-2">
-                        {accountLinks.map(({ title, description, items, color, icon: Icon }) => (
-                            <Card key={title} className={`${color} rounded-2xl`}>
-                                <CardHeader className="flex flex-row items-center gap-3">
-                                    <div className="rounded-xl bg-slate-900/10 p-2"><Icon className="h-6 w-6 text-slate-700" /></div>
-                                    <div>
-                                        <CardTitle className="text-lg text-slate-800">{title}</CardTitle>
-                                        <p className="text-xs text-slate-500 mt-1">{description}</p>
-                                    </div>
+                                    <CardTitle className="flex items-center gap-2 text-lg">
+                                        <CircleCheckBig className="h-5 w-5 text-emerald-600" />
+                                        先に押さえるルール
+                                    </CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <ul className="space-y-2 text-sm text-slate-700 leading-relaxed list-disc pl-5">
-                                        {items.map((point) => (
-                                            <li key={point}>{point}</li>
+                                    <ul className="space-y-2 text-sm leading-6 text-slate-700">
+                                        {coreRules.map((rule) => (
+                                            <li key={rule} className="flex gap-2">
+                                                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-400" />
+                                                <span>{rule}</span>
+                                            </li>
                                         ))}
                                     </ul>
                                 </CardContent>
                             </Card>
+                        </div>
+                    </div>
+                </section>
+
+                <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    {quickGuides.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                            <a
+                                key={item.title}
+                                href={item.anchor}
+                                className={`rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${item.tone}`}
+                            >
+                                <div className="flex items-center justify-between gap-4">
+                                    <div className="space-y-1">
+                                        <div className="text-base font-semibold text-slate-900">{item.title}</div>
+                                        <div className="text-sm leading-6 text-slate-600">{item.subtitle}</div>
+                                    </div>
+                                    <div className="rounded-2xl bg-white/80 p-3 text-slate-700 shadow-sm">
+                                        <Icon className="h-5 w-5" />
+                                    </div>
+                                </div>
+                                <div className="mt-4 inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                                    {item.destination}
+                                </div>
+                            </a>
+                        );
+                    })}
+                </section>
+
+                <section className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+                    {highlights.map((item) => (
+                        <Card key={item.title} className={`${item.tone} border shadow-none`}>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="text-base text-slate-900">{item.title}</CardTitle>
+                            </CardHeader>
+                            <CardContent className="text-sm leading-6 text-slate-700">{item.description}</CardContent>
+                        </Card>
+                    ))}
+                </section>
+
+                <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
+                    <aside className="xl:sticky xl:top-24 xl:self-start">
+                        <Card className="border-slate-200 shadow-sm">
+                            <CardHeader className="pb-4">
+                                <CardTitle className="text-lg">目次</CardTitle>
+                                <CardDescription>画面別に必要な章へ移動します</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                {navigationGroups.map((group) => (
+                                    <SideNavLink key={group.id} {...group} />
+                                ))}
+                            </CardContent>
+                        </Card>
+                    </aside>
+
+                    <div className="space-y-6">
+                        {sectionGroups.map((group) => (
+                            <SectionBlock key={group.id} group={group} />
                         ))}
-                    </div>
-                </section>
 
-                <section className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <Info className="h-5 w-5 text-slate-500" />
-                        <h2 className="text-xl font-semibold text-slate-800">顧客情報の編集・追加について</h2>
-                    </div>
-                    <Card className="border border-slate-200 shadow-sm">
-                        <CardHeader className="bg-slate-50/70">
-                            <CardTitle className="text-slate-800">顧客マスターは XeroPM で管理します</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-sm text-slate-700 leading-relaxed">
-                                見積書で選択する顧客は XeroPM 側の顧客マスターを参照しており、RAKUSHIRU Cloud からは編集・追加できません。
-                                新規顧客の登録や既存顧客の修正は、XeroPM 上で実施してください。
-                            </p>
-                            <ul className="mt-3 space-y-2 text-sm text-slate-700 leading-relaxed list-disc pl-5">
-                                <li>顧客の追加・編集：XeroPM 管理画面で実施</li>
-                                <li>反映タイミング：次回の取引先同期で見積画面の候補に反映</li>
-                                <li>
-                                    XeroPM はこちら：
-                                    <a
-                                        className="ml-1 text-sky-600 underline underline-offset-2 hover:text-sky-700"
-                                        href="https://pm.xerographix.co.jp/"
-                                        target="_blank"
-                                        rel="noreferrer"
-                                    >
-                                        https://pm.xerographix.co.jp/
-                                    </a>
-                                </li>
-                            </ul>
-                        </CardContent>
-                    </Card>
-                </section>
-
-                <section className="space-y-4">
-                    <div className="flex items-center gap-2">
-                        <Workflow className="h-5 w-5 text-slate-500" />
-                        <h2 className="text-xl font-semibold text-slate-800">画面ごとの基本操作と同期の挙動</h2>
-                    </div>
-                    <p className="text-sm text-slate-600">
-                        各モジュールの代表的な操作と、Money Forward とのデータ同期に関する注意点をまとめています。編集・削除時の扱いも確認してください。
-                    </p>
-                    <div className="grid gap-4">
-                        {screenTips.map((section) => (
-                            <Card key={section.name} className="border border-slate-200 shadow-sm">
-                                <CardHeader className="bg-slate-50/70">
-                                    <CardTitle className="text-slate-800">{section.name}</CardTitle>
-                                </CardHeader>
-                                <CardContent>
-                                    <ul className="space-y-2 text-sm text-slate-700 leading-relaxed list-disc pl-5">
-                                        {section.points.map((line) => (
-                                            <li key={line}>{line}</li>
-                                        ))}
+                        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
+                            <div className="flex items-start gap-3">
+                                <TriangleAlert className="mt-0.5 h-5 w-5 text-amber-700" />
+                                <div className="space-y-2 text-sm leading-7 text-amber-900">
+                                    <div className="font-semibold">運用上の注意</div>
+                                    <ul className="space-y-2">
+                                        <li>・第1種を工数として扱わないこと。ここを間違えると空き工数と過負荷判定が崩れます。</li>
+                                        <li>・担当者按分は見積保存を止めませんが、未設定のままではダッシュボードと見積判断の精度が落ちます。</li>
+                                        <li>・見積一覧の期限超過は、失注か追跡継続かを整理するための運用機能です。受注済と失注済は対象外です。</li>
+                                        <li>・総合タブの経営総評だけ AI 日次分析です。その他の分析/アラートは現時点ではルールベースです。</li>
                                     </ul>
-                                </CardContent>
-                            </Card>
-                        ))}
-                    </div>
-                </section>
+                                </div>
+                            </div>
+                        </section>
 
-                <section className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
-                    <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                        <ShieldCheck className="h-5 w-5 text-emerald-500" />
-                        運用ベストプラクティス
-                    </h3>
-                    <div className="mt-3 grid gap-4 md:grid-cols-2 text-sm text-slate-700">
-                        <div className="rounded-xl bg-white p-4 shadow-inner">
-                            <p className="font-semibold text-emerald-600">同期ログを定期チェック</p>
-                            <p className="mt-2 leading-relaxed">エラー時は `storage/logs/laravel.log` に Money Forward API のレスポンスが記録されます。日次でざっと確認しておくと、トークン失効や権限制限に素早く気付けます。</p>
-                        </div>
-                        <div className="rounded-xl bg-white p-4 shadow-inner">
-                            <p className="font-semibold text-emerald-600">権限管理とアカウント棚卸し</p>
-                            <p className="mt-2 leading-relaxed">退職・異動者のアカウントは Money Forward 側の連携解除を忘れずに。システム上のユーザーを無効化しただけではトークンが残るため、半年に一度は棚卸しを実施してください。</p>
-                        </div>
+                        <section id="faq" className="scroll-mt-24 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                            <div className="space-y-2">
+                                <h2 className="text-2xl font-semibold text-slate-900">困ったときの見方</h2>
+                                <p className="text-sm text-slate-500">どの画面を見るべきかを最後にまとめています。</p>
+                            </div>
+                            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                                {troubleCards.map((card) => (
+                                    <Card key={card.title} className="border-slate-200 shadow-none">
+                                        <CardHeader>
+                                            <CardTitle className="text-base">{card.title}</CardTitle>
+                                            <CardDescription>{card.description}</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="text-sm leading-6 text-slate-700">{card.answer}</CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        </section>
                     </div>
-                </section>
+                </div>
             </div>
         </AuthenticatedLayout>
     );

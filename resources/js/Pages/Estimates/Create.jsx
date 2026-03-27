@@ -11,12 +11,23 @@ import { Checkbox } from '@/Components/ui/checkbox';
 import { Label } from '@/Components/ui/label';
 import { Switch } from '@/Components/ui/switch';
 import { Bar, BarChart, PieChart, Pie, Cell, ResponsiveContainer, XAxis, Tooltip } from 'recharts';
-import { PlusCircle, MinusCircle, Trash2, ArrowUp, ArrowDown, Copy, FileText, Eye, Check, ChevronsUpDown } from 'lucide-react';
+import { PlusCircle, MinusCircle, Trash2, ArrowUp, ArrowDown, Copy, FileText, Eye, Check, ChevronsUpDown, AlertTriangle } from 'lucide-react';
 import { cn } from "@/lib/utils"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/Components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/Components/ui/popover"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/Components/ui/dialog'
 import { Badge } from '@/Components/ui/badge';
+import {
+    calculateEstimateTax,
+    calculateEstimateTotal,
+    calculateEstimateSubtotal,
+    calculateLineAmount,
+    calculateLineCostAmount,
+    calculateLineGrossMargin,
+    calculateLineGrossProfit,
+} from '@/lib/estimateCalculations';
+import { buildLegacyDefaultAssigneesForItem, resolveInitialEstimateStaff } from '@/lib/estimateAssignmentFallback';
+import { formatMonthLabelFromKey, toMonthStartKey } from '@/lib/estimateWorkloadSimulation';
 import axios from 'axios';
 
 const REQUIRED_FIELD_LABELS = {
@@ -27,6 +38,44 @@ const REQUIRED_FIELD_LABELS = {
     issue_date: '発行日',
     items: '明細',
     google_docs_url: '要件定義書',
+};
+
+const externalScriptPromises = new Map();
+
+const loadExternalScript = (src, readyCheck) => {
+    if (typeof window === 'undefined') {
+        return Promise.reject(new Error('ブラウザ環境でのみ利用できます。'));
+    }
+    if (readyCheck()) {
+        return Promise.resolve();
+    }
+    if (externalScriptPromises.has(src)) {
+        return externalScriptPromises.get(src);
+    }
+
+    const promise = new Promise((resolve, reject) => {
+        const existing = document.querySelector(`script[src="${src}"]`);
+        if (existing) {
+            existing.addEventListener('load', () => resolve(), { once: true });
+            existing.addEventListener('error', () => reject(new Error(`${src} の読み込みに失敗しました。`)), { once: true });
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`${src} の読み込みに失敗しました。`));
+        document.head.appendChild(script);
+    }).finally(() => {
+        if (!readyCheck()) {
+            externalScriptPromises.delete(src);
+        }
+    });
+
+    externalScriptPromises.set(src, promise);
+    return promise;
 };
 
 // --- Components defined outside EstimateCreate to prevent state loss on re-render ---
@@ -354,8 +403,11 @@ const mapStructuredRequirements = (payload) => {
     };
 };
 
-export default function EstimateCreate({ auth, products, users = [], estimate = null, is_fully_approved = false }) {
+export default function EstimateCreate({ auth, products, users = [], estimate = null, is_fully_approved = false, workloadSimulation = null }) {
     const isEditMode = estimate !== null;
+    const googleDriveClientId = (import.meta.env.VITE_GOOGLE_DRIVE_CLIENT_ID || '').trim();
+    const googleDriveApiKey = (import.meta.env.VITE_GOOGLE_DRIVE_API_KEY || '').trim();
+    const googleDrivePickerEnabled = googleDriveClientId !== '' && googleDriveApiKey !== '';
 
     const [isInternalView, setIsInternalView] = useState(true);
     const normalizeNumber = (value, fallback = 0) => {
@@ -482,29 +534,68 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         (assignees || []).reduce((total, assignee) => total + normalizeNumber(assignee?.share_percent, 0), 0)
     );
 
-    const transformIncomingItems = (items = []) => items.map((item, index) => {
+    const resolveInitialProductForItem = (item) => {
+        if (item?.product_id != null && item?.product_id !== '') {
+            return products.find((product) => String(product?.id) === String(item.product_id)) ?? null;
+        }
+
+        const itemCode = String(item?.code ?? item?.sku ?? '').trim().toLowerCase();
+        if (itemCode !== '') {
+            const matchedByCode = products.find((product) => String(product?.sku ?? '').trim().toLowerCase() === itemCode);
+            if (matchedByCode) {
+                return matchedByCode;
+            }
+        }
+
+        const itemName = String(item?.name ?? '').trim().toLowerCase();
+        if (itemName !== '') {
+            return products.find((product) => String(product?.name ?? '').trim().toLowerCase() === itemName) ?? null;
+        }
+
+        return null;
+    };
+
+    const transformIncomingItems = (items = [], fallbackStaff = null) => items.map((item, index) => {
         const incomingQty = roundToOneDecimal(normalizeNumber(item.qty ?? item.quantity, 1));
         const incomingDisplayQty = roundToOneDecimal(normalizeNumber(item.display_qty, 1));
+        const resolvedProduct = resolveInitialProductForItem(item);
+        const resolvedProductDivision = item?.business_division ?? resolvedProduct?.business_division ?? null;
+        const resolvedBusinessDivision = item?.business_division
+            ?? resolvedProductDivision
+            ?? null;
+        const incomingAssignees = Array.isArray(item?.assignees) && item.assignees.length > 0
+            ? item.assignees
+            : buildLegacyDefaultAssigneesForItem({
+                ...item,
+                business_division: resolvedBusinessDivision,
+            }, fallbackStaff).map((assignee) => ({
+                id: `${createTempAssigneeId()}-legacy-${index}`,
+                ...assignee,
+            }));
         return {
             id: item.id ?? item.__temp_id ?? Date.now() + index,
-            product_id: item.product_id ?? null,
-            code: item.code ?? item.sku ?? null,
-            name: item.name ?? '',
+            product_id: item.product_id ?? resolvedProduct?.id ?? null,
+            code: item.code ?? item.sku ?? resolvedProduct?.sku ?? null,
+            name: item.name ?? resolvedProduct?.name ?? '',
             description: item.description ?? item.detail ?? '',
             qty: formatDecimalForDisplay(incomingQty > 0 ? incomingQty : 1),
-            unit: item.unit ?? '式',
+            unit: item.unit ?? resolvedProduct?.unit ?? '式',
             price: Math.round(normalizeNumber(item.price, 0)),
             cost: Math.round(normalizeNumber(item.cost, 0)),
-            tax_category: item.tax_category ?? 'standard',
+            tax_category: item.tax_category ?? resolvedProduct?.tax_category ?? 'standard',
             display_mode: item.display_mode ?? 'calculated',
             display_qty: formatDecimalForDisplay(incomingDisplayQty > 0 ? incomingDisplayQty : 1),
             display_unit: item.display_unit ?? '式',
-            business_division: item.business_division ?? null,
-            assignees: normalizeIncomingAssignees(item.assignees),
+            business_division: resolvedBusinessDivision,
+            assignees: normalizeIncomingAssignees(incomingAssignees),
         };
     });
 
-    const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items));
+    const initialSelectedStaff = useMemo(
+        () => resolveInitialEstimateStaff(estimate),
+        [estimate?.staff_id, estimate?.staff_name]
+    );
+    const [lineItems, setLineItems] = useState(() => transformIncomingItems(estimate?.items, initialSelectedStaff));
     const [hasDecimalInput, setHasDecimalInput] = useState(false);
     const displayModeOptions = [
         { value: 'calculated', label: '数量表示' },
@@ -529,10 +620,19 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     const [aiDraftPreview, setAiDraftPreview] = useState([]);
     const [aiPreviewOpen, setAiPreviewOpen] = useState(false);
     const [aiNotesSuggestion, setAiNotesSuggestion] = useState('');
-    const [selectedStaff, setSelectedStaff] = useState(() => (estimate?.staff_id && estimate?.staff_name)
-        ? { id: estimate.staff_id, name: estimate.staff_name }
-        : null
-    );
+    const [googleDriveError, setGoogleDriveError] = useState(null);
+    const [googleAccessToken, setGoogleAccessToken] = useState('');
+    const [selectedRequirementDoc, setSelectedRequirementDoc] = useState(() => (
+        estimate?.google_docs_url
+            ? {
+                fileId: null,
+                name: '保存済みの要件定義書',
+                url: estimate.google_docs_url,
+                mimeType: null,
+            }
+            : null
+    ));
+    const [selectedStaff, setSelectedStaff] = useState(() => initialSelectedStaff);
     const [selectedCustomer, setSelectedCustomer] = useState(estimate ? { customer_name: estimate.customer_name, id: estimate.client_id || null } : null);
     const [approvers, setApprovers] = useState(Array.isArray(estimate?.approval_flow) ? estimate.approval_flow : []);
     const [selectedDepartment, setSelectedDepartment] = useState(() => (
@@ -554,45 +654,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
 
     const [openIssueMFQuoteConfirm, setOpenIssueMFQuoteConfirm] = useState(false);
     const [openConvertToInvoiceConfirm, setOpenConvertToInvoiceConfirm] = useState(false);
-    const [chatMessages, setChatMessages] = useState([]);
-    const [chatInput, setChatInput] = useState('');
-    const [chatLoading, setChatLoading] = useState(false);
-    const [requirementsMode, setRequirementsMode] = useState('chat'); // 'chat' | 'manual'
-    const createDraftChatKey = () => {
-        if (typeof window === 'undefined') {
-            return `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        }
-        try {
-            const existing = window.sessionStorage.getItem('reqchat-active-draft-key');
-            if (existing) {
-                return existing;
-            }
-            const generated = `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-            window.sessionStorage.setItem('reqchat-active-draft-key', generated);
-            return generated;
-        } catch (error) {
-            console.warn('Failed to init draft chat key', error);
-            return `draft-${Date.now().toString(36)}`;
-        }
-    };
-
-    const [draftChatKey, setDraftChatKey] = useState(() => (!estimate?.id ? createDraftChatKey() : null));
-    const draftLocalStorageKey = draftChatKey ? `reqchat-${draftChatKey}` : null;
-    const chatStorageKey = useMemo(() => {
-        if (estimate?.id) {
-            return `reqchat-estimate-${estimate.id}`;
-        }
-        return draftChatKey ? `reqchat-${draftChatKey}` : null;
-    }, [estimate?.id, draftChatKey]);
-    const lastAssistantMessage = useMemo(() => {
-        for (let i = chatMessages.length - 1; i >= 0; i -= 1) {
-            if (chatMessages[i]?.role === 'assistant') {
-                return chatMessages[i];
-            }
-        }
-        return null;
-    }, [chatMessages]);
-    const lastAssistantContent = useMemo(() => lastAssistantMessage?.content?.trim() ?? '', [lastAssistantMessage]);
+    const googleTokenClientRef = useRef(null);
 
     const handleIssueMFQuote = () => {
         router.visit(route('estimates.createQuote.start', { estimate: estimate.id }));
@@ -611,13 +673,15 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         if (!estimate?.id) return;
         router.post(route('estimates.orderConfirmation', estimate.id), {
             confirmed: orderConfirmMode === 'confirm',
+            start_date: data.start_date || null,
+            delivery_date: data.delivery_date || null,
         }, {
             onSuccess: () => {
                 setOrderConfirmDialogOpen(false);
                 setData('is_order_confirmed', orderConfirmMode === 'confirm');
             },
             onError: (errors) => {
-                alert(errors?.order || '受注確定処理でエラーが発生しました。');
+                alert(errors?.order || errors?.start_date || errors?.delivery_date || '受注確定処理でエラーが発生しました。');
             },
             preserveScroll: true,
         });
@@ -638,7 +702,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     futureDate.setDate(today.getDate() + 30);
     const dueDateDefault = futureDate.toISOString().slice(0, 10);
 
-    const { data, setData, post, patch, processing, errors, reset } = useForm({
+    const { data, setData, processing, errors } = useForm({
         id: estimate?.id || null,
         customer_name: estimate?.customer_name || '',
         client_contact_name: estimate?.client_contact_name || '',
@@ -648,6 +712,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         title: estimate?.title || '',
         issue_date: isEditMode ? formatDate(estimate?.issue_date) : issueDateDefault,
         due_date: isEditMode ? formatDate(estimate?.due_date) : dueDateDefault,
+        start_date: isEditMode ? formatDate(estimate?.start_date) : '',
         delivery_date: isEditMode ? formatDate(estimate?.delivery_date) : '',
         total_amount: estimate?.total_amount || 0,
         tax_amount: estimate?.tax_amount || 0,
@@ -656,7 +721,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         google_docs_url: estimate?.google_docs_url || '',
         requirement_summary: estimate?.requirement_summary || '',
         delivery_location: estimate?.delivery_location || '',
-        items: transformIncomingItems(estimate?.items),
+        items: transformIncomingItems(estimate?.items, initialSelectedStaff),
         estimate_number: estimate?.estimate_number || '',
         staff_id: estimate?.staff_id || null,
         staff_name: estimate?.staff_name || (estimate?.staff ? estimate.staff.name : null) || null,
@@ -667,10 +732,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     });
 
     const hasRequirementSummary = (data.requirement_summary ?? '').trim() !== '';
-    const canGenerateOverview = requirementsMode === 'chat'
-        ? Boolean(lastAssistantContent)
-        : hasRequirementSummary;
-    const canGenerateDraft = hasRequirementSummary || (requirementsMode === 'chat' && Boolean(lastAssistantContent));
+    const canGenerateDraftFromDocument = Boolean((data.google_docs_url ?? '').trim()) && googleAccessToken.trim() !== '';
 
     useEffect(() => {
         const hasContent = structuredRequirements.functional.length > 0
@@ -683,83 +745,135 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         } : null);
     }, [structuredRequirements]);
 
+    useEffect(() => {
+        if (!data.google_docs_url?.trim()) {
+            setSelectedRequirementDoc(null);
+        } else if (!selectedRequirementDoc?.url) {
+            setSelectedRequirementDoc({
+                fileId: null,
+                name: '保存済みの要件定義書',
+                url: data.google_docs_url,
+                mimeType: null,
+            });
+        }
+    }, [data.google_docs_url, selectedRequirementDoc?.url]);
+
+    const ensureGooglePickerReady = useCallback(async () => {
+        if (!googleDrivePickerEnabled) {
+            throw new Error('Google Drive Picker の設定が未完了です。');
+        }
+
+        await loadExternalScript('https://accounts.google.com/gsi/client', () => Boolean(window.google?.accounts?.oauth2));
+        await loadExternalScript('https://apis.google.com/js/api.js', () => Boolean(window.gapi));
+
+        await new Promise((resolve, reject) => {
+            window.gapi.load('picker', {
+                callback: resolve,
+                onerror: () => reject(new Error('Google Picker の初期化に失敗しました。')),
+            });
+        });
+    }, [googleDrivePickerEnabled]);
+
+    const requestGoogleDriveAccessToken = useCallback(async () => {
+        await ensureGooglePickerReady();
+
+        return new Promise((resolve, reject) => {
+            googleTokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+                client_id: googleDriveClientId,
+                scope: 'https://www.googleapis.com/auth/drive.readonly',
+                callback: (response) => {
+                    if (response?.error) {
+                        reject(new Error(response.error));
+                        return;
+                    }
+                    resolve(response?.access_token || '');
+                },
+                error_callback: () => reject(new Error('Google 認証に失敗しました。')),
+            });
+
+            googleTokenClientRef.current.requestAccessToken({
+                prompt: googleAccessToken ? '' : 'consent',
+            });
+        });
+    }, [ensureGooglePickerReady, googleDriveClientId, googleAccessToken]);
+
+    const openGoogleDrivePicker = useCallback(async () => {
+        setGoogleDriveError(null);
+
+        try {
+            const accessToken = await requestGoogleDriveAccessToken();
+            if (!accessToken) {
+                throw new Error('Google Drive のアクセストークンを取得できませんでした。');
+            }
+            setGoogleAccessToken(accessToken);
+
+            const myDriveView = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+                .setMimeTypes('application/vnd.google-apps.document')
+                .setSelectFolderEnabled(false)
+                .setIncludeFolders(true);
+
+            const sharedDriveView = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
+                .setMimeTypes('application/vnd.google-apps.document')
+                .setEnableDrives(true)
+                .setSelectFolderEnabled(false)
+                .setIncludeFolders(true);
+
+            if (typeof myDriveView.setLabel === 'function') {
+                myDriveView.setLabel('マイドライブ');
+            }
+
+            if (typeof sharedDriveView.setLabel === 'function') {
+                sharedDriveView.setLabel('共有ドライブ');
+            }
+
+            let pickerBuilder = new window.google.picker.PickerBuilder()
+                .addView(myDriveView)
+                .addView(sharedDriveView)
+                .setOAuthToken(accessToken)
+                .setDeveloperKey(googleDriveApiKey)
+                .setCallback((pickerData) => {
+                    if (pickerData?.action !== window.google.picker.Action.PICKED) {
+                        return;
+                    }
+
+                    const doc = pickerData.docs?.[0];
+                    if (!doc) {
+                        setGoogleDriveError('Google Drive のファイル選択に失敗しました。');
+                        return;
+                    }
+
+                    const pickedUrl = doc.url || `https://docs.google.com/document/d/${doc.id}/edit`;
+                    setSelectedRequirementDoc({
+                        fileId: doc.id || null,
+                        name: doc.name || '要件定義書',
+                        url: pickedUrl,
+                        mimeType: doc.mimeType || null,
+                    });
+                    setData('google_docs_url', pickedUrl);
+                    setGoogleDriveError(null);
+                })
+            ;
+
+            if (window.google?.picker?.Feature?.SUPPORT_DRIVES) {
+                pickerBuilder = pickerBuilder.enableFeature(window.google.picker.Feature.SUPPORT_DRIVES);
+            }
+
+            const picker = pickerBuilder.build();
+
+            picker.setVisible(true);
+        } catch (error) {
+            setGoogleDriveError(error?.message || 'Google Drive Picker の起動に失敗しました。');
+        }
+    }, [googleDriveApiKey, requestGoogleDriveAccessToken, setData]);
+
     const [submitErrors, setSubmitErrors] = useState([]);
     const [hasRequiredError, setHasRequiredError] = useState(false);
     const [orderConfirmDialogOpen, setOrderConfirmDialogOpen] = useState(false);
     const [orderConfirmMode, setOrderConfirmMode] = useState('confirm');
 
     useEffect(() => {
-        setLineItems(transformIncomingItems(estimate?.items));
-    }, [estimate?.items]);
-
-    const clearDraftChatStorage = useCallback(() => {
-        if (typeof window !== 'undefined') {
-            if (draftLocalStorageKey) {
-                window.localStorage.removeItem(draftLocalStorageKey);
-            }
-            window.sessionStorage.removeItem('reqchat-active-draft-key');
-        }
-        setDraftChatKey(null);
-    }, [draftLocalStorageKey]);
-
-    useEffect(() => {
-        if (!estimate?.id) {
-            setDraftChatKey((prev) => {
-                if (prev) {
-                    return prev;
-                }
-                return createDraftChatKey();
-            });
-        }
-    }, [estimate?.id]);
-
-    useEffect(() => {
-        const syncDraftChat = async () => {
-            if (!estimate?.id || !draftLocalStorageKey || typeof window === 'undefined') {
-                return;
-            }
-            const cached = window.localStorage.getItem(draftLocalStorageKey);
-            if (!cached) {
-                clearDraftChatStorage();
-                return;
-            }
-            let parsed;
-            try {
-                parsed = JSON.parse(cached);
-            } catch (error) {
-                console.warn('Failed to parse draft chat cache', error);
-                clearDraftChatStorage();
-                return;
-            }
-            if (!Array.isArray(parsed) || parsed.length === 0) {
-                clearDraftChatStorage();
-                return;
-            }
-            try {
-                await axios.post(route('estimates.requirementChat.import', estimate.id), {
-                    messages: parsed.map(({ role, content }) => ({ role, content })),
-                });
-                clearDraftChatStorage();
-                loadChat();
-            } catch (error) {
-                console.error('Failed to import draft chat history', error);
-            }
-        };
-        syncDraftChat();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [estimate?.id, draftLocalStorageKey]);
-
-    useEffect(() => {
-        setChatMessages([]);
-        loadChat();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [estimate?.id, chatStorageKey]);
-
-    useEffect(() => () => {
-        if (!estimate?.id && typeof window !== 'undefined') {
-            window.sessionStorage.removeItem('reqchat-active-draft-key');
-        }
-    }, [estimate?.id]);
+        setLineItems(transformIncomingItems(estimate?.items, initialSelectedStaff));
+    }, [estimate?.items, initialSelectedStaff]);
 
     useEffect(() => {
         if (data.status !== 'sent' && data.is_order_confirmed) {
@@ -844,13 +958,10 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     // It's better to manage form state directly with setData in onChange handlers.
     // For simplicity, we will bind the inputs directly to useForm's data object.
 
-    const calculateAmount = (item) => normalizeNumber(item.qty, 0) * normalizeNumber(item.price, 0);
-    const calculateCostAmount = (item) => normalizeNumber(item.qty, 0) * normalizeNumber(item.cost, 0);
-    const calculateGrossProfit = (item) => calculateAmount(item) - calculateCostAmount(item);
-    const calculateGrossMargin = (item) => {
-        const amount = calculateAmount(item);
-        return amount !== 0 ? (calculateGrossProfit(item) / amount) * 100 : 0;
-    };
+    const calculateAmount = (item) => calculateLineAmount(item);
+    const calculateCostAmount = (item) => calculateLineCostAmount(item);
+    const calculateGrossProfit = (item) => calculateLineGrossProfit(item);
+    const calculateGrossMargin = (item) => calculateLineGrossMargin(item);
 
     const productDivisionMaps = useMemo(() => {
         const byId = new Map();
@@ -909,6 +1020,9 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         if (!item) {
             return null;
         }
+        if (item.business_division != null && item.business_division !== '') {
+            return item.business_division;
+        }
         if (item.product_id !== undefined && item.product_id !== null) {
             const division = productDivisionMaps.byId.get(Number(item.product_id));
             if (division !== undefined) {
@@ -930,7 +1044,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         return null;
     };
 
-    const subtotal = lineItems.reduce((acc, item) => acc + calculateAmount(item), 0);
+    const subtotal = calculateEstimateSubtotal(lineItems);
     const totalCost = lineItems.reduce((acc, item) => acc + calculateCostAmount(item), 0);
     const totalGrossProfit = subtotal - totalCost;
     const totalGrossMargin = subtotal !== 0 ? (totalGrossProfit / subtotal) * 100 : 0;
@@ -989,13 +1103,240 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }, { type1: { revenue: 0, cost: 0 }, type5: { revenue: 0, cost: 0 }, other: { revenue: 0, cost: 0 } });
 
     const calcRate = (revenue, cost) => revenue > 0 ? ((revenue - cost) / revenue) * 100 : 0;
-    // 税区分ごとの税率（必要なら拡張）
-    const taxRates = { standard: 0.1, reduced: 0.08 };
-    const tax = lineItems.reduce((acc, item) => {
-        const rate = taxRates[item.tax_category || 'standard'] || 0;
-        return acc + (item.qty * item.price * rate);
-    }, 0);
-    const total = subtotal + tax;
+    const formatPersonDaysDisplay = (value) => `${roundToOneDecimal(normalizeNumber(value, 0)).toFixed(1)}人日`;
+    const tax = calculateEstimateTax(lineItems);
+    const total = calculateEstimateTotal(lineItems);
+    const productBusinessDivisionById = useMemo(() => Object.fromEntries(
+        (products || []).map((product) => [String(product.id), product.business_division ?? null])
+    ), [products]);
+    const workloadSimulationMonths = Array.isArray(workloadSimulation?.months) ? workloadSimulation.months : [];
+    const workloadSimulationMonthMap = useMemo(() => Object.fromEntries(
+        workloadSimulationMonths.map((month) => [month.month_key, month])
+    ), [workloadSimulationMonths]);
+    const workloadSimulationCapacityPerPersonDays = normalizeNumber(workloadSimulation?.capacity_per_person_days, 20);
+
+    const normalizeAssigneesForSimulation = (assignees = []) => {
+        const normalized = (Array.isArray(assignees) ? assignees : [])
+            .map((assignee) => {
+                const userId = assignee?.user_id != null && assignee?.user_id !== '' ? String(assignee.user_id) : null;
+                const userName = String(assignee?.user_name ?? '').trim();
+                const sharePercent = assignee?.share_percent;
+
+                return {
+                    user_id: userId,
+                    user_name: userName !== '' ? userName : null,
+                    share_percent: sharePercent === null || sharePercent === undefined || sharePercent === ''
+                        ? null
+                        : normalizeNumber(sharePercent, 0),
+                };
+            })
+            .filter((assignee) => assignee.user_id || assignee.user_name);
+
+        if (normalized.length === 0) {
+            return [];
+        }
+
+        let weights = normalized.map((assignee) => assignee.share_percent && assignee.share_percent > 0 ? assignee.share_percent : 0);
+        let totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+        if (totalWeight <= 0) {
+            weights = normalized.map(() => 1);
+            totalWeight = weights.length;
+        }
+
+        let remaining = 100;
+        return normalized.map((assignee, index) => {
+            const sharePercent = index === normalized.length - 1
+                ? roundToOneDecimal(Math.max(0, remaining))
+                : roundToOneDecimal((weights[index] / totalWeight) * 100);
+            remaining = roundToOneDecimal(remaining - sharePercent);
+
+            return {
+                ...assignee,
+                share_percent: sharePercent,
+            };
+        });
+    };
+
+    const toSimulationPersonDays = (item) => {
+        const division = item?.business_division
+            ?? (item?.product_id != null ? productBusinessDivisionById[String(item.product_id)] : null)
+            ?? null;
+        if (division === 'first_business') {
+            return 0;
+        }
+
+        const qty = normalizeNumber(item?.qty, 0);
+        const unit = String(item?.unit ?? '').trim().toLowerCase();
+        if (!(unit === '' || unit.includes('人日') || unit.includes('人月') || unit.includes('人時') || unit.includes('時間') || unit === 'h' || unit === 'hr')) {
+            return 0;
+        }
+        if (unit.includes('人月')) {
+            return qty * normalizeNumber(workloadSimulation?.capacity_per_person_days, 20);
+        }
+        if (unit.includes('人時') || unit.includes('時間') || unit === 'h' || unit === 'hr') {
+            return qty / 8;
+        }
+
+        return qty;
+    };
+
+    const simulationTargetMonthKey = useMemo(() => {
+        const candidate = data.delivery_date || data.due_date || data.issue_date;
+        return toMonthStartKey(candidate);
+    }, [data.delivery_date, data.due_date, data.issue_date]);
+    const simulationMonthBaseline = simulationTargetMonthKey ? workloadSimulationMonthMap[simulationTargetMonthKey] ?? null : null;
+    const simulationMonthSummary = simulationMonthBaseline?.summary ?? null;
+    const simulationMonthCapacityPersonDays = roundToOneDecimal(
+        normalizeNumber(simulationMonthSummary?.capacity_person_days, workloadSimulation?.monthly_capacity_person_days ?? 0)
+    );
+    const simulationMonthAvailablePersonDays = roundToOneDecimal(
+        normalizeNumber(simulationMonthSummary?.available_person_days, simulationMonthCapacityPersonDays)
+    );
+    const workloadImpact = useMemo(() => {
+        const baselineRows = Array.isArray(simulationMonthBaseline?.rows) ? simulationMonthBaseline.rows : [];
+        const merged = new Map(
+            baselineRows.map((row) => [
+                row.user_key || row.name,
+                {
+                    ...row,
+                    baseline_person_days: normalizeNumber(row.planned_person_days, 0),
+                    draft_person_days: 0,
+                },
+            ])
+        );
+
+        let draftPersonDays = 0;
+        let draftUnassignedPersonDays = 0;
+
+        lineItems.forEach((item) => {
+            const personDays = toSimulationPersonDays(item);
+            if (personDays <= 0) {
+                return;
+            }
+
+            draftPersonDays += personDays;
+            const assignees = normalizeAssigneesForSimulation(item.assignees);
+            if (assignees.length === 0) {
+                draftUnassignedPersonDays += personDays;
+                return;
+            }
+
+            assignees.forEach((assignee) => {
+                const key = assignee.user_id || assignee.user_name || '未設定担当';
+                const existing = merged.get(key) ?? {
+                    user_key: key,
+                    user_id: assignee.user_id || null,
+                    name: assignee.user_name || key,
+                    capacity_person_days: workloadSimulationCapacityPerPersonDays,
+                    baseline_person_days: 0,
+                    planned_person_days: 0,
+                    estimate_count: 0,
+                    latest_titles: [],
+                    draft_person_days: 0,
+                };
+                existing.draft_person_days = normalizeNumber(existing.draft_person_days, 0) + (personDays * (normalizeNumber(assignee.share_percent, 0) / 100));
+                existing.name = existing.name || assignee.user_name || key;
+                existing.user_id = existing.user_id || assignee.user_id || null;
+                merged.set(key, existing);
+            });
+        });
+
+        const rows = Array.from(merged.values())
+            .map((row) => {
+                const baselinePersonDays = roundToOneDecimal(normalizeNumber(row.baseline_person_days ?? row.planned_person_days, 0));
+                const addedPersonDays = roundToOneDecimal(normalizeNumber(row.draft_person_days, 0));
+                const simulatedPersonDays = roundToOneDecimal(baselinePersonDays + addedPersonDays);
+                const capacityPersonDays = roundToOneDecimal(normalizeNumber(row.capacity_person_days, workloadSimulationCapacityPerPersonDays));
+                const availablePersonDays = roundToOneDecimal(capacityPersonDays - simulatedPersonDays);
+                const utilizationRate = capacityPersonDays > 0
+                    ? roundToOneDecimal((simulatedPersonDays / capacityPersonDays) * 100)
+                    : 0;
+
+                return {
+                    ...row,
+                    capacity_person_days: capacityPersonDays,
+                    baseline_person_days: baselinePersonDays,
+                    draft_person_days: addedPersonDays,
+                    simulated_person_days: simulatedPersonDays,
+                    simulated_available_person_days: availablePersonDays,
+                    simulated_utilization_rate: utilizationRate,
+                };
+            })
+            .filter((row) => row.baseline_person_days > 0 || row.draft_person_days > 0)
+            .sort((a, b) => {
+                if (b.simulated_utilization_rate !== a.simulated_utilization_rate) {
+                    return b.simulated_utilization_rate - a.simulated_utilization_rate;
+                }
+                return b.simulated_person_days - a.simulated_person_days;
+            });
+
+        return {
+            rows,
+            impactedRows: rows.filter((row) => row.draft_person_days > 0),
+            overloadedRows: rows.filter((row) => row.simulated_utilization_rate > 100),
+            cautionRows: rows.filter((row) => row.simulated_utilization_rate >= 85 && row.simulated_utilization_rate <= 100),
+            summary: {
+                draft_person_days: roundToOneDecimal(draftPersonDays),
+                draft_unassigned_person_days: roundToOneDecimal(draftUnassignedPersonDays),
+                tracked_people_count: rows.length,
+            },
+        };
+    }, [lineItems, simulationMonthBaseline, simulationTargetMonthKey, workloadSimulationCapacityPerPersonDays]);
+
+    const getLineItemAssignmentWarning = (item) => {
+        const division = resolveBusinessDivisionForItem(item);
+        if (division === 'first_business') {
+            return null;
+        }
+
+        const personDays = roundToOneDecimal(toSimulationPersonDays(item));
+        const assignees = normalizeAssigneesForSimulation(item.assignees);
+        if (assignees.length === 0) {
+            return {
+                type: 'missing',
+                person_days: personDays,
+                message: personDays > 0
+                    ? `担当者未設定です。この明細の ${formatPersonDaysDisplay(personDays)} は工数集計に反映されません。`
+                    : '担当者未設定です。第1種以外の明細は担当者按分が必要です。',
+            };
+        }
+
+        const shareTotal = sumAssigneeShares(item.assignees);
+        if (shareTotal <= 0) {
+            return {
+                type: 'share_zero',
+                person_days: personDays,
+                message: personDays > 0
+                    ? `按分割合が未入力です。この明細の ${formatPersonDaysDisplay(personDays)} は担当者負荷へ正しく配分されません。`
+                    : '按分割合が未入力です。第1種以外の明細は担当者按分が必要です。',
+            };
+        }
+
+        return null;
+    };
+
+    const lineItemsAssignmentWarnings = useMemo(() => (
+        lineItems.map((item, index) => ({
+            itemId: item.id,
+            index,
+            warning: getLineItemAssignmentWarning(item),
+        })).filter((entry) => entry.warning)
+    ), [lineItems, workloadSimulationCapacityPerPersonDays, productBusinessDivisionById]);
+
+    const assignmentWarningSummary = useMemo(() => {
+        if (lineItemsAssignmentWarnings.length === 0) {
+            return null;
+        }
+
+        const totalPersonDays = roundToOneDecimal(
+            lineItemsAssignmentWarnings.reduce((sum, entry) => sum + normalizeNumber(entry.warning?.person_days, 0), 0)
+        );
+
+        return {
+            count: lineItemsAssignmentWarnings.length,
+            totalPersonDays,
+        };
+    }, [lineItemsAssignmentWarnings]);
 
 useEffect(() => {
         const payloadItems = lineItems.map(item => ({
@@ -1026,6 +1367,36 @@ useEffect(() => {
         tax_amount: Math.round(tax),
     }));
 }, [lineItems, total, tax]);
+
+    const buildCurrentFormPayload = () => {
+        const payloadItems = lineItems.map((item) => ({
+            product_id: item.product_id,
+            code: item.code,
+            name: item.name,
+            description: item.description,
+            qty: normalizeDecimalForPayload(item.qty),
+            unit: item.unit,
+            price: normalizeNumber(item.price, 0),
+            cost: normalizeNumber(item.cost, 0),
+            tax_category: item.tax_category,
+            business_division: item.business_division ?? null,
+            display_mode: item.display_mode,
+            display_qty: item.display_mode === 'lump'
+                ? (normalizeDecimalForPayload(item.display_qty) || 1)
+                : null,
+            display_unit: item.display_mode === 'lump'
+                ? (item.display_unit || '式')
+                : null,
+            assignees: normalizeAssigneesForPayload(item.assignees),
+        }));
+
+        return {
+            ...data,
+            items: payloadItems,
+            total_amount: Math.round(total),
+            tax_amount: Math.round(tax),
+        };
+    };
 
     useEffect(() => {
         setData('approval_flow', approvers);
@@ -1313,9 +1684,17 @@ useEffect(() => {
 
         try {
             setIsGeneratingNotes(true);
+            const payload = buildCurrentFormPayload();
             const response = await axios.post(route('estimates.generateNotes'), {
                 prompt: notePrompt,
-                estimate_id: data.id ?? null,
+                estimate_id: payload.id ?? null,
+                customer_name: payload.customer_name,
+                title: payload.title,
+                issue_date: payload.issue_date,
+                google_docs_url: payload.google_docs_url,
+                requirement_summary: payload.requirement_summary,
+                structured_requirements: payload.structured_requirements,
+                items: payload.items,
             });
             const generated = response?.data?.notes ?? '';
             if (generated !== '') {
@@ -1329,40 +1708,6 @@ useEffect(() => {
             setNotePromptError(message);
         } finally {
             setIsGeneratingNotes(false);
-        }
-    };
-
-    const handleGenerateRequirementOverview = async () => {
-        setStructureError(null);
-        let summarySource = (data.requirement_summary || '').trim();
-        if (requirementsMode === 'chat') {
-            if (!lastAssistantContent) {
-                setStructureError('AI整理結果がありません。');
-                return;
-            }
-            summarySource = lastAssistantContent;
-            setData('requirement_summary', lastAssistantContent);
-        } else if (summarySource === '') {
-            setStructureError('要件概要を入力してください。');
-            return;
-        }
-
-        try {
-            setIsStructuringRequirements(true);
-            const response = await axios.post(route('estimates.ai.structure'), {
-                requirement_summary: summarySource,
-                estimate_id: data.id ?? null,
-            });
-            setStructuredRequirements(mapStructuredRequirements({
-                functional: response?.data?.functional_requirements ?? [],
-                non_functional: response?.data?.non_functional_requirements ?? [],
-                unresolved: response?.data?.unresolved_requirements ?? [],
-            }));
-        } catch (error) {
-            const message = error?.response?.data?.message ?? '要件整理に失敗しました。';
-            setStructureError(message);
-        } finally {
-            setIsStructuringRequirements(false);
         }
     };
 
@@ -1407,35 +1752,61 @@ useEffect(() => {
 
     const handleGenerateAiDraft = async () => {
         setAiDraftError(null);
-        let summarySource = (data.requirement_summary || '').trim();
-        if (!summarySource && requirementsMode === 'chat' && lastAssistantContent) {
-            summarySource = lastAssistantContent;
-            setData('requirement_summary', lastAssistantContent);
+        setStructureError(null);
+        if (!(data.google_docs_url || '').trim()) {
+            setAiDraftError('要件定義書を選択してください。');
+            return;
         }
-        if (!summarySource) {
-            setAiDraftError('要件概要を入力してください。');
+        if (!googleAccessToken.trim()) {
+            setAiDraftError('Google Drive から要件定義書を選択してから実行してください。');
             return;
         }
 
         try {
             setIsGeneratingAiDraft(true);
-            const response = await axios.post(route('estimates.ai.generateDraft'), {
-                requirement_summary: summarySource,
-                functional_requirements: structuredRequirements.functional,
-                non_functional_requirements: structuredRequirements.nonFunctional,
-                unresolved_requirements: structuredRequirements.unresolved,
+            setIsStructuringRequirements(true);
+            const response = await axios.post(route('estimates.ai.generateDraftFromDoc'), {
+                google_docs_url: data.google_docs_url,
+                google_file_id: selectedRequirementDoc?.fileId ?? null,
+                google_access_token: googleAccessToken,
                 pm_required: pmSupportRequired,
                 estimate_id: data.id ?? null,
             });
 
+            const generatedSummary = response?.data?.requirement_summary ?? '';
+            const generatedStructured = mapStructuredRequirements({
+                functional: response?.data?.functional_requirements ?? [],
+                non_functional: response?.data?.non_functional_requirements ?? [],
+                unresolved: response?.data?.unresolved_requirements ?? [],
+            });
             const generatedItems = response?.data?.items ?? [];
+            if (generatedSummary) {
+                setData('requirement_summary', generatedSummary);
+            }
+            setStructuredRequirements(generatedStructured);
+            if ((response?.data?.notes_prompt ?? '').trim()) {
+                setNotePrompt(response.data.notes_prompt);
+            }
+            if (response?.data?.document) {
+                setSelectedRequirementDoc({
+                    fileId: response.data.document.file_id ?? selectedRequirementDoc?.fileId ?? null,
+                    name: response.data.document.name ?? selectedRequirementDoc?.name ?? '要件定義書',
+                    url: response.data.document.url ?? data.google_docs_url,
+                    mimeType: response.data.document.mime_type ?? null,
+                });
+                if (response.data.document.url) {
+                    setData('google_docs_url', response.data.document.url);
+                }
+            }
             setAiDraftPreview(generatedItems);
             setAiNotesSuggestion(response?.data?.notes ?? '');
             setAiPreviewOpen(true);
         } catch (error) {
             const message = error?.response?.data?.message ?? 'ドラフト生成に失敗しました。';
             setAiDraftError(message);
+            setStructureError(message);
         } finally {
+            setIsStructuringRequirements(false);
             setIsGeneratingAiDraft(false);
         }
     };
@@ -1485,33 +1856,36 @@ useEffect(() => {
     const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#AF19FF', '#FF1919', '#19FFD4', '#FF19B8', '#8884d8', '#82ca9d', '#a4de6c', '#d0ed57', '#ffc658', '#ff7300', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff'];
 
     const saveDraft = () => {
-        post(route('estimates.saveDraft'), {
+        const payload = buildCurrentFormPayload();
+
+        router.post(route('estimates.saveDraft'), payload, {
             onSuccess: (page) => {
-                if (!isEditMode) {
-                    const newEstimateId = page?.props?.estimate?.id
+                const persistedEstimateId = isEditMode
+                    ? (estimate?.id ?? payload.id ?? null)
+                    : (
+                        page?.props?.estimate?.id
                         || page?.props?.flash?.estimate_id
                         || page?.props?.estimate_id
-                        || null;
+                        || null
+                    );
 
-                    const redirectUrl = route('estimates.edit', newEstimateId);
+                const redirectUrl = persistedEstimateId
+                    ? route('estimates.edit', persistedEstimateId)
+                    : null;
 
-                    const syncAndRedirect = async () => {
-                        if (redirectUrl) {
-                            // サーバー側で同期する感覚が得られるよう軽微な遅延
-                            await new Promise((resolve) => setTimeout(resolve, 150));
-                            clearDraftChatStorage();
-                            window.location.href = redirectUrl;
-                        } else {
-                            window.location.reload();
-                        }
-                    };
+                const syncAndRedirect = async () => {
+                    if (redirectUrl) {
+                        await new Promise((resolve) => setTimeout(resolve, 150));
+                        window.location.href = redirectUrl;
+                    } else {
+                        window.location.reload();
+                    }
+                };
 
-                    syncAndRedirect();
-                } else {
-                    alert('下書きが保存されました。');
-                }
+                syncAndRedirect();
             },
             onError: (e) => console.error('下書き保存エラー:', e),
+            preserveScroll: true,
         });
     };
 
@@ -1525,72 +1899,9 @@ useEffect(() => {
         setOpenApproval(true);
     };
 
-    const loadChat = async () => {
-        try {
-            setChatLoading(true);
-            if (!estimate?.id) {
-                if (!chatStorageKey) {
-                    setChatMessages([]);
-                    return;
-                }
-                const local = localStorage.getItem(chatStorageKey);
-                if (local) {
-                    setChatMessages(JSON.parse(local));
-                } else {
-                    setChatMessages([]);
-                }
-            } else {
-                const res = await axios.get(route('estimates.requirementChat.show', estimate.id));
-                setChatMessages(res.data?.messages || []);
-            }
-        } catch (e) {
-            console.error('requirement chat load failed', e);
-        } finally {
-            setChatLoading(false);
-        }
-    };
-
-    const sendChat = async () => {
-        if (chatInput.trim() === '') return;
-        const userMessage = {
-            id: `local-${Date.now()}`,
-            role: 'user',
-            content: chatInput,
-        };
-        setChatMessages((prev) => [...prev, userMessage]);
-        setChatInput('');
-
-        try {
-            setChatLoading(true);
-            if (!estimate?.id) {
-                const res = await axios.post(route('estimates.requirementChat.draft'), {
-                    messages: [...chatMessages, userMessage].map(m => ({ role: m.role, content: m.content })),
-                });
-                const assistant = res.data?.assistant;
-                const withAssistant = assistant
-                    ? [...chatMessages, userMessage, { id: `draft-assistant-${Date.now()}`, role: 'assistant', content: assistant }]
-                    : [...chatMessages, userMessage];
-                setChatMessages(withAssistant);
-                if (chatStorageKey) {
-                    localStorage.setItem(chatStorageKey, JSON.stringify(withAssistant));
-                }
-            } else {
-                const res = await axios.post(route('estimates.requirementChat.store', estimate.id), {
-                    message: userMessage.content,
-                });
-                setChatMessages(res.data?.messages || []);
-            }
-        } catch (e) {
-            console.error('requirement chat send failed', e);
-            setChatMessages((prev) => prev.filter((m) => m.id !== userMessage.id));
-        } finally {
-            setChatLoading(false);
-        }
-    };
-
     const submitWithApprovers = () => {
         // 送信直前に明確な payload を構築して、状態更新の非同期に依存しない
-        const payload = { ...data, status: 'pending' };
+        const payload = { ...buildCurrentFormPayload(), status: 'pending' };
         const requiredErrors = [];
         if (!payload.title || payload.title.trim() === '') {
             requiredErrors.push('件名');
@@ -1812,7 +2123,7 @@ useEffect(() => {
                                         {errors.staff_name && <p className="text-sm text-red-600 mt-1">{errors.staff_name}</p>}
                                     </div>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
                                     <div className="space-y-2">
                                         <Label htmlFor="issue-date">発行日 <span className="text-red-500 ml-1">*</span></Label>
                                         <Input
@@ -1850,6 +2161,10 @@ useEffect(() => {
                                         <Input type="date" id="delivery-date" value={data.delivery_date || ''} onChange={(e) => setData('delivery_date', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
+                                        <Label htmlFor="start-date">着手日</Label>
+                                        <Input type="date" id="start-date" value={data.start_date || ''} onChange={(e) => setData('start_date', e.target.value)} />
+                                    </div>
+                                    <div className="space-y-2">
                                         <Label htmlFor="payment-terms">支払条件</Label>
                                         <Input id="payment-terms" defaultValue="月末締め翌月末払い" />
                                     </div>
@@ -1858,171 +2173,171 @@ useEffect(() => {
                                         <Input id="delivery-location" value={data.delivery_location} onChange={(e) => setData('delivery_location', e.target.value)} placeholder="お客様指定の場所" />
                                     </div>
                                 </div>
-                                <div className="space-y-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4">
-                                    <button
-                                        type="button"
-                                        className="flex w-full items-center justify-between gap-2 text-left text-sm font-semibold text-slate-700"
-                                        onClick={() => setRequirementsOpen((prev) => !prev)}
-                                        aria-expanded={requirementsOpen}
-                                    >
-                                        <span>要件整理（内部用）</span>
-                                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                                            {requirementsOpen ? '閉じる' : '開く'}
-                                            <ChevronsUpDown className="h-4 w-4" />
-                                        </span>
-                                    </button>
-                                    {requirementsOpen && (
-                                        <>
-                                            <div className="flex flex-wrap items-center gap-2 justify-between">
-                                                <div className="flex gap-2">
-                                                    <Button type="button" variant={requirementsMode === 'chat' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('chat')}>要件整理チャット</Button>
-                                                    <Button type="button" variant={requirementsMode === 'manual' ? 'default' : 'outline'} size="sm" onClick={() => setRequirementsMode('manual')}>手動入力</Button>
-                                                </div>
-                                                <span className="text-xs text-muted-foreground">要件を整理し、AIドラフトに渡す情報です。</span>
-                                            </div>
-                                            {requirementsMode === 'manual' && (
-                                            <div className="flex flex-col gap-3 md:flex-row md:items-start">
-                                                <div className="flex-1 space-y-2">
-                                                    <div className="flex items-center justify-between">
-                                                        <Label htmlFor="requirement-summary" className="text-sm font-medium">要件概要（AIプロンプト）</Label>
-                                                        <span className="text-xs text-muted-foreground">システム開発のみ対象</span>
-                                                    </div>
-                                                    <Textarea
-                                                        id="requirement-summary"
-                                                        value={data.requirement_summary || ''}
-                                                        maxLength={4000}
-                                                        rows={4}
-                                                        onChange={(e) => setData('requirement_summary', e.target.value)}
-                                                        placeholder="例: Salesforce連携と新承認フローの実装。ユーザー50名、モバイル対応必須。非機能として可用性99.9%と監査ログが必要。"
-                                                    />
-                                                </div>
-                                            </div>
-                                            )}
-                                            {requirementsMode === 'chat' && isInternalView && (
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <Label className="text-sm font-medium">要件整理チャット（内部用）</Label>
-                                                            <Button type="button" variant="outline" size="sm" onClick={loadChat} disabled={chatLoading || !isEditMode}>
-                                                                再読込
+                                {isInternalView && (
+                                    <div className="space-y-3 rounded-lg border border-slate-950 bg-slate-50/70 p-4 shadow-sm">
+                                        <button
+                                            type="button"
+                                            className="flex w-full items-center justify-between gap-2 rounded-lg bg-slate-950 px-4 py-3 text-left text-sm font-semibold text-white transition hover:bg-slate-900"
+                                            onClick={() => setRequirementsOpen((prev) => !prev)}
+                                            aria-expanded={requirementsOpen}
+                                        >
+                                            <span>要件定義書から AIドラフト生成（内部用）</span>
+                                            <span className="inline-flex items-center gap-1 text-xs text-slate-200">
+                                                {requirementsOpen ? '閉じる' : '開く'}
+                                                <ChevronsUpDown className="h-4 w-4" />
+                                            </span>
+                                        </button>
+                                        {requirementsOpen && (
+                                            <>
+                                                <div className="rounded-lg border bg-white p-4 space-y-3">
+                                                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                                        <div className="space-y-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <Label htmlFor="google-docs-url" className="flex items-center gap-1 text-red-600">
+                                                                    要件定義書
+                                                                    {requiresInternalDocsLink && <span className="text-red-500 leading-none">*</span>}
+                                                                </Label>
+                                                                <Badge variant="outline">添付とAI解析を兼用</Badge>
+                                                            </div>
+                                                            <p className="text-xs text-slate-500">
+                                                                Google Drive から選ぶと、このリンクを添付要件としても AI 解析元としても使います。通常は別入力不要です。
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                onClick={openGoogleDrivePicker}
+                                                                disabled={!googleDrivePickerEnabled || isGeneratingAiDraft}
+                                                            >
+                                                                Google Driveから選択
                                                             </Button>
-                                                        </div>
-                                                        <div className="h-60 overflow-y-auto rounded border bg-white p-2 text-sm space-y-2">
-                                                            {chatLoading && <p className="text-xs text-muted-foreground">読み込み中...</p>}
-                                                            {!chatLoading && chatMessages.length === 0 && <p className="text-xs text-muted-foreground">メッセージはありません。</p>}
-                                                            {chatMessages.map((m, idx) => (
-                                                                <div key={m.id || idx} className={`rounded p-2 ${m.role === 'assistant' ? 'bg-slate-50 border' : ''}`}>
-                                                                    <p className="text-[11px] text-muted-foreground mb-1">{m.role === 'assistant' ? 'AI' : 'あなた'}</p>
-                                                                    <div className="whitespace-pre-wrap text-slate-800 text-sm">{m.content}</div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                        <div className="flex gap-2">
-                                                            <Input
-                                                                value={chatInput}
-                                                                onChange={(e) => setChatInput(e.target.value)}
-                                                                placeholder="不足情報や要望を入力"
-                                                                disabled={chatLoading}
-                                                            />
-                                                            <Button type="button" onClick={sendChat} disabled={chatLoading}>送信</Button>
-                                                        </div>
-                                                        {!estimate?.id && (
-                                                            <p className="text-xs text-muted-foreground">未保存の間はローカルで保持します（保存後はサーバに永続化されます）。</p>
-                                                        )}
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label className="text-sm font-medium">AI整理結果プレビュー</Label>
-                                                        <div className="rounded border bg-white p-3 text-sm h-60 overflow-y-auto whitespace-pre-wrap">
-                                                            {(() => {
-                                                                const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
-                                                                return lastAssistant ? lastAssistant.content : 'AI整理結果はまだありません。';
-                                                            })()}
+                                                            {data.google_docs_url?.trim() && (
+                                                                <Button
+                                                                    type="button"
+                                                                    variant="outline"
+                                                                    onClick={() => window.open(data.google_docs_url, '_blank', 'noopener,noreferrer')}
+                                                                >
+                                                                    要件定義書を開く
+                                                                </Button>
+                                                            )}
                                                         </div>
                                                     </div>
+                                                    <Input
+                                                        id="google-docs-url"
+                                                        type="url"
+                                                        placeholder="Google Drive から選ぶと自動入力されます"
+                                                        value={data.google_docs_url}
+                                                        onChange={(e) => {
+                                                            setData('google_docs_url', e.target.value);
+                                                            setSelectedRequirementDoc((prev) => prev ? { ...prev, url: e.target.value } : null);
+                                                            setGoogleDriveError(null);
+                                                        }}
+                                                    />
+                                                    {selectedRequirementDoc?.url && (
+                                                        <div className="rounded border bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                                                            <div className="font-medium">{selectedRequirementDoc.name || '選択済みの要件定義書'}</div>
+                                                            <div className="mt-1 break-all text-xs text-slate-500">{selectedRequirementDoc.url}</div>
+                                                        </div>
+                                                    )}
+                                                    {!googleDrivePickerEnabled && (
+                                                        <p className="text-xs text-amber-700">
+                                                            Google Drive Picker の設定が未完了です。`VITE_GOOGLE_DRIVE_CLIENT_ID` と `VITE_GOOGLE_DRIVE_API_KEY` を設定してください。
+                                                        </p>
+                                                    )}
+                                                    {googleDriveError && (
+                                                        <p className="text-sm text-red-600">{googleDriveError}</p>
+                                                    )}
+                                                    {errors.google_docs_url && <p className="text-sm text-red-600">{errors.google_docs_url}</p>}
                                                 </div>
-                                            )}
-                                            <div className="space-y-2">
+
+                                                <div className="flex flex-wrap items-center gap-2 text-sm">
+                                                    <Checkbox
+                                                        id="pm-support-required"
+                                                        checked={pmSupportRequired}
+                                                        onCheckedChange={(checked) => setPmSupportRequired(checked === true)}
+                                                    />
+                                                    <Label htmlFor="pm-support-required" className="text-sm">
+                                                        PM支援が必要（プロジェクト管理品目を必須挿入）
+                                                    </Label>
+                                                </div>
+
                                                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-                                                    <Button
-                                                        type="button"
-                                                        variant="outline"
-                                                        onClick={handleGenerateRequirementOverview}
-                                                        disabled={!canGenerateOverview || isStructuringRequirements}
-                                                    >
-                                                        {isStructuringRequirements ? '生成中...' : '要件概要を生成'}
-                                                    </Button>
                                                     <Button
                                                         type="button"
                                                         variant="secondary"
                                                         onClick={handleGenerateAiDraft}
-                                                        disabled={!canGenerateDraft || isGeneratingAiDraft}
+                                                        disabled={!canGenerateDraftFromDocument || isGeneratingAiDraft}
                                                     >
-                                                        {isGeneratingAiDraft ? '生成中...' : 'AIでドラフト見積生成'}
+                                                        {isGeneratingAiDraft ? '生成中...' : 'AIで要件定義書からドラフト見積生成'}
                                                     </Button>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        文書選択後、要件抽出・ドラフト見積・備考案までまとめて生成します。
+                                                    </p>
                                                 </div>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {requirementsMode === 'chat'
-                                                        ? '最新のAI整理結果をもとに要件概要と見積ドラフトを生成します。'
-                                                        : '要件概要の入力内容をもとに生成します。'}
-                                                </p>
-                                            </div>
-                                            {structureError && (
-                                                <p className="text-sm text-red-600">{structureError}</p>
-                                            )}
-                                            <div className="grid gap-4 md:grid-cols-3">
-                                                <div>
-                                                    <p className="text-xs font-semibold text-slate-500">機能要件</p>
-                                                    {structuredRequirements.functional.length > 0 ? (
-                                                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                                                            {structuredRequirements.functional.map((line, idx) => (
-                                                                <li key={`fr-${idx}`}>{line}</li>
-                                                            ))}
-                                                        </ul>
-                                                    ) : (
-                                                        <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
-                                                    )}
+
+                                                {structureError && (
+                                                    <p className="text-sm text-red-600">{structureError}</p>
+                                                )}
+                                                {hasRequirementSummary && (
+                                                    <div className="space-y-2 rounded-lg border bg-white p-4">
+                                                        <Label htmlFor="requirement-summary" className="text-sm font-medium">AI抽出の要件要約</Label>
+                                                        <Textarea
+                                                            id="requirement-summary"
+                                                            value={data.requirement_summary || ''}
+                                                            rows={5}
+                                                            onChange={(e) => setData('requirement_summary', e.target.value)}
+                                                            placeholder="AIが要件定義書から要約を生成するとここに表示されます。"
+                                                        />
+                                                    </div>
+                                                )}
+
+                                                <div className="grid gap-4 md:grid-cols-3">
+                                                    <div>
+                                                        <p className="text-xs font-semibold text-slate-500">機能要件</p>
+                                                        {structuredRequirements.functional.length > 0 ? (
+                                                            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                                {structuredRequirements.functional.map((line, idx) => (
+                                                                    <li key={`fr-${idx}`}>{line}</li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : (
+                                                            <p className="mt-1 text-xs text-muted-foreground">要件抽出前です。</p>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-semibold text-slate-500">非機能要件</p>
+                                                        {structuredRequirements.nonFunctional.length > 0 ? (
+                                                            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                                {structuredRequirements.nonFunctional.map((line, idx) => (
+                                                                    <li key={`nfr-${idx}`}>{line}</li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : (
+                                                            <p className="mt-1 text-xs text-muted-foreground">要件抽出前です。</p>
+                                                        )}
+                                                    </div>
+                                                    <div>
+                                                        <p className="text-xs font-semibold text-slate-500">未確定要件</p>
+                                                        {structuredRequirements.unresolved.length > 0 ? (
+                                                            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
+                                                                {structuredRequirements.unresolved.map((line, idx) => (
+                                                                    <li key={`unresolved-${idx}`}>{line}</li>
+                                                                ))}
+                                                            </ul>
+                                                        ) : (
+                                                            <p className="mt-1 text-xs text-muted-foreground">要件抽出前です。</p>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div>
-                                                    <p className="text-xs font-semibold text-slate-500">非機能要件</p>
-                                                    {structuredRequirements.nonFunctional.length > 0 ? (
-                                                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                                                            {structuredRequirements.nonFunctional.map((line, idx) => (
-                                                                <li key={`nfr-${idx}`}>{line}</li>
-                                                            ))}
-                                                        </ul>
-                                                    ) : (
-                                                        <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
-                                                    )}
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-semibold text-slate-500">未確定要件</p>
-                                                    {structuredRequirements.unresolved.length > 0 ? (
-                                                        <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-slate-700">
-                                                            {structuredRequirements.unresolved.map((line, idx) => (
-                                                                <li key={`unresolved-${idx}`}>{line}</li>
-                                                            ))}
-                                                        </ul>
-                                                    ) : (
-                                                        <p className="mt-1 text-xs text-muted-foreground">AI整理結果はまだありません。</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-wrap items-center gap-2 text-sm">
-                                                <Checkbox
-                                                    id="pm-support-required"
-                                                    checked={pmSupportRequired}
-                                                    onCheckedChange={(checked) => setPmSupportRequired(checked === true)}
-                                                />
-                                                <Label htmlFor="pm-support-required" className="text-sm">
-                                                    PM支援が必要（プロジェクト管理品目を必須挿入）
-                                                </Label>
-                                            </div>
-                                            {aiDraftError && (
-                                                <p className="text-sm text-red-600">{aiDraftError}</p>
-                                            )}
-                                        </>
-                                    )}
-                                </div>
+
+                                                {aiDraftError && (
+                                                    <p className="text-sm text-red-600">{aiDraftError}</p>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                )}
                                 <div className="space-y-2">
                                     <Label htmlFor="external-remarks">備考（対外）</Label>
                                     <Textarea id="external-remarks" value={data.notes} onChange={(e) => setData('notes', e.target.value)} placeholder="お見積りの有効期限は発行後1ヶ月です。" />
@@ -2056,31 +2371,6 @@ useEffect(() => {
                                             <Label htmlFor="internal-remarks">備考（社内メモ）</Label>
                                             <Textarea id="internal-remarks" value={data.internal_memo} onChange={(e) => setData('internal_memo', e.target.value)} placeholder="値引きの背景について..." />
                                         </div>
-                                        <div className="space-y-2">
-                                            <Label htmlFor="google-docs-url" className="flex items-center gap-1 text-red-600">
-                                                要件定義書（必須）（設計/開発が含まれる場合のみ）
-                                                {requiresInternalDocsLink && <span className="text-red-500 leading-none">*</span>}
-                                            </Label>
-                                            <Input
-                                                id="google-docs-url"
-                                                type="url"
-                                                placeholder="https://docs.google.com/..."
-                                                value={data.google_docs_url}
-                                                onChange={(e) => setData('google_docs_url', e.target.value)}
-                                            />
-                                            {data.google_docs_url?.trim() && (
-                                                <Button
-                                                    type="button"
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => window.open(data.google_docs_url, '_blank', 'noopener,noreferrer')}
-                                                >
-                                                    要件定義書を開く
-                                                </Button>
-                                            )}
-                                            <p className="text-xs text-slate-500">設計/開発の明細がある場合は必須。見積書には表示されません。</p>
-                                            {errors.google_docs_url && <p className="text-sm text-red-600">{errors.google_docs_url}</p>}
-                                        </div>
                                     </>
                                 )}
                             </CardContent>
@@ -2093,190 +2383,219 @@ useEffect(() => {
                                     <span className="text-red-500 leading-none">*</span>
                                 </CardTitle>
                             </CardHeader>
-                            <CardContent>
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-12"></TableHead>
-                                            <TableHead>品目名</TableHead>
-                                            <TableHead>詳細</TableHead>
-                                            <TableHead className="text-right">数量</TableHead>
-                                            <TableHead>単位</TableHead>
-                                            <TableHead className="text-right">単価</TableHead>
-                                            <TableHead className="text-right">金額</TableHead>
-                                            <TableHead>税区分</TableHead>
-                                            {isInternalView && <TableHead className="text-right">原価</TableHead>}
-                                            {isInternalView && <TableHead className="text-right">原価金額</TableHead>}
-                                            {isInternalView && <TableHead className="text-right">粗利</TableHead>}
-                                            {isInternalView && <TableHead className="text-right">粗利率</TableHead>}
-                                            <TableHead className="w-24"></TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {lineItems.map(item => (
-                                            <Fragment key={item.id}>
-                                            <TableRow>
-                                                <TableCell></TableCell>
-                                                <TableCell>
-                                                    <Select
-                                                        key={`${item.id}-${item.product_id ?? 'none'}`}
-                                                        value={item.product_id != null ? String(item.product_id) : undefined}
-                                                        defaultValue={item.product_id != null ? String(item.product_id) : undefined}
-                                                        onValueChange={(value) => handleProductSelect(item.id, value)}
-                                                    >
-                                                        <SelectTrigger className="w-[180px]">
-                                                            <SelectValue placeholder="品目を選択" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            {products.map(product => (
-                                                                <SelectItem key={product.id} value={String(product.id)}>
-                                                                    {product.name}
-                                                                </SelectItem>
-                                                            ))}
-                                                        </SelectContent>
-                                                    </Select>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Textarea
-                                                        className="mt-2 w-full min-w-[500px]"
-                                                        placeholder="詳細（項目）"
-                                                        value={item.description}
-                                                        onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Input
-                                                        type="number"
-                                                        step="0.1"
-                                                        min="0"
-                                                        inputMode="decimal"
-                                                        value={item.qty}
-                                                        onChange={(e) => handleItemChange(item.id, 'qty', e.target.value)}
-                                                        className="w-20 text-right appearance-none"
-                                                        onWheel={(e) => e.currentTarget.blur()}
-                                                        onKeyDown={preventArrowKeyChange}
-                                                    />
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="space-y-2">
-                                                        <Input
-                                                            value={item.unit}
-                                                            onChange={(e) => {
-                                                                const val = e.target.value.slice(0, 3);
-                                                                handleItemChange(item.id, 'unit', val);
-                                                            }}
-                                                            className="w-16"
-                                                            maxLength="3"
-                                                        />
-                                                        <div className="flex items-center gap-2">
-                                                            <Select
-                                                                value={item.display_mode}
-                                                                onValueChange={(value) => handleItemChange(item.id, 'display_mode', value)}
-                                                            >
-                                                                <SelectTrigger className="w-28 h-8 text-xs">
-                                                                    <SelectValue placeholder="表示形式" />
-                                                                </SelectTrigger>
-                                                                <SelectContent>
-                                                                    {displayModeOptions.map(option => (
-                                                                        <SelectItem key={option.value} value={option.value}>
-                                                                            {option.label}
-                                                                        </SelectItem>
-                                                                    ))}
-                                                                </SelectContent>
-                                                            </Select>
-                                                        </div>
-                                                        {item.display_mode === 'lump' && (
-                                                            <div className="flex items-center gap-2 text-xs">
-                                                                <Input
-                                                                    type="number"
-                                                                    step="0.1"
-                                                                    className="w-16 text-right"
-                                                                    value={item.display_qty}
-                                                                    min="0"
-                                                                    inputMode="decimal"
-                                                                    onChange={(e) => handleItemChange(item.id, 'display_qty', e.target.value)}
-                                                                    onKeyDown={preventArrowKeyChange}
-                                                                />
-                                                                <Input
-                                                                    value={item.display_unit}
-                                                                    onChange={(e) => handleItemChange(item.id, 'display_unit', e.target.value.slice(0, 3))}
-                                                                    className="w-16"
-                                                                    maxLength="3"
-                                                                />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <Input
-                                                        type="number"
-                                                        step="1"
-                                                        min="0"
-                                                        inputMode="numeric"
-                                                        value={item.price}
-                                                        onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
-                                                        className="w-24 text-right appearance-none"
-                                                        onWheel={(e) => e.currentTarget.blur()}
-                                                        onKeyDown={preventArrowKeyChange}
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="text-right font-medium">
-                                                    {calculateAmount(item).toLocaleString()}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Select
-                                                        value={item.tax_category || 'standard'}
-                                                        onValueChange={(value) => handleItemChange(item.id, 'tax_category', value)}
-                                                    >
-                                                        <SelectTrigger className="w-[120px]">
-                                                            <SelectValue placeholder="税区分" />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="standard">標準</SelectItem>
-                                                            <SelectItem value="reduced">軽減</SelectItem>
-                                                            <SelectItem value="exempt">非課税</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
-                                                </TableCell>
-                                                {isInternalView && (
-                                                    <TableCell className="text-right text-gray-500">
-                                                    <Input
-                                                        type="number"
-                                                        step="1"
-                                                        min="0"
-                                                        inputMode="numeric"
-                                                        value={item.cost}
-                                                        onChange={(e) => handleItemChange(item.id, 'cost', e.target.value)}
-                                                        className="w-24 text-right appearance-none"
-                                                        onWheel={(e) => e.currentTarget.blur()}
-                                                        onKeyDown={preventArrowKeyChange}
-                                                    />
-                                                </TableCell>
-                                                )}
-                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateCostAmount(item).toLocaleString()}</TableCell>}
-                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossProfit(item).toLocaleString()}</TableCell>}
-                                                {isInternalView && <TableCell className="text-right text-gray-500">{calculateGrossMargin(item).toFixed(1)}%</TableCell>}
-                                                <TableCell className="flex items-center justify-center space-x-1">
+                            <CardContent className="space-y-4">
+                                <div className="space-y-4">
+                                    {lineItems.map((item, index) => (
+                                        <div key={item.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                                            {(() => {
+                                                const assignmentRequired = resolveBusinessDivisionForItem(item) !== 'first_business';
+                                                return (
+                                                    <>
+                                            <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                                                <div>
+                                                    <div className="text-sm font-semibold text-slate-900">明細 {index + 1}</div>
+                                                    <div className="text-xs text-slate-500">品目と数量、金額、担当者按分をここで入力します。</div>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <Badge variant="outline">金額 {calculateAmount(item).toLocaleString()}円</Badge>
+                                                    {isInternalView && <Badge variant="outline">粗利 {calculateGrossProfit(item).toLocaleString()}円</Badge>}
                                                     <Button type="button" variant="ghost" size="icon" onClick={() => moveLineItem(item.id, 'up')}>
                                                         <ArrowUp className="h-4 w-4" />
                                                     </Button>
                                                     <Button type="button" variant="ghost" size="icon" onClick={() => moveLineItem(item.id, 'down')}>
                                                         <ArrowDown className="h-4 w-4" />
                                                     </Button>
-                                                    <Button type="button" variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}><Trash2 className="h-4 w-4" /></Button>
-                                                </TableCell>
-                                            </TableRow>
-                                            {isInternalView && (
-                                                <TableRow>
-                                                    <TableCell colSpan={13} className="bg-slate-50/60 px-4 py-3">
-                                                        <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-                                                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                                                                <div>
-                                                                    <div className="text-sm font-semibold text-slate-900">担当者按分</div>
-                                                                    <div className="text-xs text-slate-500">
-                                                                        空き状況集計の土台です。保存時に合計100%へ正規化します。
-                                                                    </div>
+                                                    <Button type="button" variant="ghost" size="icon" onClick={() => removeLineItem(item.id)}>
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-4 p-4">
+                                                <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">品目名</Label>
+                                                        <Select
+                                                            key={`${item.id}-${item.product_id ?? 'none'}`}
+                                                            value={item.product_id != null ? String(item.product_id) : undefined}
+                                                            defaultValue={item.product_id != null ? String(item.product_id) : undefined}
+                                                            onValueChange={(value) => handleProductSelect(item.id, value)}
+                                                        >
+                                                            <SelectTrigger className="w-full">
+                                                                <SelectValue placeholder="品目を選択" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {products.map((product) => (
+                                                                    <SelectItem key={product.id} value={String(product.id)}>
+                                                                        {product.name}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">詳細</Label>
+                                                        <Textarea
+                                                            className="min-h-[112px] w-full resize-y"
+                                                            placeholder="詳細（項目）"
+                                                            value={item.description}
+                                                            onChange={(e) => handleItemChange(item.id, 'description', e.target.value)}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className={`grid gap-4 ${isInternalView ? 'md:grid-cols-2 xl:grid-cols-6' : 'md:grid-cols-2 xl:grid-cols-5'}`}>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">数量</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="0.1"
+                                                            min="0"
+                                                            inputMode="decimal"
+                                                            value={item.qty}
+                                                            onChange={(e) => handleItemChange(item.id, 'qty', e.target.value)}
+                                                            className="text-right appearance-none"
+                                                            onWheel={(e) => e.currentTarget.blur()}
+                                                            onKeyDown={preventArrowKeyChange}
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">単位 / 数量表示</Label>
+                                                        <div className="space-y-2">
+                                                            <Input
+                                                                value={item.unit}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value.slice(0, 3);
+                                                                    handleItemChange(item.id, 'unit', val);
+                                                                }}
+                                                                maxLength="3"
+                                                            />
+                                                            <Select
+                                                                value={item.display_mode}
+                                                                onValueChange={(value) => handleItemChange(item.id, 'display_mode', value)}
+                                                            >
+                                                                <SelectTrigger className="h-9 text-xs">
+                                                                    <SelectValue placeholder="表示形式" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {displayModeOptions.map((option) => (
+                                                                        <SelectItem key={option.value} value={option.value}>
+                                                                            {option.label}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                            {item.display_mode === 'lump' && (
+                                                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                                                    <Input
+                                                                        type="number"
+                                                                        step="0.1"
+                                                                        value={item.display_qty}
+                                                                        min="0"
+                                                                        inputMode="decimal"
+                                                                        onChange={(e) => handleItemChange(item.id, 'display_qty', e.target.value)}
+                                                                        onKeyDown={preventArrowKeyChange}
+                                                                        className="text-right"
+                                                                    />
+                                                                    <Input
+                                                                        value={item.display_unit}
+                                                                        onChange={(e) => handleItemChange(item.id, 'display_unit', e.target.value.slice(0, 3))}
+                                                                        maxLength="3"
+                                                                    />
                                                                 </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">単価</Label>
+                                                        <Input
+                                                            type="number"
+                                                            step="1"
+                                                            min="0"
+                                                            inputMode="numeric"
+                                                            value={item.price}
+                                                            onChange={(e) => handleItemChange(item.id, 'price', e.target.value)}
+                                                            className="text-right appearance-none"
+                                                            onWheel={(e) => e.currentTarget.blur()}
+                                                            onKeyDown={preventArrowKeyChange}
+                                                        />
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs font-medium text-slate-500">税区分</Label>
+                                                        <Select
+                                                            value={item.tax_category || 'standard'}
+                                                            onValueChange={(value) => handleItemChange(item.id, 'tax_category', value)}
+                                                        >
+                                                            <SelectTrigger className="w-full">
+                                                                <SelectValue placeholder="税区分" />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="standard">標準</SelectItem>
+                                                                <SelectItem value="reduced">軽減</SelectItem>
+                                                                <SelectItem value="exempt">非課税</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+
+                                                    {isInternalView && (
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs font-medium text-slate-500">原価</Label>
+                                                            <Input
+                                                                type="number"
+                                                                step="1"
+                                                                min="0"
+                                                                inputMode="numeric"
+                                                                value={item.cost}
+                                                                onChange={(e) => handleItemChange(item.id, 'cost', e.target.value)}
+                                                                className="text-right appearance-none"
+                                                                onWheel={(e) => e.currentTarget.blur()}
+                                                                onKeyDown={preventArrowKeyChange}
+                                                            />
+                                                        </div>
+                                                    )}
+
+                                                    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                                                        <div className="text-xs font-medium text-slate-500">集計</div>
+                                                        <div className="mt-2 space-y-1 text-sm">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-slate-500">金額</span>
+                                                                <span className="font-semibold text-slate-900">{calculateAmount(item).toLocaleString()}円</span>
+                                                            </div>
+                                                            {isInternalView && (
+                                                                <>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-slate-500">原価金額</span>
+                                                                        <span className="text-slate-700">{calculateCostAmount(item).toLocaleString()}円</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-slate-500">粗利</span>
+                                                                        <span className="font-semibold text-slate-900">{calculateGrossProfit(item).toLocaleString()}円</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-slate-500">粗利率</span>
+                                                                        <span className="font-semibold text-slate-900">{calculateGrossMargin(item).toFixed(1)}%</span>
+                                                                    </div>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {isInternalView && (
+                                                    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+                                                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                                            <div>
+                                                                <div className="text-sm font-semibold text-slate-900">担当者按分</div>
+                                                                <div className="text-xs text-slate-500">
+                                                                    {assignmentRequired
+                                                                        ? '空き状況集計の土台です。保存時に合計100%へ正規化します。'
+                                                                        : '第1種の明細です。仕入れ販売扱いのため担当者設定は不要です。'}
+                                                                </div>
+                                                            </div>
+                                                            {assignmentRequired ? (
                                                                 <div className="flex flex-wrap items-center gap-2">
                                                                     <Badge variant="outline">入力合計 {formatDecimalForDisplay(sumAssigneeShares(item.assignees))}%</Badge>
                                                                     <Button
@@ -2297,58 +2616,84 @@ useEffect(() => {
                                                                         担当者追加
                                                                     </Button>
                                                                 </div>
-                                                            </div>
-
-                                                            {(item.assignees || []).length === 0 ? (
-                                                                <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                                                                    まだ担当者が未設定です。複数人で分担する場合はここで追加してください。
-                                                                </div>
                                                             ) : (
-                                                                <div className="space-y-2">
-                                                                    {(item.assignees || []).map((assignee) => (
-                                                                        <div key={assignee.id} className="grid gap-2 rounded-md border border-slate-200 px-3 py-3 md:grid-cols-[minmax(0,1fr)_120px_auto] md:items-center">
-                                                                            <UserSearchCombobox
-                                                                                selectedUser={assignee.user_id || assignee.user_name ? {
-                                                                                    id: assignee.user_id,
-                                                                                    name: assignee.user_name || '担当者未設定',
-                                                                                } : null}
-                                                                                onUserChange={(selectedUser) => handleAssigneeSelect(item.id, assignee.id, selectedUser)}
-                                                                                placeholder="担当者を選択..."
-                                                                            />
-                                                                            <div className="flex items-center gap-2">
-                                                                                <Input
-                                                                                    type="number"
-                                                                                    step="0.1"
-                                                                                    min="0"
-                                                                                    max="100"
-                                                                                    value={assignee.share_percent}
-                                                                                    onChange={(e) => handleAssigneeShareChange(item.id, assignee.id, e.target.value)}
-                                                                                    className="text-right"
-                                                                                />
-                                                                                <span className="text-sm text-slate-500">%</span>
-                                                                            </div>
-                                                                            <div className="flex justify-end">
-                                                                                <Button
-                                                                                    type="button"
-                                                                                    variant="ghost"
-                                                                                    size="icon"
-                                                                                    onClick={() => removeAssigneeFromLineItem(item.id, assignee.id)}
-                                                                                >
-                                                                                    <Trash2 className="h-4 w-4" />
-                                                                                </Button>
-                                                                            </div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
+                                                                <Badge variant="secondary">担当者設定不要</Badge>
                                                             )}
                                                         </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            )}
-                                            </Fragment>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+
+                                                        {assignmentRequired && getLineItemAssignmentWarning(item) && (
+                                                            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800 shadow-sm">
+                                                                <div className="flex items-start gap-2">
+                                                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                                                                    <div>
+                                                                        <div className="font-medium">担当者未設定の警告</div>
+                                                                        <div className="mt-1">{getLineItemAssignmentWarning(item).message}</div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {!assignmentRequired ? (
+                                                            <div className="rounded-md border border-slate-200 bg-white px-3 py-3 text-sm text-slate-600">
+                                                                第1種の明細は工数集計対象外です。担当者を設定しなくても保存できます。
+                                                            </div>
+                                                        ) : (item.assignees || []).length === 0 ? (
+                                                            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800 shadow-sm">
+                                                                <div className="flex items-start gap-2">
+                                                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                                                                    <div>
+                                                                        <div className="font-medium">担当者が未設定です</div>
+                                                                        <div className="mt-1">複数人で分担する場合はここで追加してください。未設定のまま保存すると工数集計に反映されません。</div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="space-y-2">
+                                                                {(item.assignees || []).map((assignee) => (
+                                                                    <div key={assignee.id} className="grid gap-2 rounded-md border border-slate-200 bg-white px-3 py-3 lg:grid-cols-[minmax(0,1fr)_140px_auto] lg:items-center">
+                                                                        <UserSearchCombobox
+                                                                            selectedUser={assignee.user_id || assignee.user_name ? {
+                                                                                id: assignee.user_id,
+                                                                                name: assignee.user_name || '担当者未設定',
+                                                                            } : null}
+                                                                            onUserChange={(selectedUser) => handleAssigneeSelect(item.id, assignee.id, selectedUser)}
+                                                                            placeholder="担当者を選択..."
+                                                                        />
+                                                                        <div className="flex items-center gap-2">
+                                                                            <Input
+                                                                                type="number"
+                                                                                step="0.1"
+                                                                                min="0"
+                                                                                max="100"
+                                                                                value={assignee.share_percent}
+                                                                                onChange={(e) => handleAssigneeShareChange(item.id, assignee.id, e.target.value)}
+                                                                                className="text-right"
+                                                                            />
+                                                                            <span className="text-sm text-slate-500">%</span>
+                                                                        </div>
+                                                                        <div className="flex justify-end">
+                                                                            <Button
+                                                                                type="button"
+                                                                                variant="ghost"
+                                                                                size="icon"
+                                                                                onClick={() => removeAssigneeFromLineItem(item.id, assignee.id)}
+                                                                            >
+                                                                                <Trash2 className="h-4 w-4" />
+                                                                            </Button>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                                    </>
+                                                );
+                                            })()}
+                                        </div>
+                                    ))}
+                                </div>
                                 <div className="mt-4 flex items-center space-x-2">
                                     <Button type="button" variant="outline" size="sm" onClick={addLineItem}><PlusCircle className="mr-2 h-4 w-4" />行を追加</Button>
                                 </div>
@@ -2362,6 +2707,137 @@ useEffect(() => {
                         </Card>
 
                         <div className="space-y-6">
+                            {isInternalView && (
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>担当者負荷シミュレーション</CardTitle>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                                            <div className="font-medium text-slate-900">{workloadSimulation?.basis?.label ?? '納期月ベース'}</div>
+                                            <div className="mt-1">{workloadSimulation?.basis?.detail ?? '納期月の既存予定工数に、この見積の担当者按分を重ねて確認します。'}</div>
+                                        </div>
+
+                                        <div className="grid gap-3 md:grid-cols-5">
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">対象月</div>
+                                                <div className="mt-1 text-sm font-semibold text-slate-900">
+                                                    {simulationMonthBaseline?.label ?? formatMonthLabelFromKey(simulationTargetMonthKey)}
+                                                </div>
+                                            </div>
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">対象月の合計キャパ</div>
+                                                <div className="mt-1 text-sm font-semibold text-slate-900">{formatPersonDaysDisplay(simulationMonthCapacityPersonDays)}</div>
+                                                <div className="mt-1 text-xs text-slate-500">ユーザー別に設定した月間キャパの合計です。</div>
+                                            </div>
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">対象月の既存余力</div>
+                                                <div className={`mt-1 text-sm font-semibold ${simulationMonthAvailablePersonDays < 0 ? 'text-red-600' : simulationMonthAvailablePersonDays <= 2 ? 'text-amber-600' : 'text-slate-900'}`}>
+                                                    {formatPersonDaysDisplay(simulationMonthAvailablePersonDays)}
+                                                </div>
+                                                <div className="mt-1 text-xs text-slate-500">既存予定だけを引いた余力です。</div>
+                                            </div>
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">この見積の追加工数</div>
+                                                <div className="mt-1 text-sm font-semibold text-slate-900">{formatPersonDaysDisplay(workloadImpact.summary.draft_person_days)}</div>
+                                            </div>
+                                            <div className="rounded-lg border bg-slate-50 p-3">
+                                                <div className="text-xs text-slate-500">未割当工数</div>
+                                                <div className={`mt-1 text-sm font-semibold ${workloadImpact.summary.draft_unassigned_person_days > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+                                                    {formatPersonDaysDisplay(workloadImpact.summary.draft_unassigned_person_days)}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
+                                            標準1人月: {formatPersonDaysDisplay(workloadSimulationCapacityPerPersonDays)}。個別キャパ未設定の担当者だけ、この標準値を使います。
+                                        </div>
+
+                                        {!simulationTargetMonthKey ? (
+                                            <div className="rounded-md border border-dashed border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+                                                納期日、見積期限日、発行日のいずれかが入ると、対象月の負荷を表示します。
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {(workloadImpact.overloadedRows.length > 0 || workloadImpact.cautionRows.length > 0) && (
+                                                    <div className="grid gap-3 md:grid-cols-2">
+                                                        {workloadImpact.overloadedRows.length > 0 && (
+                                                            <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                                                                <div className="text-sm font-semibold text-red-700">過負荷候補</div>
+                                                                <div className="mt-2 space-y-1 text-sm text-red-700">
+                                                                    {workloadImpact.overloadedRows.map((row) => (
+                                                                        <div key={`over-${row.user_key}`} className="flex items-center justify-between gap-2">
+                                                                            <span>{row.name}</span>
+                                                                            <span>{row.simulated_utilization_rate.toFixed(1)}%</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {workloadImpact.cautionRows.length > 0 && (
+                                                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                                                                <div className="text-sm font-semibold text-amber-700">高稼働候補</div>
+                                                                <div className="mt-2 space-y-1 text-sm text-amber-700">
+                                                                    {workloadImpact.cautionRows.map((row) => (
+                                                                        <div key={`warn-${row.user_key}`} className="flex items-center justify-between gap-2">
+                                                                            <span>{row.name}</span>
+                                                                            <span>{row.simulated_utilization_rate.toFixed(1)}%</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                <div className="overflow-x-auto">
+                                                    <Table>
+                                                        <TableHeader>
+                                                            <TableRow>
+                                                                <TableHead>担当者</TableHead>
+                                                                <TableHead className="text-right">個別キャパ</TableHead>
+                                                                <TableHead className="text-right">既存予定</TableHead>
+                                                                <TableHead className="text-right">この見積</TableHead>
+                                                                <TableHead className="text-right">シミュ後</TableHead>
+                                                                <TableHead className="text-right">残余</TableHead>
+                                                                <TableHead className="text-right">稼働率</TableHead>
+                                                            </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {workloadImpact.rows.length === 0 && (
+                                                                <TableRow>
+                                                                    <TableCell colSpan={7} className="text-slate-500">
+                                                                        対象月の担当者予定はありません。担当者按分を入れるとここに反映されます。
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            )}
+                                                            {workloadImpact.rows.map((row) => (
+                                                                <TableRow key={`sim-${row.user_key}`} className={row.draft_person_days > 0 ? 'bg-indigo-50/40' : ''}>
+                                                                    <TableCell>
+                                                                        <div className="font-medium text-slate-900">{row.name}</div>
+                                                                        {row.draft_person_days > 0 && <div className="text-xs text-indigo-600">この見積で変動</div>}
+                                                                    </TableCell>
+                                                                    <TableCell className="text-right">{formatPersonDaysDisplay(row.capacity_person_days)}</TableCell>
+                                                                    <TableCell className="text-right">{formatPersonDaysDisplay(row.baseline_person_days)}</TableCell>
+                                                                    <TableCell className="text-right font-medium text-indigo-700">{formatPersonDaysDisplay(row.draft_person_days)}</TableCell>
+                                                                    <TableCell className="text-right">{formatPersonDaysDisplay(row.simulated_person_days)}</TableCell>
+                                                                    <TableCell className={`text-right ${row.simulated_available_person_days < 0 ? 'text-red-600' : row.simulated_available_person_days <= 2 ? 'text-amber-600' : 'text-slate-900'}`}>
+                                                                        {formatPersonDaysDisplay(row.simulated_available_person_days)}
+                                                                    </TableCell>
+                                                                    <TableCell className={`text-right font-semibold ${row.simulated_utilization_rate > 100 ? 'text-red-600' : row.simulated_utilization_rate >= 85 ? 'text-amber-600' : 'text-slate-900'}`}>
+                                                                        {row.simulated_utilization_rate.toFixed(1)}%
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </div>
+                                            </>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            )}
+
                             <div className="flex flex-col lg:flex-row gap-4 lg:gap-6">
                                 {isInternalView && (
                                     <div className="w-full lg:w-2/3">
@@ -2618,10 +3094,26 @@ useEffect(() => {
 
                     <div className="mt-6">
                         <Card>
-                            <CardFooter className="flex justify-between items-center py-4">
-                                <div>
+                            <CardFooter className="flex flex-col gap-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="w-full lg:max-w-xl">
+                                    {isInternalView && assignmentWarningSummary && (
+                                        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm">
+                                            <div className="flex items-start gap-2">
+                                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                                                <div>
+                                                    <div className="font-semibold">担当者未設定の明細があります</div>
+                                                    <div className="mt-1">
+                                                        未設定の明細が {assignmentWarningSummary.count} 件あります。合計 {formatPersonDaysDisplay(assignmentWarningSummary.totalPersonDays)} が工数シミュレーションに正しく反映されません。
+                                                    </div>
+                                                    <div className="mt-2 text-xs text-red-800">
+                                                        保存はできますが、誰が空いているか・過負荷かの判断精度が下がります。
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="space-x-2">
+                                <div className="flex flex-wrap justify-end gap-2">
                                     {isEditMode && is_fully_approved && estimate.client_id && !estimate.mf_quote_id && (
                                         <Button type="button" onClick={() => setOpenIssueMFQuoteConfirm(true)}>
                                             マネーフォワードで見積書発行
@@ -2844,10 +3336,34 @@ useEffect(() => {
                                 <DialogTitle>{orderConfirmMode === 'confirm' ? '受注を確定しますか？' : '受注確定を解除しますか？'}</DialogTitle>
                                 <DialogDescription>
                                     {orderConfirmMode === 'confirm'
-                                        ? '承認済みの見積を実績として計上します。'
+                                        ? '承認済みの見積を実績として計上します。工期として着手日と納品日を設定してください。'
                                         : 'この見積の受注確定を解除します。'}
                                 </DialogDescription>
                             </DialogHeader>
+                            {orderConfirmMode === 'confirm' && (
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="order-confirm-start-date">着手日 <span className="text-red-500 ml-1">*</span></Label>
+                                        <Input
+                                            id="order-confirm-start-date"
+                                            type="date"
+                                            value={data.start_date || ''}
+                                            onChange={(e) => setData('start_date', e.target.value)}
+                                        />
+                                        {errors.start_date && <p className="text-sm text-red-600">{errors.start_date}</p>}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="order-confirm-delivery-date">納品日 <span className="text-red-500 ml-1">*</span></Label>
+                                        <Input
+                                            id="order-confirm-delivery-date"
+                                            type="date"
+                                            value={data.delivery_date || ''}
+                                            onChange={(e) => setData('delivery_date', e.target.value)}
+                                        />
+                                        {errors.delivery_date && <p className="text-sm text-red-600">{errors.delivery_date}</p>}
+                                    </div>
+                                </div>
+                            )}
                             <DialogFooter className="flex items-center gap-2">
                                 <Button type="button" variant="secondary" onClick={() => setOrderConfirmDialogOpen(false)}>
                                     いいえ
