@@ -5,9 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Com
 import { Bell, BookOpen } from 'lucide-react';
 
 export default function ReleaseNotesIndex() {
-    const { releaseNotes, appVersion } = usePage().props;
+    const { releaseNotes } = usePage().props;
     const releaseHistory = releaseNotes?.history ?? [];
-    const latestVersion = releaseNotes?.latest?.version ?? releaseNotes?.current_version ?? appVersion ?? '最新版';
+    const latestVersion = releaseNotes?.latest?.version ?? '最新版';
 
     return (
         <AuthenticatedLayout header={<h2 className="text-2xl font-semibold text-slate-800">更新履歴</h2>}>
@@ -20,7 +20,7 @@ export default function ReleaseNotesIndex() {
                             <div className="max-w-4xl space-y-4">
                                 <div className="flex flex-wrap items-center gap-3">
                                     <Badge className="bg-slate-950 text-white">最新更新</Badge>
-                                    <Badge variant="outline">ver. {latestVersion}</Badge>
+                                    <Badge variant="outline">{latestVersion}</Badge>
                                 </div>
                                 <div>
                                     <h1 className="text-3xl font-bold text-slate-900">更新履歴</h1>
