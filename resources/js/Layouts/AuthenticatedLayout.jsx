@@ -3,6 +3,7 @@ import { router } from '@inertiajs/core';
 import { Link, usePage } from '@inertiajs/react';
 import { Bell, Home, Package2, Users, LineChart, Settings, Package, FileText, Landmark, Boxes, ChevronsLeft, ChevronsRight, LifeBuoy, Brain } from 'lucide-react';
 
+import Modal from '@/Components/Modal';
 import { Button } from '@/Components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/Components/ui/dropdown-menu';
@@ -11,10 +12,11 @@ import { CircleUser, Menu } from 'lucide-react';
 import Loading from '@/Components/Loading';
 
 export default function AuthenticatedLayout({ header, children }) {
-    const { auth: { user }, appVersion } = usePage().props;
+    const { auth: { user }, appVersion, releaseNotes } = usePage().props;
     console.log('Inertia Page Props:', usePage().props);
     const [loading, setLoading] = useState(false);
     const [isSidebarOpen, setSidebarOpen] = useState(true);
+    const [isReleaseModalOpen, setReleaseModalOpen] = useState(Boolean(releaseNotes?.unread));
 
     useEffect(() => {
         const removeStartListener = router.on('start', () => setLoading(true));
@@ -25,6 +27,10 @@ export default function AuthenticatedLayout({ header, children }) {
             removeFinishListener();
         };
     }, []);
+
+    useEffect(() => {
+        setReleaseModalOpen(Boolean(releaseNotes?.unread));
+    }, [releaseNotes?.unread, releaseNotes?.latest?.version]);
 
     const menuItems = [
         { name: 'ダッシュボード', href: route('dashboard'), icon: Home, current: route().current('dashboard') },
@@ -38,9 +44,63 @@ export default function AuthenticatedLayout({ header, children }) {
         { name: 'ヘルプ', href: route('help.index'), icon: LifeBuoy, current: route().current('help.index') },
     ];
 
+    const latestRelease = releaseNotes?.latest ?? null;
+
+    const handleConfirmLatestRelease = () => {
+        router.post(route('release-notes.readLatest'), {}, {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: () => setReleaseModalOpen(false),
+        });
+    };
+
     return (
         <>
             {loading && <Loading />}
+            <Modal show={Boolean(latestRelease) && isReleaseModalOpen} onClose={() => {}} closeable={false} maxWidth="2xl">
+                <div className="space-y-6 p-6 sm:p-8">
+                    <div className="space-y-2">
+                        <div className="inline-flex rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold text-white">
+                            更新履歴★
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-900">{latestRelease?.title ?? '最新の更新'}</h2>
+                                <p className="mt-1 text-sm text-slate-500">
+                                    {latestRelease?.version ?? appVersion} / {latestRelease?.released_at ?? ''}
+                                </p>
+                            </div>
+                            <Link
+                                href={route('help.index')}
+                                className="text-sm font-medium text-slate-600 underline-offset-4 hover:text-slate-900 hover:underline"
+                            >
+                                更新履歴を見る
+                            </Link>
+                        </div>
+                        <p className="text-sm leading-7 text-slate-600">{latestRelease?.summary ?? ''}</p>
+                        <p className="text-sm font-semibold leading-7 text-rose-600">
+                            この更新は業務フローに影響します。確認後は、必ずヘルプ画面を熟読してください。
+                        </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <ul className="space-y-3 text-sm leading-7 text-slate-700">
+                            {(latestRelease?.items ?? []).map((item) => (
+                                <li key={item} className="flex gap-3">
+                                    <span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-400" />
+                                    <span>{item}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+
+                    <div className="flex justify-end">
+                        <Button type="button" onClick={handleConfirmLatestRelease} className="bg-slate-950 text-white hover:bg-slate-800">
+                            確認してヘルプを読みます
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
             <div className={`grid min-h-screen w-full transition-all duration-300 ${isSidebarOpen ? 'md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]' : 'md:grid-cols-[70px_1fr] lg:grid-cols-[80px_1fr]'}`}>
                 <div className="hidden border-r bg-muted/40 md:block">
                     <div className="flex h-full max-h-screen flex-col gap-2 relative">

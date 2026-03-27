@@ -13,6 +13,7 @@ use App\Http\Controllers\BillingController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\SalesAiCoachController;
 use App\Http\Controllers\AdminController;
+use App\Http\Controllers\ReleaseNoteController;
 
 Route::get('/', function () {
     return redirect()->route('login');
@@ -63,6 +64,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/maintenance-fees/items/{item}', [MaintenanceFeeController::class, 'deleteItem'])->name('maintenance-fees.items.delete');
     Route::get('/inventory', fn () => Inertia::render('Inventory/Index'))->name('inventory.index');
     Route::get('/help', fn () => Inertia::render('Help/Index'))->name('help.index');
+    Route::post('/release-notes/read-latest', [ReleaseNoteController::class, 'markLatestAsRead'])->name('release-notes.readLatest');
     Route::get('/sales-ai-coach', fn () => Inertia::render('SalesAiCoach/Index'))->name('sales-ai-coach.index');
     Route::get('/sales-ai-coach/guide', [SalesAiCoachController::class, 'guide'])->name('sales-ai-coach.guide');
     Route::post('/sales-ai-coach/generate', [SalesAiCoachController::class, 'generate'])->name('sales-ai-coach.generate');

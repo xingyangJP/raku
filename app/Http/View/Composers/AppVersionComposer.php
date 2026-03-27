@@ -28,7 +28,7 @@ class AppVersionComposer
             return "v{$major}.{$minor}.{$patch}";
         }
 
-        return Config::get('app.version', 'v1.0.0');
+        return Config::get('app.version', 'v1.0.18');
     }
 
     // composeメソッドで、計算されたバージョンをビューにバインド

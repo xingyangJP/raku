@@ -1,5 +1,5 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
+import { Head, usePage } from '@inertiajs/react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/Components/ui/accordion';
 import { Badge } from '@/Components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/Components/ui/card';
@@ -71,17 +71,17 @@ const quickGuides = [
 const highlights = [
     {
         title: '総合タブだけ AI 経営総評',
-        description: 'ダッシュボード最上部の総評は、対象年月ごとに日次保存した AI 分析です。section 別の分析/アラートはルールベースです。',
+        description: 'ダッシュボードは大幅更新済みです。最上部の総評は対象年月ごとに日次保存した AI 分析で、section 別の分析/アラートはルールベースです。',
         tone: 'border-violet-200 bg-violet-50',
     },
     {
-        title: '第1種と第5種で工数ルールが分かれる',
-        description: '第1種は仕入れ販売なので担当者按分不要、第5種は工数対象なので担当者按分と負荷シミュレーション対象です。',
+        title: '担当者割り当ては必須運用',
+        description: '見積編集画面は大幅更新済みです。第5種明細の担当者割り当てを前提に、負荷シミュレーションと空き状況を判断します。',
         tone: 'border-rose-200 bg-rose-50',
     },
     {
-        title: '個別キャパで負荷を見る',
-        description: '全員一律 20 人日ではなく、ユーザー別の月間開発キャパを設定してダッシュボードと見積判断に反映します。',
+        title: '個別キャパ設定が必須',
+        description: '工数管理は設定画面でユーザー別の実質稼働可能工数を必ず入れてください。未設定だと空き状況判断が実態とずれます。',
         tone: 'border-sky-200 bg-sky-50',
     },
     {
@@ -93,10 +93,11 @@ const highlights = [
 
 const coreRules = [
     '第1種 = 仕入れ販売。金額管理対象ですが、工数計画・担当者按分の対象外です。',
-    '第5種 = 開発/設計など。担当者按分、空き工数、負荷シミュレーションの対象です。',
+    '第5種 = 開発/設計など。担当者按分、空き工数、負荷シミュレーションの対象です。担当者割り当ては必須運用として扱ってください。',
     '一式表示は表示切替だけです。工数対象かどうかの判定には使いません。',
     '総合タブの経営総評だけ AI 日次分析です。開発/販売/保守タブの分析とアラートはルールベースです。',
     '見積一覧の期限超過モーダルは、受注済・失注済を除いた未受注案件だけを対象にします。',
+    '要件定義書からの AI 自動見積を使うときも、生成結果をそのまま確定せず必ずヘルプに沿って見直してください。',
 ];
 
 const sectionGroups = [
@@ -132,7 +133,8 @@ const sectionGroups = [
             {
                 title: '工数の見方',
                 items: [
-                    '担当者別の空き状況は、個別キャパ設定済みの担当者を母集団に集計します。',
+                    '設定画面で個別キャパ設定済みの担当者を母集団に、担当者別の空き状況を集計します。',
+                    '着手日と納品日がある案件の工数は、開始月から納品月まで均等配賦します。着手日が無い場合は納期月へ一括、納期未設定は未配賦です。',
                     '未割当工数は、第1種以外で担当者按分が無い明細を、delivery_date → due_date → issue_date の順で当月判定して集計します。',
                     '見積で担当者按分を入れないと、空き状況と負荷シミュレーションは実態より甘く見えます。',
                 ],
@@ -172,9 +174,18 @@ const sectionGroups = [
             {
                 title: '担当者按分',
                 items: [
+                    '現在の運用では、第5種明細の担当者割り当ては必須前提です。ここが空だと、ダッシュボードと工数判断が崩れます。',
                     '複数人で分担する場合は担当者を追加し、按分率を入力します。保存時に合計100%へ正規化します。',
                     '旧見積でヘッダ担当者しか無い場合は、編集画面で初期表示時に 100% 按分として補完します。',
                     '第1種は工数管理対象外なので、担当者按分の赤警告は出しません。',
+                ],
+            },
+            {
+                title: '要件定義書からの AI 自動見積',
+                items: [
+                    'Google Drive の要件定義書を選ぶと、AI が文書を解析して要件整理、ドラフト明細、備考案を生成します。',
+                    'この機能は見積編集画面の大幅アップデートの一部です。生成後は明細、担当者割り当て、納期、備考を必ず人が見直してください。',
+                    '要件定義書リンクは添付と AI 解析元を兼用します。重複入力は不要です。',
                 ],
             },
             {
@@ -299,6 +310,7 @@ const sectionGroups = [
                 title: '何を設定するか',
                 items: [
                     '標準人数設定は使わず、ユーザーごとの月間開発キャパを設定します。',
+                    '現在はこの設定が必須前提です。未設定のままだと、空き状況と負荷シミュレーションが現場実態からずれます。',
                     '営業や総務は小さいキャパ、開発中心の人は大きいキャパで設定してください。',
                 ],
             },
@@ -428,7 +440,9 @@ function SectionBlock({ group }) {
 }
 
 export default function HelpIndex({ auth }) {
-    const version = auth?.user?.manual_version ?? '最新版';
+    const { appVersion, releaseNotes } = usePage().props;
+    const version = releaseNotes?.current_version ?? appVersion ?? '最新版';
+    const releaseHistory = releaseNotes?.history ?? [];
 
     return (
         <AuthenticatedLayout header={<h2 className="text-2xl font-semibold text-slate-800">ヘルプ</h2>}>
@@ -447,8 +461,8 @@ export default function HelpIndex({ auth }) {
                                 <div>
                                     <h1 className="text-3xl font-bold text-slate-900">RAKUSHIRU Cloud 操作ガイド</h1>
                                     <p className="mt-3 text-sm leading-7 text-slate-600">
-                                        今回の改修で、ダッシュボード、見積作成、見積一覧、注文書一覧、工数キャパ、失注/追跡期限、商品分類の扱いが変わっています。
-                                        このページは、現行仕様に合わせて「どこで何を判断するか」を整理した最新版です。
+                                        今回の大型アップデートで、ダッシュボード、見積編集、工数管理、要件定義書からの AI 自動見積、見積一覧/注文書一覧の判断基準が変わっています。
+                                        このページは、現行仕様に合わせて「どこで何を判断するか」を整理した最新版です。更新通知を見た後は、このヘルプを前提に運用してください。
                                     </p>
                                 </div>
                             </div>
@@ -510,6 +524,49 @@ export default function HelpIndex({ auth }) {
                             <CardContent className="text-sm leading-6 text-slate-700">{item.description}</CardContent>
                         </Card>
                     ))}
+                </section>
+
+                <section id="release-history" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                        <div>
+                            <h2 className="text-2xl font-semibold text-slate-900">更新履歴</h2>
+                            <p className="mt-2 text-sm leading-6 text-slate-500">
+                                最新の変更内容をここで確認できます。未読の最新更新は、ログイン後に確認モーダルで表示します。
+                            </p>
+                        </div>
+                        <Badge className="bg-slate-900 text-white">最新 {releaseNotes?.latest?.version ?? version}</Badge>
+                    </div>
+
+                    <div className="mt-6 space-y-4">
+                        {releaseHistory.map((entry) => (
+                            <Card key={entry.version} className="border-slate-200 shadow-none">
+                                <CardHeader className="pb-3">
+                                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                        <div>
+                                            <CardTitle className="text-lg text-slate-900">{entry.title}</CardTitle>
+                                            <CardDescription className="mt-1">{entry.summary}</CardDescription>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Badge variant="outline">{entry.version}</Badge>
+                                            <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-600">
+                                                {entry.released_at}
+                                            </Badge>
+                                        </div>
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <ul className="space-y-2 text-sm leading-6 text-slate-700">
+                                        {(entry.items ?? []).map((item) => (
+                                            <li key={`${entry.version}-${item}`} className="flex gap-3">
+                                                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-slate-400" />
+                                                <span>{item}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </div>
                 </section>
 
                 <div className="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)]">
