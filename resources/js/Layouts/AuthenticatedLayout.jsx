@@ -41,6 +41,7 @@ export default function AuthenticatedLayout({ header, children }) {
         { name: '商品管理', href: route('products.index'), icon: Package, current: route().current('products.index') },
         { name: '訪問前AIコーチ', href: route('sales-ai-coach.index'), icon: Brain, current: route().current('sales-ai-coach.index') },
         { name: '設定', href: route('admin.index'), icon: Settings, current: route().current('admin.index') },
+        { name: '更新履歴', href: `${route('help.index')}#release-history`, icon: Bell, current: route().current('help.index') },
         { name: 'ヘルプ', href: route('help.index'), icon: LifeBuoy, current: route().current('help.index') },
     ];
 

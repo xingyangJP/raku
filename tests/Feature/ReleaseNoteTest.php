@@ -22,7 +22,7 @@ class ReleaseNoteTest extends TestCase
         $response->assertOk();
         $response->assertInertia(function (AssertableInertia $page): void {
             $page->component('Help/Index')
-                ->where('releaseNotes.latest.version', 'v1.0.18')
+                ->where('releaseNotes.latest.version', 'v1.0.19')
                 ->where('releaseNotes.unread', true)
                 ->has('releaseNotes.history', 3);
         });
@@ -40,6 +40,6 @@ class ReleaseNoteTest extends TestCase
 
         $response->assertRedirect(route('help.index'));
         $response->assertSessionHas('success', '最新更新を確認しました。');
-        $this->assertSame('v1.0.18', $user->fresh()->last_read_release_version);
+        $this->assertSame('v1.0.19', $user->fresh()->last_read_release_version);
     }
 }
