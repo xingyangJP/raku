@@ -45,12 +45,16 @@ export default function AuthenticatedLayout({ header, children }) {
     ];
 
     const latestRelease = releaseNotes?.latest ?? null;
+    const helpHistoryUrl = `${route('help.index')}#release-history`;
 
     const handleConfirmLatestRelease = () => {
         router.post(route('release-notes.readLatest'), {}, {
             preserveScroll: true,
             preserveState: true,
-            onSuccess: () => setReleaseModalOpen(false),
+            onSuccess: () => {
+                setReleaseModalOpen(false);
+                router.visit(helpHistoryUrl);
+            },
         });
     };
 
@@ -71,10 +75,10 @@ export default function AuthenticatedLayout({ header, children }) {
                                 </p>
                             </div>
                             <Link
-                                href={route('help.index')}
+                                href={helpHistoryUrl}
                                 className="text-sm font-medium text-slate-600 underline-offset-4 hover:text-slate-900 hover:underline"
                             >
-                                更新履歴を見る
+                                ヘルプの更新履歴を見る
                             </Link>
                         </div>
                         <p className="text-sm leading-7 text-slate-600">{latestRelease?.summary ?? ''}</p>
