@@ -112,7 +112,14 @@ export default function AuthenticatedLayout({ header, children }) {
                         <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
                             <Link href="/" className="flex items-center gap-2 font-semibold">
                                 <Package2 className="h-6 w-6" />
-                                {isSidebarOpen && <span className="">KCS販売管理</span>}
+                                {isSidebarOpen && (
+                                    <div className="flex items-center gap-2">
+                                        <span>KCS販売管理</span>
+                                        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                                            {appVersion}
+                                        </span>
+                                    </div>
+                                )}
                             </Link>
                         </div>
                         <div className="flex-1">
@@ -139,9 +146,6 @@ export default function AuthenticatedLayout({ header, children }) {
                         >
                             {isSidebarOpen ? <ChevronsLeft className="h-4 w-4" /> : <ChevronsRight className="h-4 w-4" />}
                         </Button>
-                        <div className="mt-auto p-4 text-center text-xs text-muted-foreground">
-                            {isSidebarOpen && `Version: ${appVersion}`}
-                        </div>
                     </div>
                 </div>
                 <div className="flex flex-col">
