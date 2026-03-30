@@ -24,6 +24,7 @@ class User extends Authenticatable
         'password',
         'external_user_id',
         'work_capacity_person_days',
+        'last_read_release_version',
     ];
 
     public const DEFAULT_MONTHLY_PERSON_DAYS = 20.0;
@@ -57,6 +58,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'work_capacity_person_days' => 'float',
+            'last_read_release_version' => 'string',
         ];
     }
 

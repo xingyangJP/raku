@@ -2,9 +2,10 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\View\Composers\AppVersionComposer;
+use App\Services\ReleaseNoteService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
-use App\Http\View\Composers\AppVersionComposer;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -30,6 +31,9 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $appVersion = AppVersionComposer::getAppVersion();
+        $releaseNotes = app(ReleaseNoteService::class);
+
         return [
             ...parent::share($request),
             'auth' => [
@@ -41,7 +45,8 @@ class HandleInertiaRequests extends Middleware
                 'approval_started' => fn () => $request->session()->get('approval_started'),
                 'approval_flow' => fn () => $request->session()->get('approval_flow'),
             ],
-            'appVersion' => AppVersionComposer::getAppVersion(),
+            'appVersion' => $appVersion,
+            'releaseNotes' => fn () => $releaseNotes->buildSharedPayload($request->user(), $appVersion),
         ];
     }
 }
