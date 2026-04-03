@@ -678,7 +678,12 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         }, {
             onSuccess: () => {
                 setOrderConfirmDialogOpen(false);
+                setData('status', 'sent');
                 setData('is_order_confirmed', orderConfirmMode === 'confirm');
+                router.reload({
+                    only: ['estimate', 'is_fully_approved'],
+                    preserveScroll: true,
+                });
             },
             onError: (errors) => {
                 alert(errors?.order || errors?.start_date || errors?.delivery_date || '受注確定処理でエラーが発生しました。');
@@ -876,10 +881,19 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }, [estimate?.items, initialSelectedStaff]);
 
     useEffect(() => {
-        if (data.status !== 'sent' && data.is_order_confirmed) {
+        const effectiveStatus = estimate?.status || data.status;
+        if (effectiveStatus !== 'sent' && data.is_order_confirmed) {
             setData('is_order_confirmed', false);
         }
-    }, [data.status]);
+    }, [estimate?.status, data.status, data.is_order_confirmed]);
+
+    useEffect(() => {
+        if (!estimate) {
+            return;
+        }
+        setData('status', estimate.status || 'draft');
+        setData('is_order_confirmed', estimate.is_order_confirmed ?? false);
+    }, [estimate?.status, estimate?.is_order_confirmed]);
 
     // data.status を直接参照して、現在のUIの状態を正しく判定する
     const isInApproval = useMemo(() => {
@@ -3136,6 +3150,15 @@ useEffect(() => {
                                             >
                                                 注文書を印刷
                                             </Button>
+                                            {(data.is_order_confirmed || estimate?.is_order_confirmed) && (
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() => window.open(route('estimates.acceptance.preview', { estimate: estimate.id }), '_blank')}
+                                                >
+                                                    検収書を印刷
+                                                </Button>
+                                            )}
                                             <Button type="button" onClick={() => router.post(route('invoices.fromEstimate', { estimate: estimate.id }))}>
                                                 自社請求書に変換
                                             </Button>
