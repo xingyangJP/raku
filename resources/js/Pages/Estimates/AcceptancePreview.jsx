@@ -40,7 +40,7 @@ export default function AcceptancePreview() {
 
     const issueDateDisplay = formatDate(estimate?.issue_date) || formatDate(new Date());
     const deliveryDateDisplay = formatDate(estimate?.delivery_date) || '-';
-    const startDateDisplay = formatDate(estimate?.start_date) || '-';
+    const acceptanceNotes = typeof estimate?.acceptance_notes === 'string' ? estimate.acceptance_notes.trim() : '';
 
     return (
         <>
@@ -94,10 +94,6 @@ export default function AcceptancePreview() {
                     </div>
                     <div className="acceptance-summary-grid">
                         <div>
-                            <div className="acceptance-summary-label">着手日</div>
-                            <div className="acceptance-summary-value">{startDateDisplay}</div>
-                        </div>
-                        <div>
                             <div className="acceptance-summary-label">納品日</div>
                             <div className="acceptance-summary-value">{deliveryDateDisplay}</div>
                         </div>
@@ -108,6 +104,10 @@ export default function AcceptancePreview() {
                                     ? `${client?.contact_title ? `${client.contact_title} ` : ''}${client.contact_name} 様`
                                     : '—'}
                             </div>
+                        </div>
+                        <div>
+                            <div className="acceptance-summary-label">発行日</div>
+                            <div className="acceptance-summary-value">{issueDateDisplay}</div>
                         </div>
                     </div>
                     {deliveryLocationLines.length > 0 && (
@@ -210,7 +210,7 @@ export default function AcceptancePreview() {
                 <section className="acceptance-section">
                     <h3>備考</h3>
                     <div className="acceptance-notes">
-                        {estimate?.notes ? estimate.notes : '特記事項がございましたらご記入ください。'}
+                        {acceptanceNotes || ' '}
                     </div>
                 </section>
             </div>

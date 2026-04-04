@@ -722,6 +722,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         total_amount: estimate?.total_amount || 0,
         tax_amount: estimate?.tax_amount || 0,
         notes: estimate?.notes || '',
+        acceptance_notes: estimate?.acceptance_notes || '',
         internal_memo: estimate?.internal_memo || '',
         google_docs_url: estimate?.google_docs_url || '',
         requirement_summary: estimate?.requirement_summary || '',
@@ -2355,6 +2356,16 @@ useEffect(() => {
                                 <div className="space-y-2">
                                     <Label htmlFor="external-remarks">備考（対外）</Label>
                                     <Textarea id="external-remarks" value={data.notes} onChange={(e) => setData('notes', e.target.value)} placeholder="お見積りの有効期限は発行後1ヶ月です。" />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="acceptance-remarks">備考（検収書用）</Label>
+                                    <Textarea
+                                        id="acceptance-remarks"
+                                        value={data.acceptance_notes}
+                                        onChange={(e) => setData('acceptance_notes', e.target.value)}
+                                        placeholder="検収条件、特記事項、検収時に記載したい注意事項を入力"
+                                    />
+                                    <p className="text-xs text-slate-500">検収書プレビューの備考欄にはこの内容だけを表示します。未入力時は空欄のまま印刷します。</p>
                                 </div>
                                 {isInternalView && (
                                     <>

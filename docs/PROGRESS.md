@@ -1050,3 +1050,5 @@
 - Step 154: 既存の `注文書プレビュー` 実装を流用して `resources/js/Pages/Estimates/AcceptancePreview.jsx` を追加。`GET /estimates/{estimate}/acceptance/preview`、`EstimateController` のプレビュー返却、見積編集画面の `検収書を印刷` ボタン、注文書一覧の `検収書` リンク、`v1.0.20` のバージョン・更新履歴を同期。
 - Step 155: 受注確定後に検収書ボタンが表示されない不具合を調査。`Create.jsx` のローカル `status` が古いままだと `is_order_confirmed` を自動解除する副作用があることを確認。
 - Step 156: 受注確定成功後に `status`/`is_order_confirmed` を明示同期し、サーバ再読込で `estimate` と `is_fully_approved` を更新するよう修正。検収書ボタンの表示条件もローカルとサーバの両方を見て判定するよう改善。
+- Step 157: 検収書レビューを受け、着手日を検収書から外す方針を確定。あわせて既存の対外備考 `notes` を検収書へ流用していた設計を見直し、検収書専用備考 `acceptance_notes` を追加する方針へ変更。
+- Step 158: `acceptance_notes` 用 migration / Model / Controller / 見積編集フォームを追加し、検収書プレビューは専用備考のみを表示するよう修正。UI表示バージョンを `v1.0.21` に更新し、更新履歴へ反映。

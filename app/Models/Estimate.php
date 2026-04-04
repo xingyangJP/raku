@@ -23,6 +23,11 @@ class Estimate extends Model
         $this->attributes['notes'] = $this->sanitizeMultilineText($value);
     }
 
+    public function setAcceptanceNotesAttribute($value): void
+    {
+        $this->attributes['acceptance_notes'] = $this->sanitizeMultilineText($value);
+    }
+
     protected $fillable = [
         'customer_name',
         'client_contact_name',
@@ -46,6 +51,7 @@ class Estimate extends Model
         'total_amount',
         'tax_amount',
         'notes',
+        'acceptance_notes',
         'items',
         'estimate_number',
         'staff_id',
