@@ -130,6 +130,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/estimates/{estimate}/purchase-order/preview', [App\Http\Controllers\EstimateController::class, 'purchaseOrderPreview'])
         ->whereNumber('estimate')
         ->name('estimates.purchaseOrder.preview');
+    Route::get('/estimates/{estimate}/acceptance/preview', [App\Http\Controllers\EstimateController::class, 'acceptancePreview'])
+        ->whereNumber('estimate')
+        ->name('estimates.acceptance.preview');
 
     // Create Quote from Estimate
     Route::get('/estimates/{estimate}/create-quote', [App\Http\Controllers\EstimateController::class, 'createMfQuote'])->name('estimates.createQuote.start');

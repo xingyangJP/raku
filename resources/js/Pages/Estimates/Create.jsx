@@ -678,7 +678,12 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         }, {
             onSuccess: () => {
                 setOrderConfirmDialogOpen(false);
+                setData('status', 'sent');
                 setData('is_order_confirmed', orderConfirmMode === 'confirm');
+                router.reload({
+                    only: ['estimate', 'is_fully_approved'],
+                    preserveScroll: true,
+                });
             },
             onError: (errors) => {
                 alert(errors?.order || errors?.start_date || errors?.delivery_date || '受注確定処理でエラーが発生しました。');
@@ -717,6 +722,7 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
         total_amount: estimate?.total_amount || 0,
         tax_amount: estimate?.tax_amount || 0,
         notes: estimate?.notes || '',
+        acceptance_notes: estimate?.acceptance_notes || '',
         internal_memo: estimate?.internal_memo || '',
         google_docs_url: estimate?.google_docs_url || '',
         requirement_summary: estimate?.requirement_summary || '',
@@ -876,10 +882,19 @@ export default function EstimateCreate({ auth, products, users = [], estimate = 
     }, [estimate?.items, initialSelectedStaff]);
 
     useEffect(() => {
-        if (data.status !== 'sent' && data.is_order_confirmed) {
+        const effectiveStatus = estimate?.status || data.status;
+        if (effectiveStatus !== 'sent' && data.is_order_confirmed) {
             setData('is_order_confirmed', false);
         }
-    }, [data.status]);
+    }, [estimate?.status, data.status, data.is_order_confirmed]);
+
+    useEffect(() => {
+        if (!estimate) {
+            return;
+        }
+        setData('status', estimate.status || 'draft');
+        setData('is_order_confirmed', estimate.is_order_confirmed ?? false);
+    }, [estimate?.status, estimate?.is_order_confirmed]);
 
     // data.status を直接参照して、現在のUIの状態を正しく判定する
     const isInApproval = useMemo(() => {
@@ -2342,6 +2357,16 @@ useEffect(() => {
                                     <Label htmlFor="external-remarks">備考（対外）</Label>
                                     <Textarea id="external-remarks" value={data.notes} onChange={(e) => setData('notes', e.target.value)} placeholder="お見積りの有効期限は発行後1ヶ月です。" />
                                 </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="acceptance-remarks">備考（検収書用）</Label>
+                                    <Textarea
+                                        id="acceptance-remarks"
+                                        value={data.acceptance_notes}
+                                        onChange={(e) => setData('acceptance_notes', e.target.value)}
+                                        placeholder="検収条件、特記事項、検収時に記載したい注意事項を入力"
+                                    />
+                                    <p className="text-xs text-slate-500">検収書プレビューの備考欄にはこの内容だけを表示します。未入力時は空欄のまま印刷します。</p>
+                                </div>
                                 {isInternalView && (
                                     <>
                                         <div className="space-y-2">
@@ -3136,6 +3161,15 @@ useEffect(() => {
                                             >
                                                 注文書を印刷
                                             </Button>
+                                            {(data.is_order_confirmed || estimate?.is_order_confirmed) && (
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() => window.open(route('estimates.acceptance.preview', { estimate: estimate.id }), '_blank')}
+                                                >
+                                                    検収書を印刷
+                                                </Button>
+                                            )}
                                             <Button type="button" onClick={() => router.post(route('invoices.fromEstimate', { estimate: estimate.id }))}>
                                                 自社請求書に変換
                                             </Button>

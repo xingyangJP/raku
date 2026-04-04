@@ -798,6 +798,7 @@ class EstimateController extends Controller
                 'total_amount' => 'required|integer',
                 'tax_amount' => 'required|integer',
                 'notes' => 'nullable|string',
+                'acceptance_notes' => 'nullable|string',
                 'internal_memo' => 'nullable|string',
                 'google_docs_url' => 'nullable|url|max:2048',
                 'delivery_location' => 'nullable|string',
@@ -841,6 +842,7 @@ class EstimateController extends Controller
                 'total_amount' => 'required|integer',
                 'tax_amount' => 'required|integer',
                 'notes' => 'nullable|string',
+                'acceptance_notes' => 'nullable|string',
                 'internal_memo' => 'nullable|string',
                 'google_docs_url' => 'nullable|url|max:2048',
                 'delivery_location' => 'nullable|string',
@@ -897,6 +899,7 @@ class EstimateController extends Controller
             'total_amount' => 'required|integer',
             'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
+            'acceptance_notes' => 'nullable|string',
             'internal_memo' => 'nullable|string',
             'google_docs_url' => 'nullable|url|max:2048',
             'delivery_location' => 'nullable|string',
@@ -1070,6 +1073,7 @@ class EstimateController extends Controller
             'total_amount' => 'required|integer',
             'tax_amount' => 'required|integer',
             'notes' => 'nullable|string',
+            'acceptance_notes' => 'nullable|string',
             'internal_memo' => 'nullable|string',
             'google_docs_url' => 'nullable|url|max:2048',
             'delivery_location' => 'nullable|string',
@@ -2298,6 +2302,22 @@ class EstimateController extends Controller
         ]);
     }
 
+    public function acceptancePreview(Estimate $estimate)
+    {
+        abort_if(!$estimate->is_order_confirmed, 403, '受注確定済み見積のみ検収書を表示できます。');
+
+        $company = $this->buildCompanyProfile();
+        $company['logoUrl'] = $this->resolveCompanyLogoUrl();
+
+        return Inertia::render('Estimates/AcceptancePreview', [
+            'estimate' => $estimate,
+            'company' => $company,
+            'client' => $this->buildClientProfile($estimate),
+            'purchaseOrderNumber' => $this->generatePurchaseOrderNumberForPreview($estimate),
+            'acceptanceNumber' => $this->generateAcceptanceNumberForPreview($estimate),
+        ]);
+    }
+
     public function structureRequirementSummary(Request $request)
     {
         $validated = $request->validate([
@@ -3145,6 +3165,16 @@ class EstimateController extends Controller
         }
 
         return sprintf('PO-%06d', $estimate->id);
+    }
+
+    private function generateAcceptanceNumberForPreview(Estimate $estimate): string
+    {
+        $estimateNumber = trim((string) ($estimate->estimate_number ?? ''));
+        if ($estimateNumber !== '') {
+            return 'AC-' . $estimateNumber;
+        }
+
+        return sprintf('AC-%06d', $estimate->id);
     }
 
     private function resolveRedirectUriForAction(?string $action): string

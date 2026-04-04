@@ -536,6 +536,7 @@ export default function OrdersIndex({ auth, orders = [], summary = {}, cashflow 
                                             <TableCell className="text-right space-x-2 whitespace-nowrap">
                                                 <Link href={route('estimates.edit', { estimate: order.id })} className="text-sm text-indigo-600 hover:text-indigo-800">詳細</Link>
                                                 <a href={route('estimates.purchaseOrder.preview', { estimate: order.id })} target="_blank" rel="noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800">注文書</a>
+                                                <a href={route('estimates.acceptance.preview', { estimate: order.id })} target="_blank" rel="noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800">検収書</a>
                                             </TableCell>
                                         </TableRow>
                                     ))}
