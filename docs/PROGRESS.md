@@ -219,6 +219,28 @@
 ### Step 24: ダッシュボード現状調査と再設計提案
 - 現行コードを調査し、`/dashboard` と `/orders` に予実・資金繰り・工数ロジックが分散していることを確認。
 
+## 2026-04-09
+
+### Step 25: dev ブランチ push 前確認
+- 依頼内容を `dev` ブランチの未 push コミット反映と整理。
+- 現在の Git 状態を確認し、`dev` が `origin/dev` に対して `ahead 1` であることを確認。
+- 未追跡ファイル `.claude/` は push 対象に含めない方針を確認。
+- team-architecture-mcp で事前確認を実施し、`docs/PROGRESS.md` 更新確認と検証記録が必要であることを確認。
+
+### Step 26: 未 push コミット特定
+- `origin/dev..dev` を確認し、未 push コミットが `0328f38 Fix dashboard latest month summary` の 1 件であることを確認。
+- `git fetch origin dev` を実施し、リモート最新取り込み後も `dev` の先行 1 コミット状態に変化がないことを確認。
+
+### Step 27: dev へ push 実施
+- `git push origin dev` を実施し、`0328f38 Fix dashboard latest month summary` を `origin/dev` へ反映。
+- push 後の `git status --short --branch` で `dev...origin/dev` となり、未 push コミットが解消したことを確認。
+- 作業中に追記した `docs/PROGRESS.md` と未追跡 `.claude/` はローカルにのみ残していることを確認。
+
+### Step 28: 未コミット差分の再確認
+- 追加依頼に基づき、未コミット差分を再確認。
+- 差分実体は `docs/PROGRESS.md` のみで、`.claude/` は未追跡ディレクトリだが共有対象ファイルは存在しないことを確認。
+- `docs/PROGRESS.md` のみをコミット対象として `dev` へ反映する方針を確定。
+
 - `予算=見積 / 実績=注文書` の概念自体は実装済みだが、UI・グラフ・AI分析・部門別導線が要件未達であることを整理。
 - 工数前提のズレを確認:
   - 現在の月間キャパ既定値は `80人日`
