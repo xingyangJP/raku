@@ -175,9 +175,30 @@ function SimpleComboChart({
         return <EmptyChartState />;
     }
 
-    const maxValue = Math.max(
-        1,
-        ...data.flatMap((row) => allSeries.map((series) => Number(row?.[series.key] ?? 0)))
+    const scaleGroups = allSeries.reduce((carry, series) => {
+        const groupKey = series.scaleGroup ?? 'default';
+        const existing = carry[groupKey] ?? {
+            key: groupKey,
+            label: series.scaleLabel ?? '最大値',
+            formatter: series.scaleFormatter ?? valueFormatter,
+            keys: [],
+        };
+
+        existing.keys.push(series.key);
+        if (!carry[groupKey]) {
+            carry[groupKey] = existing;
+        }
+
+        return carry;
+    }, {});
+    const scaleMaxMap = Object.fromEntries(
+        Object.values(scaleGroups).map((group) => ([
+            group.key,
+            Math.max(
+                1,
+                ...data.flatMap((row) => group.keys.map((key) => Number(row?.[key] ?? 0)))
+            ),
+        ]))
     );
 
     const groupWidth = chartWidth / Math.max(data.length, 1);
@@ -207,10 +228,13 @@ function SimpleComboChart({
         })),
     ] : [];
 
-    const toY = (value) => padding.top + chartHeight - (Math.max(0, Number(value || 0)) / maxValue) * chartHeight;
-    const linePath = (key) => data.map((row, index) => {
+    const toY = (value, scaleGroup = 'default') => {
+        const scaleMax = scaleMaxMap[scaleGroup] ?? 1;
+        return padding.top + chartHeight - (Math.max(0, Number(value || 0)) / scaleMax) * chartHeight;
+    };
+    const linePath = (key, scaleGroup = 'default') => data.map((row, index) => {
         const x = padding.left + groupWidth * index + groupWidth / 2;
-        const y = toY(row?.[key] ?? 0);
+        const y = toY(row?.[key] ?? 0, scaleGroup);
         return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
     }).join(' ');
 
@@ -230,7 +254,7 @@ function SimpleComboChart({
                             {barSeries.map((bar, barIndex) => {
                                 const value = Number(row?.[bar.key] ?? 0);
                                 const x = centerX - (barSeries.length * innerBarWidth) / 2 + barIndex * innerBarWidth;
-                                const y = toY(value);
+                                const y = toY(value, bar.scaleGroup);
                                 const h = Math.max(0, padding.top + chartHeight - y);
                                 return (
                                     <rect
@@ -258,7 +282,7 @@ function SimpleComboChart({
                 {lineSeries.map((line) => (
                     <path
                         key={line.key}
-                        d={linePath(line.key)}
+                        d={linePath(line.key, line.scaleGroup)}
                         fill="none"
                         stroke={line.color}
                         strokeWidth="3"
@@ -268,7 +292,7 @@ function SimpleComboChart({
                 ))}
                 {lineSeries.flatMap((line) => data.map((row, index) => {
                     const cx = padding.left + groupWidth * index + groupWidth / 2;
-                    const cy = toY(row?.[line.key] ?? 0);
+                    const cy = toY(row?.[line.key] ?? 0, line.scaleGroup);
                     return (
                         <circle
                             key={`${line.key}-${row?.[xKey] ?? index}`}
@@ -280,8 +304,12 @@ function SimpleComboChart({
                     );
                 }))}
             </svg>
-            <div className="mt-1 flex justify-end text-xs text-slate-500">
-                最大値: {valueFormatter(maxValue)}
+            <div className="mt-1 flex flex-wrap justify-end gap-x-4 gap-y-1 text-xs text-slate-500">
+                {Object.values(scaleGroups).map((group) => (
+                    <div key={group.key}>
+                        {group.label}: {group.formatter(scaleMaxMap[group.key] ?? 0)}
+                    </div>
+                ))}
             </div>
         </div>
     );
@@ -829,11 +857,11 @@ export default function Dashboard({
                             <SimpleComboChart
                                 data={overviewChartRows}
                                 bars={[
-                                    { key: 'budgetCash', label: 'ネット予定', color: '#fde68a' },
+                                    { key: 'budgetCash', label: 'ネット予定', color: '#fde68a', scaleGroup: 'cash', scaleLabel: '最大値（CF）', scaleFormatter: formatCurrency },
                                 ]}
                                 lines={[
-                                    { key: 'actualCash', label: 'ネット実績', color: '#f59e0b' },
-                                    { key: 'effort', label: '計画工数', color: '#4f46e5', formatter: formatPersonDays },
+                                    { key: 'actualCash', label: 'ネット実績', color: '#f59e0b', scaleGroup: 'cash', scaleLabel: '最大値（CF）', scaleFormatter: formatCurrency },
+                                    { key: 'effort', label: '計画工数', color: '#4f46e5', formatter: formatPersonDays, scaleGroup: 'effort', scaleLabel: '最大値（工数）', scaleFormatter: formatPersonDays },
                                 ]}
                                 summaryMonth={selectedMonth}
                             />
@@ -1211,10 +1239,10 @@ export default function Dashboard({
                                                 <SimpleComboChart
                                                     data={currentRows}
                                                     bars={[
-                                                        { key: 'effort', label: '計画工数', color: '#818cf8' },
+                                                        { key: 'effort', label: '計画工数', color: '#818cf8', scaleGroup: 'effort', scaleLabel: '最大値（工数）', scaleFormatter: formatPersonDays },
                                                     ]}
                                                     lines={[
-                                                        { key: 'utilization', label: '稼働率', color: '#4f46e5', formatter: formatPercent },
+                                                        { key: 'utilization', label: '稼働率', color: '#4f46e5', formatter: formatPercent, scaleGroup: 'utilization', scaleLabel: '最大値（稼働率）', scaleFormatter: formatPercent },
                                                     ]}
                                                     valueFormatter={formatPersonDays}
                                                     summaryMonth={selectedMonth}
