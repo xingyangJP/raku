@@ -6,6 +6,7 @@ yarn-error.log
 Thumbs.db
 
 # IDEs
+/.claude
 /.fleet
 /.idea
 /.nova
