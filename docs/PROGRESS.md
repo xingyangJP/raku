@@ -270,6 +270,11 @@
 - `resources/js/Pages/Dashboard.jsx` と `docs/PROGRESS.md` を `25575a6 Fix dashboard effort chart scaling` として `main` でコミット。
 - 系列別スケール対応を 1 コミットで固定し、`dev` へのマージ元を明確化。
 
+### Step 35: `main` push 後に `dev` へ反映
+- `main` を `origin/main` へ push し、グラフ修正をリモート共有。
+- `dev` に切り替えて `main` を取り込み、`f6a6681..362ea54` の fast-forward で反映完了。
+- 続けて `origin/dev` へ push して、開発ブランチにも同じ修正を共有する。
+
 - `予算=見積 / 実績=注文書` の概念自体は実装済みだが、UI・グラフ・AI分析・部門別導線が要件未達であることを整理。
 - 工数前提のズレを確認:
   - 現在の月間キャパ既定値は `80人日`
