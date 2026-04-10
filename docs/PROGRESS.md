@@ -266,6 +266,10 @@
 - 現在の作業差分が `main` 上の `Dashboard.jsx` と `docs/PROGRESS.md` にあることを確認。
 - まず `main` で修正をコミット・push し、その後 `dev` に `main` をマージして反映する方針を確定。
 
+### Step 34: グラフ修正を `main` でコミット
+- `resources/js/Pages/Dashboard.jsx` と `docs/PROGRESS.md` を `25575a6 Fix dashboard effort chart scaling` として `main` でコミット。
+- 系列別スケール対応を 1 コミットで固定し、`dev` へのマージ元を明確化。
+
 - `予算=見積 / 実績=注文書` の概念自体は実装済みだが、UI・グラフ・AI分析・部門別導線が要件未達であることを整理。
 - 工数前提のズレを確認:
   - 現在の月間キャパ既定値は `80人日`
