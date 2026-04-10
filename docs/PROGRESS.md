@@ -219,6 +219,38 @@
 ### Step 24: ダッシュボード現状調査と再設計提案
 - 現行コードを調査し、`/dashboard` と `/orders` に予実・資金繰り・工数ロジックが分散していることを確認。
 
+## 2026-04-09
+
+### Step 25: dev ブランチ push 前確認
+- 依頼内容を `dev` ブランチの未 push コミット反映と整理。
+- 現在の Git 状態を確認し、`dev` が `origin/dev` に対して `ahead 1` であることを確認。
+- 未追跡ファイル `.claude/` は push 対象に含めない方針を確認。
+- team-architecture-mcp で事前確認を実施し、`docs/PROGRESS.md` 更新確認と検証記録が必要であることを確認。
+
+### Step 26: 未 push コミット特定
+- `origin/dev..dev` を確認し、未 push コミットが `0328f38 Fix dashboard latest month summary` の 1 件であることを確認。
+- `git fetch origin dev` を実施し、リモート最新取り込み後も `dev` の先行 1 コミット状態に変化がないことを確認。
+
+### Step 27: dev へ push 実施
+- `git push origin dev` を実施し、`0328f38 Fix dashboard latest month summary` を `origin/dev` へ反映。
+- push 後の `git status --short --branch` で `dev...origin/dev` となり、未 push コミットが解消したことを確認。
+- 作業中に追記した `docs/PROGRESS.md` と未追跡 `.claude/` はローカルにのみ残していることを確認。
+
+### Step 28: 未コミット差分の再確認
+- 追加依頼に基づき、未コミット差分を再確認。
+- 差分実体は `docs/PROGRESS.md` のみで、`.claude/` は未追跡ディレクトリだが共有対象ファイルは存在しないことを確認。
+- `docs/PROGRESS.md` のみをコミット対象として `dev` へ反映する方針を確定。
+
+### Step 29: `.claude/` を ignore 対象へ追加
+- 空の未追跡ディレクトリ `.claude/` を Git 管理対象から外す依頼を受領。
+- 既存 `.gitignore` を確認し、`.claude/` の除外設定が未登録であることを確認。
+- 最小差分で `.gitignore` に `.claude/` を追加する方針を確定。
+
+### Step 30: `main` マージ準備
+- `main` へのマージ依頼を受領し、現在の `dev` / `main` の差分と未コミット差分を確認。
+- `main` は `d3514f3`、`dev` は `bce6b48` で、`dev` 側の未コミット差分 `.gitignore` / `docs/PROGRESS.md` が未反映であることを確認。
+- 先に `dev` 上の未コミット差分をコミット・push してから `main` にマージする方針を確定。
+
 - `予算=見積 / 実績=注文書` の概念自体は実装済みだが、UI・グラフ・AI分析・部門別導線が要件未達であることを整理。
 - 工数前提のズレを確認:
   - 現在の月間キャパ既定値は `80人日`
@@ -443,12 +475,24 @@
 - 見積入力画面では、内部表示時のみ各明細の下に `担当者按分` エリアを追加し、担当者追加、割合入力、均等按分を行えるようにした。
 - 保存テストとして、通常保存・更新・下書き保存の3経路で按分データが正規化されることを `EstimateItemAssignmentTest` で追加確認した。
 - ログ確認で `loadProducts()` の `orderBy('name')` がカテゴリ結合時に曖昧になる既存不具合を検知したため、`orderBy('products.name')` へ補正した。
+
+### Step 60: ダッシュボード月次グラフの「最新月」表示ずれ修正
+- 年次グラフのサマリチップが配列末尾の12月を機械的に `最新` 扱いしていたため、表示対象の選択月までで最後の月を採用するよう `Dashboard.jsx` を補正した。
+- `SimpleComboChart` にサマリ対象月を渡せるようにし、全社グラフとセクション別の資金繰り・工数グラフで `selectedMonth` を利用するよう統一した。
+- 想定確認:
+  - `year=2026&month=4` では `最新 4月`
+  - `year=2026&month=12` では `最新 12月`
+  - 年間推移グラフ自体の描画範囲（1月〜12月）は変更しない
 - ローカル確認中に `company_settings.operational_staff_count` 不足でログイン時に 500 になったため、未適用 migration を既存DBでも通るよう安全化してから適用した。
 - 確認:
   - `npm run build`
   - `php artisan test tests/Feature/EstimateItemAssignmentTest.php tests/Feature/DashboardTest.php`
   - `php -l app/Services/EstimateItemAssignmentNormalizer.php`
   - `php -l app/Http/Controllers/EstimateController.php`
+
+### Step 61: `dev` マージ依頼の実行可否確認
+- `git --version` 実行時点で `You have not agreed to the Xcode license agreements.` により Git 操作全体がブロックされていることを確認した。
+- この状態では現在ブランチ確認、`dev` への checkout、merge、commit のいずれも安全に実行できないため、Xcode ライセンス同意完了待ちで停止した。
 
 ### Step 47: ダッシュボードへ担当者別の空き状況を追加
 - `ManagementMetricsService` で、見積明細の `assignees` を使った担当者別予定工数の月次集計を追加した。対象月はダッシュボードの年/月フィルタに連動し、明細工数を担当割合で按分して `総合 / 開発 / 仕入れ販売` へ配賦する。

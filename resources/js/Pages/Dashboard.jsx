@@ -35,6 +35,13 @@ const formatMonthTick = (label) => {
 
     return String(label);
 };
+const parseMonthNumber = (label) => {
+    if (!label) return null;
+    const matched = String(label).match(/(\d{1,2})月/);
+    if (!matched) return null;
+
+    return Number(matched[1]);
+};
 const formatSignedCurrency = (value) => `${value > 0 ? '+' : value < 0 ? '-' : ''}${formatCurrency(Math.abs(Number(value || 0)))}`;
 const formatSignedPercent = (value) => `${value > 0 ? '+' : value < 0 ? '-' : ''}${Math.abs(Number(value || 0)).toFixed(1)}%`;
 
@@ -150,6 +157,7 @@ function SimpleComboChart({
     lines = [],
     height = 220,
     valueFormatter = formatCurrency,
+    summaryMonth = null,
 }) {
     if (!Array.isArray(data) || data.length === 0) {
         return <EmptyChartState />;
@@ -174,7 +182,16 @@ function SimpleComboChart({
 
     const groupWidth = chartWidth / Math.max(data.length, 1);
     const innerBarWidth = barSeries.length > 0 ? Math.min(28, (groupWidth * 0.7) / barSeries.length) : 0;
-    const latestRow = data[data.length - 1] ?? null;
+    const latestRow = Number.isFinite(summaryMonth)
+        ? data.reduce((candidate, row) => {
+            const monthNumber = parseMonthNumber(row?.[xKey]);
+            if (monthNumber === null || monthNumber > summaryMonth) {
+                return candidate;
+            }
+
+            return row;
+        }, null) ?? data[data.length - 1] ?? null
+        : data[data.length - 1] ?? null;
     const latestValueItems = latestRow ? [
         ...barSeries.map((item) => ({
             type: 'bar',
@@ -797,6 +814,7 @@ export default function Dashboard({
                                     { key: 'budgetGross', label: '粗利予算', color: '#4ade80' },
                                     { key: 'actualGross', label: '粗利実績', color: '#15803d' },
                                 ]}
+                                summaryMonth={selectedMonth}
                             />
                         ) : (
                             <EmptyChartState />
@@ -817,6 +835,7 @@ export default function Dashboard({
                                     { key: 'actualCash', label: 'ネット実績', color: '#f59e0b' },
                                     { key: 'effort', label: '計画工数', color: '#4f46e5', formatter: formatPersonDays },
                                 ]}
+                                summaryMonth={selectedMonth}
                             />
                         ) : (
                             <EmptyChartState />
@@ -1171,6 +1190,7 @@ export default function Dashboard({
                                                     lines={[
                                                         { key: 'actualCash', label: 'ネット実績', color: '#f59e0b' },
                                                     ]}
+                                                    summaryMonth={selectedMonth}
                                                 />
                                             ) : (
                                                 <EmptyChartState />
@@ -1197,6 +1217,7 @@ export default function Dashboard({
                                                         { key: 'utilization', label: '稼働率', color: '#4f46e5', formatter: formatPercent },
                                                     ]}
                                                     valueFormatter={formatPersonDays}
+                                                    summaryMonth={selectedMonth}
                                                 />
                                             ) : (
                                                 <EmptyChartState />
