@@ -251,6 +251,11 @@
 - `main` は `d3514f3`、`dev` は `bce6b48` で、`dev` 側の未コミット差分 `.gitignore` / `docs/PROGRESS.md` が未反映であることを確認。
 - 先に `dev` 上の未コミット差分をコミット・push してから `main` にマージする方針を確定。
 
+### Step 31: `dev` 更新と `main` マージ実施
+- `dev` 上で `.gitignore` と `docs/PROGRESS.md` を `f6a6681 Ignore .claude directory` としてコミットし、`origin/dev` へ push。
+- `main` に切り替え、`git merge --no-ff dev` を実施。
+- 競合なく `Dashboard.jsx`、`.gitignore`、`docs/PROGRESS.md` を含むマージが完了したことを確認。
+
 - `予算=見積 / 実績=注文書` の概念自体は実装済みだが、UI・グラフ・AI分析・部門別導線が要件未達であることを整理。
 - 工数前提のズレを確認:
   - 現在の月間キャパ既定値は `80人日`
