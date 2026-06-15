@@ -66,8 +66,19 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 - `MONEY_FORWARD_PARTNER_AUTH_REDIRECT_URI` (省略時 `route('partners.auth.callback')`): パートナー同期用。
 - `MONEY_FORWARD_BILLING_SYNC_THROTTLE_MINUTES`, `MONEY_FORWARD_BILLING_SYNC_PAGE_SIZE`: 請求同期の頻度とページサイズ。
 - `MONEY_FORWARD_QUOTE_SYNC_THROTTLE_MINUTES`, `MONEY_FORWARD_QUOTE_SYNC_PAGE_SIZE`: 見積同期の頻度とページサイズ。
+- `EXTERNAL_INTEGRATION_API_TOKEN`: 外部連携 API (`/api/v1/...`) の Bearer 認証トークン。
 
 > 旧 `*_REDIRECT_URI` 系の環境変数（例: `MONEY_FORWARD_ESTIMATE_REDIRECT_URI`）は現行コードでは使用していません。必要であれば将来的な互換用として残置できますが、設定しなくても動作します。
+
+## External Integration API
+外部システムから受注確定済み見積を取得する API を提供します。すべてのリクエストで `Authorization: Bearer <EXTERNAL_INTEGRATION_API_TOKEN>` が必要です。
+
+| Endpoint | 用途 |
+| --- | --- |
+| `GET /api/v1/confirmed-estimates` | 受注確定済み見積の一覧。税抜小計、消費税、税込合計、工数人日を返します。 |
+| `GET /api/v1/confirmed-estimates/{id}` | 受注確定済み見積の詳細。安全な明細情報と明細別の税抜小計・工数人日を返します。 |
+
+詳細なレスポンス項目と curl 例はアプリ内の「ヘルプ > API連携」を参照してください。
 
 ## Redirect URIs to Register in Money Forward
 アプリポータルに以下を登録してください（ローカル開発時の例）:
@@ -110,4 +121,4 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 
 
 # Google chat web hook
-https://chat.googleapis.com/v1/spaces/AAAAfCLsmqM/messages?key=AIzaSyDdI0hCZtE6vySjMm-WEfRq3CPzqKqqsHI&token=yF-90RVetrGW8nUxZTl9xJIPXvCXPhfsnxAsPOCByd8
+Google Chat 通知先は `GOOGLE_CHAT_APPROVAL_WEBHOOK` に設定してください。Webhook URL は README に直書きしません。

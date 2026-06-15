@@ -12,7 +12,10 @@ class QuoteOperationsSummaryService
 {
     private const FIRST_BUSINESS_KEY = 'first_business';
 
-    public function __construct(private readonly EstimateEffortAllocationService $effortAllocation)
+    public function __construct(
+        private readonly EstimateEffortAllocationService $effortAllocation,
+        private readonly EstimateMetricsService $estimateMetrics
+    )
     {
     }
 
@@ -27,9 +30,9 @@ class QuoteOperationsSummaryService
 
         $products = Product::query()
             ->where('is_active', true)
-            ->get(['id', 'name', 'sku', 'business_division']);
+            ->get(['id', 'name', 'sku', 'unit', 'business_division']);
 
-        $productLookups = $this->buildProductLookups($products);
+        $productLookups = $this->estimateMetrics->buildProductLookups($products);
 
         $estimates = Estimate::query()
             ->whereNull('mf_deleted_at')
@@ -95,8 +98,8 @@ class QuoteOperationsSummaryService
 
         $confirmed = $confirmed->filter(fn (Estimate $estimate) => array_key_exists($monthKey, $this->effortAllocation->resolveMonthlyRatios($estimate, $timezone)));
 
-        $plannedPersonDays = round($confirmed->sum(function (Estimate $estimate) use ($productLookups, $defaultCapacityPerPersonDays, $personHoursPerPersonDay, $timezone, $monthKey) {
-            $totalEffort = $this->calculateEffort($estimate, $productLookups, $defaultCapacityPerPersonDays, $personHoursPerPersonDay);
+        $plannedPersonDays = round($confirmed->sum(function (Estimate $estimate) use ($productLookups, $timezone, $monthKey) {
+            $totalEffort = $this->estimateMetrics->calculateEffort($estimate, $productLookups);
 
             return (float) ($this->effortAllocation->resolveMonthlyEffort($estimate, $totalEffort, $timezone)[$monthKey] ?? 0);
         }), 1);

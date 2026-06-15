@@ -270,6 +270,11 @@
 - `resources/js/Pages/Dashboard.jsx` と `docs/PROGRESS.md` を `25575a6 Fix dashboard effort chart scaling` として `main` でコミット。
 - 系列別スケール対応を 1 コミットで固定し、`dev` へのマージ元を明確化。
 
+### Step 35: `main` push 後に `dev` へ反映
+- `main` を `origin/main` へ push し、グラフ修正をリモート共有。
+- `dev` に切り替えて `main` を取り込み、`f6a6681..362ea54` の fast-forward で反映完了。
+- 続けて `origin/dev` へ push して、開発ブランチにも同じ修正を共有する。
+
 - `予算=見積 / 実績=注文書` の概念自体は実装済みだが、UI・グラフ・AI分析・部門別導線が要件未達であることを整理。
 - 工数前提のズレを確認:
   - 現在の月間キャパ既定値は `80人日`
@@ -1115,3 +1120,19 @@
 - Step 156: 受注確定成功後に `status`/`is_order_confirmed` を明示同期し、サーバ再読込で `estimate` と `is_fully_approved` を更新するよう修正。検収書ボタンの表示条件もローカルとサーバの両方を見て判定するよう改善。
 - Step 157: 検収書レビューを受け、着手日を検収書から外す方針を確定。あわせて既存の対外備考 `notes` を検収書へ流用していた設計を見直し、検収書専用備考 `acceptance_notes` を追加する方針へ変更。
 - Step 158: `acceptance_notes` 用 migration / Model / Controller / 見積編集フォームを追加し、検収書プレビューは専用備考のみを表示するよう修正。UI表示バージョンを `v1.0.21` に更新し、更新履歴へ反映。
+- Step 159: 本番 `/admin` で綿部さん・大野さんが表示されない報告を受け、admin のユーザー別キャパ表示条件を調査開始。表示母集団は `users` テーブルの `visibleForBusiness()` 対象で、Codex 補助ユーザー以外は基本的に除外されないことを確認。
+  - 外部 API `https://api.xerographix.co.jp/api/users` には `綿部真理子` / `大野夏奈` が含まれる一方、local `users` と admin 表示母集団には未登録であることを確認。
+  - `users:sync-external` は外部ユーザーを upsert する既存コマンドだが、deploy 後に自動実行される設定や schedule は見当たらない。production での実行は `users` テーブル更新を伴うため、実行前確認が必要。
+  - 利用者承認を受け、本番 `/home/xero/raku` で `users:sync-external` を実行し、同期後に該当2名が `users` と admin 表示母集団へ入るか確認する。
+  - 本番で `users:sync-external` を実行し、`取得12件 / 作成2件 / 更新1件 / external_user_id紐付け2件 / 合計12件` を確認。同期後、`綿部真理子` は users id 11 / external id 15、`大野夏奈` は users id 12 / external id 16 として作成された。
+  - admin 表示母集団は 12 名、`resolveOperationalStaffCount()` は 12、月間キャパは 165.1 人日に更新された。追加2名への既存見積参照は `staff_refs=0` / `item_refs=0` で、直後のロールバックは追加2ユーザー削除で可能。
+  - 外部連携用 API の有無を追加調査。`routes/api.php` は存在せず、登録済み `/api/...` は `GET /api/customers`、`GET /api/users`、`GET /api/partners/{partner}/departments` の3本のみ。いずれも `routes/web.php` 配下の候補取得・外部ユーザー参照用途で、外部システム向けの認証付き公開APIとしては未整備。
+  - 外部から受注確定済み見積・工数・小計税抜を取得する API の実装承認を受けた。Bearer 固定トークン認証、`GET /api/v1/confirmed-estimates`、ヘルプ画面の API リファレンス追加、Feature test 追加の方針で実装する。
+  - `routes/api.php` と Bearer 認証 middleware を追加し、`GET /api/v1/confirmed-estimates` / `GET /api/v1/confirmed-estimates/{id}` を実装。受注確定済みかつ削除扱いでない見積だけを返し、税抜小計・消費税・税込合計・工数人日をレスポンスへ含める。
+  - `EstimateMetricsService` を追加し、税抜小計と工数人日計算をAPIと既存見積運用サマリーで共通化。小計は保存済み `total_amount - tax_amount` を優先し、保存値欠落時だけ明細合計へ fallback する。
+  - ヘルプ画面に `API連携` 章を追加し、認証、一覧/詳細 endpoint、レスポンス項目、curl 例を記載。README にも外部連携 API と `EXTERNAL_INTEGRATION_API_TOKEN` を追記し、直書きされていた Google Chat webhook は環境変数案内へ置換した。
+  - API追加に伴い UI 表示バージョンを `v1.0.22` へ更新し、更新履歴と ReleaseNoteTest を同期した。
+  - 検証として `php -l`、`php artisan route:list --path=api/v1`、`php artisan test --filter=ConfirmedEstimateApiTest`、`ReleaseNoteTest`、`DashboardTest`、`npm run build`、`php artisan route:cache && php artisan route:clear` を実行し、いずれも成功。
+  - 本番 `/home/xero/raku/.env` に `EXTERNAL_INTEGRATION_API_TOKEN` を追加。変更前バックアップは `.env.backup.external-api-token-20260615095931`、生成tokenのローカル控えは `/private/tmp/raku_external_integration_api_token.txt` に `0600` で保存した。本番コードはまだ未反映のため、API有効化には commit / push / deploy が必要。
+  - push 前確認として `php artisan test --filter=ConfirmedEstimateApiTest` と `php artisan test --filter=ReleaseNoteTest` を再実行し、どちらも成功。`rg` で repo 内に token 実値や Google Chat webhook URL が含まれていないことを確認した。
+  - `dev` への push と `salesdev` deploy 成功後、利用者依頼により `main` へ merge して本番反映する作業を開始。merge は競合なしで適用できたため、本番 deploy 後に `/api/v1/confirmed-estimates` と token 認証を確認する。

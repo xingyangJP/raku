@@ -3,6 +3,17 @@
 return [
     'entries' => [
         [
+            'version' => 'v1.0.22',
+            'released_at' => '2026-06-12',
+            'title' => '外部連携APIとAPIリファレンスを追加',
+            'summary' => '外部システムから受注確定済み見積の工数と小計を取得できるAPIを追加しました。',
+            'items' => [
+                'Bearer トークン認証付きの `GET /api/v1/confirmed-estimates` と `GET /api/v1/confirmed-estimates/{id}` を追加しました。',
+                'APIレスポンスに税抜小計、消費税、税込合計、工数人日を含めるようにしました。',
+                'ヘルプ画面にAPIリファレンスを追加し、認証方式、エンドポイント、レスポンス例を確認できるようにしました。',
+            ],
+        ],
+        [
             'version' => 'v1.0.21',
             'released_at' => '2026-04-03',
             'title' => '検収書の表示項目と備考入力を調整',

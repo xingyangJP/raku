@@ -30,6 +30,7 @@ const navigationGroups = [
     { id: 'products', label: '商品管理', icon: Package },
     { id: 'settings', label: '設定 / キャパ', icon: Settings2 },
     { id: 'sync', label: 'MF連携', icon: RefreshCw },
+    { id: 'api', label: 'API連携', icon: LinkIcon },
     { id: 'faq', label: '困ったとき', icon: Workflow },
 ];
 
@@ -349,6 +350,54 @@ const sectionGroups = [
                 title: '再認証が必要なとき',
                 items: [
                     'トークンが失効すると再認証が必要です。再認証メッセージが出た画面からやり直してください。',
+                ],
+            },
+        ],
+    },
+    {
+        id: 'api',
+        title: 'API連携',
+        icon: LinkIcon,
+        summary: '外部システムから受注確定済み見積の金額と工数を取得するためのAPIです。',
+        chips: ['Bearer認証', '受注確定のみ', '税抜小計/工数'],
+        sections: [
+            {
+                title: '認証',
+                items: [
+                    'すべてのAPIリクエストに `Authorization: Bearer <APIトークン>` ヘッダを付けます。',
+                    'APIトークンは環境変数 `EXTERNAL_INTEGRATION_API_TOKEN` で設定します。未設定または不一致の場合は 401 を返します。',
+                    'このAPIは外部連携用です。ブラウザのログインセッションやCSRFトークンは使いません。',
+                ],
+            },
+            {
+                title: '受注確定済み見積一覧',
+                items: [
+                    '`GET /api/v1/confirmed-estimates` で、`is_order_confirmed = true` かつ削除扱いでない見積だけを取得します。',
+                    'クエリは `per_page` を 1〜100 で指定できます。未指定時は 50 件です。',
+                    '`updated_since=2026-06-01T00:00:00+09:00` を付けると、指定日時以降に更新された見積だけを取得できます。',
+                ],
+            },
+            {
+                title: '受注確定済み見積詳細',
+                items: [
+                    '`GET /api/v1/confirmed-estimates/{id}` で1件の詳細を取得します。未受注、削除扱い、存在しないIDは 404 です。',
+                    '詳細レスポンスには明細配列も含めます。明細ごとに数量、単位、単価、税抜小計、工数人日を返します。',
+                    '原価、粗利、社内メモ、承認フローなどの内部情報は返しません。',
+                ],
+            },
+            {
+                title: 'レスポンス項目',
+                items: [
+                    '`subtotal_excluding_tax` は保存済みの税込合計 `total_amount` から `tax_amount` を引いた税抜小計です。保存値が欠ける場合は明細金額から補完します。',
+                    '`effort_person_days` は第1種を除外し、人日・人月・時間系の単位を人日に換算した工数です。',
+                    '日付は `YYYY-MM-DD`、更新日時は ISO 8601 形式で返します。',
+                ],
+            },
+            {
+                title: 'curl例',
+                items: [
+                    '`curl -H "Authorization: Bearer <APIトークン>" "https://sales.xerographix.co.jp/api/v1/confirmed-estimates"`',
+                    '`curl -H "Authorization: Bearer <APIトークン>" "https://sales.xerographix.co.jp/api/v1/confirmed-estimates/123"`',
                 ],
             },
         ],
