@@ -1149,3 +1149,4 @@
 
 - Step 160: Firebase リビルド向けの要件定義書・詳細設計書作成に着手。現行コード、README、API_REFERENCE、見積/請求/保守売上関連 docs、MF 連携サービス、集計サービス、主要モデルを確認し、`docs/firebase-rebuild/` に新規整理する方針にした。
 - `docs/firebase-rebuild/README.md`、`requirements.md`、`detailed-design.md` を追加し、現行機能を Firebase Auth / Firestore / Cloud Functions / Storage / Hosting 前提で再整理した。Money Forward API 連携、顧客 API 連携、社員 API 連携は現行実装として記録しつつ、新システムでは再検討事項として明記した。
+- Step 161: 利用者指摘を受け、新システムの DB が Cloud Firestore であることを `docs/firebase-rebuild/README.md`、`requirements.md`、`detailed-design.md` に明記。MySQL は現行システムおよび移行元/検証比較元としてのみ扱う表現へ補強した。

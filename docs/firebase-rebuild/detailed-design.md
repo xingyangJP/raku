@@ -4,6 +4,8 @@
 
 現行 Laravel/MySQL の業務概念を維持し、Firebase では次の責務に分ける。
 
+新システムの DB は Cloud Firestore とする。MySQL は現行システムの DB であり、移行元と移行検証用の比較対象としてのみ扱う。
+
 | Firebase 機能 | 責務 |
 | --- | --- |
 | Firebase Hosting | React アプリ配信 |

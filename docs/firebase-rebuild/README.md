@@ -14,7 +14,8 @@
 ## 前提
 
 - 現行システムは Laravel 12 + Inertia/React + MySQL で構成されている。
-- 新システムは Firebase を中心に、Auth / Firestore / Cloud Functions / Storage / Hosting の利用を想定する。
+- 新システムの DB は Cloud Firestore とする。
+- 新システムは Firebase を中心に、Auth / Cloud Firestore / Cloud Functions / Storage / Hosting の利用を想定する。
 - Money Forward API 連携、顧客 API 連携、社員 API 連携は現行実装に存在するが、新システムでは同じ方式を前提にしない。
 - 特に Money Forward API と顧客 API の連携方式は「新システムで再検討」とし、移行初期の確定仕様には含めない。
 
