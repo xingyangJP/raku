@@ -64,4 +64,8 @@ return [
         'base_url' => env('CUSTOMER_PORTAL_BASE_URL', 'https://pm.xerographix.co.jp/customers'),
     ],
 
+    'external_integration' => [
+        'token' => env('EXTERNAL_INTEGRATION_API_TOKEN'),
+    ],
+
 ];
