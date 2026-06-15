@@ -14,11 +14,16 @@ class EstimateMetricsService
     {
         $lookups = $productLookups ?? $this->buildProductLookups();
         $subtotal = $this->calculateSubtotalExcludingTax($estimate);
+        $developmentSubtotal = $this->calculateDevelopmentSubtotalExcludingTax($estimate, $lookups);
+        $firstBusinessSubtotal = $this->calculateFirstBusinessSubtotalExcludingTax($estimate, $lookups);
         $taxAmount = $this->numberOrZero($estimate->tax_amount);
         $totalAmount = $this->numberOrZero($estimate->total_amount);
 
         return [
             'subtotal_excluding_tax' => $subtotal,
+            'sales_subtotal_excluding_tax' => $subtotal,
+            'development_subtotal_excluding_tax' => $developmentSubtotal,
+            'first_business_subtotal_excluding_tax' => $firstBusinessSubtotal,
             'tax_amount' => $taxAmount,
             'total_amount' => $totalAmount,
             'effort_person_days' => $this->calculateEffort($estimate, $lookups),
@@ -34,6 +39,16 @@ class EstimateMetricsService
         return round($this->calculateItemsSubtotal($estimate->items ?? []), 1);
     }
 
+    public function calculateDevelopmentSubtotalExcludingTax(Estimate $estimate, ?array $productLookups = null): float
+    {
+        return $this->calculateItemsSubtotalByBusinessDivision($estimate, $productLookups, includeFirstBusiness: false);
+    }
+
+    public function calculateFirstBusinessSubtotalExcludingTax(Estimate $estimate, ?array $productLookups = null): float
+    {
+        return $this->calculateItemsSubtotalByBusinessDivision($estimate, $productLookups, includeFirstBusiness: true);
+    }
+
     public function calculateEffort(Estimate $estimate, ?array $productLookups = null): float
     {
         $lookups = $productLookups ?? $this->buildProductLookups();
@@ -44,7 +59,7 @@ class EstimateMetricsService
         return round(collect($items)->sum(function ($item) use ($lookups, $defaultCapacityPerPersonDays, $personHoursPerPersonDay) {
             $item = is_array($item) ? $item : [];
             $product = $this->resolveProduct($item, $lookups);
-            $businessDivision = $item['business_division'] ?? ($product->business_division ?? null);
+            $businessDivision = $this->resolveBusinessDivision($item, $product);
 
             if ($businessDivision === self::FIRST_BUSINESS_KEY) {
                 return 0;
@@ -144,6 +159,29 @@ class EstimateMetricsService
             return $this->numberOrZero($item['qty'] ?? $item['quantity'] ?? 0)
                 * $this->numberOrZero($item['price'] ?? $item['unit_price'] ?? 0);
         });
+    }
+
+    private function calculateItemsSubtotalByBusinessDivision(Estimate $estimate, ?array $productLookups, bool $includeFirstBusiness): float
+    {
+        $lookups = $productLookups ?? $this->buildProductLookups();
+        $items = is_array($estimate->items) ? $estimate->items : [];
+
+        return round(collect($items)->sum(function ($item) use ($lookups, $includeFirstBusiness) {
+            $item = is_array($item) ? $item : [];
+            $product = $this->resolveProduct($item, $lookups);
+            $isFirstBusiness = $this->resolveBusinessDivision($item, $product) === self::FIRST_BUSINESS_KEY;
+
+            if ($isFirstBusiness !== $includeFirstBusiness) {
+                return 0;
+            }
+
+            return $this->calculateItemsSubtotal([$item]);
+        }), 1);
+    }
+
+    private function resolveBusinessDivision(array $item, ?Product $product): ?string
+    {
+        return $item['business_division'] ?? ($product->business_division ?? null);
     }
 
     private function numberOrZero(mixed $value): float

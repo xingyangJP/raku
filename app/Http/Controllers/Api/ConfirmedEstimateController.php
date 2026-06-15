@@ -10,9 +10,7 @@ use Illuminate\Http\Request;
 
 class ConfirmedEstimateController extends Controller
 {
-    public function __construct(private readonly EstimateMetricsService $metrics)
-    {
-    }
+    public function __construct(private readonly EstimateMetricsService $metrics) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -30,7 +28,7 @@ class ConfirmedEstimateController extends Controller
             ->orderByDesc('updated_at')
             ->orderByDesc('id');
 
-        if (!empty($validated['updated_since'])) {
+        if (! empty($validated['updated_since'])) {
             $query->where('updated_at', '>=', $validated['updated_since']);
         }
 
@@ -51,7 +49,7 @@ class ConfirmedEstimateController extends Controller
 
     public function show(Estimate $estimate): JsonResponse
     {
-        if (!$estimate->is_order_confirmed || $estimate->mf_deleted_at !== null) {
+        if (! $estimate->is_order_confirmed || $estimate->mf_deleted_at !== null) {
             abort(404);
         }
 
@@ -78,6 +76,9 @@ class ConfirmedEstimateController extends Controller
             'staff_id' => $estimate->staff_id,
             'staff_name' => $estimate->staff_name,
             'subtotal_excluding_tax' => $metrics['subtotal_excluding_tax'],
+            'sales_subtotal_excluding_tax' => $metrics['sales_subtotal_excluding_tax'],
+            'development_subtotal_excluding_tax' => $metrics['development_subtotal_excluding_tax'],
+            'first_business_subtotal_excluding_tax' => $metrics['first_business_subtotal_excluding_tax'],
             'tax_amount' => $metrics['tax_amount'],
             'total_amount' => $metrics['total_amount'],
             'effort_person_days' => $metrics['effort_person_days'],

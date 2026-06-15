@@ -75,10 +75,10 @@ RAKUSHIRU Cloud は、社内の見積・請求ワークフローを Money Forwar
 
 | Endpoint | 用途 |
 | --- | --- |
-| `GET /api/v1/confirmed-estimates` | 受注確定済み見積の一覧。税抜小計、消費税、税込合計、工数人日を返します。 |
+| `GET /api/v1/confirmed-estimates` | 受注確定済み見積の一覧。売上用税抜小計、開発管理用税抜小計、消費税、税込合計、工数人日を返します。 |
 | `GET /api/v1/confirmed-estimates/{id}` | 受注確定済み見積の詳細。安全な明細情報と明細別の税抜小計・工数人日を返します。 |
 
-詳細なレスポンス項目と curl 例はアプリ内の「ヘルプ > API連携」を参照してください。
+開発の予実・工数管理では、第1種を含む `subtotal_excluding_tax` ではなく `development_subtotal_excluding_tax` を使用してください。詳細なレスポンス項目と curl 例はアプリ内の「ヘルプ > API連携」を参照してください。
 
 ## Redirect URIs to Register in Money Forward
 アプリポータルに以下を登録してください（ローカル開発時の例）:

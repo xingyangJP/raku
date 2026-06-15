@@ -1138,3 +1138,14 @@
   - `dev` への push と `salesdev` deploy 成功後、利用者依頼により `main` へ merge して本番反映する作業を開始。merge は競合なしで適用できたため、本番 deploy 後に `/api/v1/confirmed-estimates` と token 認証を確認する。
   - `main` へ merge commit `b330b6b` を push し、GitHub Actions `Deploy to Xserver` run `27518038967` が success で完了。本番 `/home/xero/raku` で `/api/v1/confirmed-estimates` / `{estimate}` のルート登録と `services.external_integration.token` 読み込みを確認した。
   - 本番 `https://sales.xerographix.co.jp/api/v1/confirmed-estimates` は token なしで `401 Unauthenticated.`、本番 `.env` の token 付きで `200` と受注確定済み見積 JSON が返ることを確認。直近ログに API 関連 error はなし。
+  - 見積システムの外部連携 API リファレンスとして `docs/API_REFERENCE.md` を追加。認証、エンドポイント、クエリ、レスポンス項目、エラー、curl例、運用メモを既存実装に沿って整理した。
+  - ローカル `.env` に見積外部連携 API 用 `EXTERNAL_INTEGRATION_API_TOKEN` が未設定だったため、生成済み控え `/private/tmp/raku_external_integration_api_token.txt` から値を読み込み追加した。値は出力せず、`config('services.external_integration.token')` が `set` になることを確認した。
+  - 外部連携 API を開発の予実・工数管理でも誤用しないよう修正開始。既存 `subtotal_excluding_tax` は第1種を含む売上用として互換維持し、新たに `sales_subtotal_excluding_tax`、`development_subtotal_excluding_tax`、`first_business_subtotal_excluding_tax` を返す方針にした。
+  - `EstimateMetricsService` と `ConfirmedEstimateController` を更新し、見積全体の売上小計、第1種除外の開発管理用小計、第1種のみの小計を API レスポンスへ追加。Feature test、ヘルプ、README、`docs/API_REFERENCE.md`、更新履歴を同期し、UI表示バージョンを `v1.0.23` に更新した。
+  - `docs/API_REFERENCE.md` に API の使い方を追記。初回同期、`updated_since` による差分同期、一覧APIと詳細APIの使い分け、予実管理システム側の保存項目対応、開発予算では `development_subtotal_excluding_tax` を使い第1種金額を除外する注意点を明記した。
+  - 利用者から「全部push」指示を受け、未追跡の `docs/firebase-rebuild/` も含める方針で確認。Firebase移植向け README / 要件定義 / 詳細設計の3文書であること、実値tokenやWebhook URLが含まれないことを確認した。
+
+## 2026-06-15
+
+- Step 160: Firebase リビルド向けの要件定義書・詳細設計書作成に着手。現行コード、README、API_REFERENCE、見積/請求/保守売上関連 docs、MF 連携サービス、集計サービス、主要モデルを確認し、`docs/firebase-rebuild/` に新規整理する方針にした。
+- `docs/firebase-rebuild/README.md`、`requirements.md`、`detailed-design.md` を追加し、現行機能を Firebase Auth / Firestore / Cloud Functions / Storage / Hosting 前提で再整理した。Money Forward API 連携、顧客 API 連携、社員 API 連携は現行実装として記録しつつ、新システムでは再検討事項として明記した。

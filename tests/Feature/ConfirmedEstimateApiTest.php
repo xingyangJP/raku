@@ -95,6 +95,9 @@ class ConfirmedEstimateApiTest extends TestCase
             ->assertJsonPath('data.0.id', $confirmed->id)
             ->assertJsonPath('data.0.estimate_number', 'EST-API-001')
             ->assertJsonPath('data.0.subtotal_excluding_tax', 125000)
+            ->assertJsonPath('data.0.sales_subtotal_excluding_tax', 125000)
+            ->assertJsonPath('data.0.development_subtotal_excluding_tax', 116000)
+            ->assertJsonPath('data.0.first_business_subtotal_excluding_tax', 9000)
             ->assertJsonPath('data.0.tax_amount', 11600)
             ->assertJsonPath('data.0.total_amount', 136600)
             ->assertJsonPath('data.0.effort_person_days', 42);
@@ -127,6 +130,9 @@ class ConfirmedEstimateApiTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.subtotal_excluding_tax', 30000)
+            ->assertJsonPath('data.sales_subtotal_excluding_tax', 30000)
+            ->assertJsonPath('data.development_subtotal_excluding_tax', 30000)
+            ->assertJsonPath('data.first_business_subtotal_excluding_tax', 0)
             ->assertJsonPath('data.effort_person_days', 3)
             ->assertJsonPath('data.items.0.name', '設計')
             ->assertJsonPath('data.items.0.line_subtotal_excluding_tax', 30000)

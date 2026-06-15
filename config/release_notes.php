@@ -3,6 +3,17 @@
 return [
     'entries' => [
         [
+            'version' => 'v1.0.23',
+            'released_at' => '2026-06-15',
+            'title' => '見積APIの開発管理用金額を分離',
+            'summary' => '外部連携APIで、売上金額と開発の予実・工数管理に使う金額を分けて取得できるようにしました。',
+            'items' => [
+                '受注確定済み見積APIに `sales_subtotal_excluding_tax`、`development_subtotal_excluding_tax`、`first_business_subtotal_excluding_tax` を追加しました。',
+                '`subtotal_excluding_tax` は互換用として残し、第1種を含む見積全体の税抜小計として扱います。',
+                'ヘルプとAPIリファレンスに、開発の予実・工数管理では `development_subtotal_excluding_tax` を使うことを明記しました。',
+            ],
+        ],
+        [
             'version' => 'v1.0.22',
             'released_at' => '2026-06-12',
             'title' => '外部連携APIとAPIリファレンスを追加',

@@ -4,11 +4,13 @@
 
 ## 正本（運用で参照）
 - `docs/PROGRESS.md`: 変更進捗ログ（最新）
+- `docs/API_REFERENCE.md`: 見積システム外部連携 API リファレンス
 - `docs/DASHBOARD_UI_SETTING.md`: ダッシュボードUI設定
 - `docs/MAINTENANCE_FEE.md`: 保守売上管理の運用メモ
 - `docs/reference/`: 旧 `README_*` ドキュメント群
 
 ## 仕様/設計メモ
+- `docs/firebase-rebuild/`: Firebase リビルド向け要件定義・詳細設計
 - `docs/RDD.md`: UX要件定義（参考）
 - `docs/DASHBOARD_RENEWAL_PROPOSAL.md`: 新ダッシュボード提案書
 - `docs/MAINTENANCE_FEE_BRUSHUP_PROPOSAL.md`: 保守売上管理のブラッシュアップ提案

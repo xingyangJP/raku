@@ -358,8 +358,8 @@ const sectionGroups = [
         id: 'api',
         title: 'API連携',
         icon: LinkIcon,
-        summary: '外部システムから受注確定済み見積の金額と工数を取得するためのAPIです。',
-        chips: ['Bearer認証', '受注確定のみ', '税抜小計/工数'],
+        summary: '外部システムから受注確定済み見積の売上金額、開発管理用金額、工数を取得するためのAPIです。',
+        chips: ['Bearer認証', '受注確定のみ', '売上/開発金額/工数'],
         sections: [
             {
                 title: '認証',
@@ -388,7 +388,9 @@ const sectionGroups = [
             {
                 title: 'レスポンス項目',
                 items: [
-                    '`subtotal_excluding_tax` は保存済みの税込合計 `total_amount` から `tax_amount` を引いた税抜小計です。保存値が欠ける場合は明細金額から補完します。',
+                    '`subtotal_excluding_tax` と `sales_subtotal_excluding_tax` は第1種を含む見積全体の税抜小計です。',
+                    '`development_subtotal_excluding_tax` は第1種を除外した開発の予実・工数管理用の税抜小計です。',
+                    '`first_business_subtotal_excluding_tax` は第1種だけの税抜小計です。',
                     '`effort_person_days` は第1種を除外し、人日・人月・時間系の単位を人日に換算した工数です。',
                     '日付は `YYYY-MM-DD`、更新日時は ISO 8601 形式で返します。',
                 ],
