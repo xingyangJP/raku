@@ -1136,3 +1136,5 @@
   - 本番 `/home/xero/raku/.env` に `EXTERNAL_INTEGRATION_API_TOKEN` を追加。変更前バックアップは `.env.backup.external-api-token-20260615095931`、生成tokenのローカル控えは `/private/tmp/raku_external_integration_api_token.txt` に `0600` で保存した。本番コードはまだ未反映のため、API有効化には commit / push / deploy が必要。
   - push 前確認として `php artisan test --filter=ConfirmedEstimateApiTest` と `php artisan test --filter=ReleaseNoteTest` を再実行し、どちらも成功。`rg` で repo 内に token 実値や Google Chat webhook URL が含まれていないことを確認した。
   - `dev` への push と `salesdev` deploy 成功後、利用者依頼により `main` へ merge して本番反映する作業を開始。merge は競合なしで適用できたため、本番 deploy 後に `/api/v1/confirmed-estimates` と token 認証を確認する。
+  - `main` へ merge commit `b330b6b` を push し、GitHub Actions `Deploy to Xserver` run `27518038967` が success で完了。本番 `/home/xero/raku` で `/api/v1/confirmed-estimates` / `{estimate}` のルート登録と `services.external_integration.token` 読み込みを確認した。
+  - 本番 `https://sales.xerographix.co.jp/api/v1/confirmed-estimates` は token なしで `401 Unauthenticated.`、本番 `.env` の token 付きで `200` と受注確定済み見積 JSON が返ることを確認。直近ログに API 関連 error はなし。
