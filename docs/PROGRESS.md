@@ -1150,3 +1150,9 @@
 - Step 160: Firebase リビルド向けの要件定義書・詳細設計書作成に着手。現行コード、README、API_REFERENCE、見積/請求/保守売上関連 docs、MF 連携サービス、集計サービス、主要モデルを確認し、`docs/firebase-rebuild/` に新規整理する方針にした。
 - `docs/firebase-rebuild/README.md`、`requirements.md`、`detailed-design.md` を追加し、現行機能を Firebase Auth / Firestore / Cloud Functions / Storage / Hosting 前提で再整理した。Money Forward API 連携、顧客 API 連携、社員 API 連携は現行実装として記録しつつ、新システムでは再検討事項として明記した。
 - Step 161: 利用者指摘を受け、新システムの DB が Cloud Firestore であることを `docs/firebase-rebuild/README.md`、`requirements.md`、`detailed-design.md` に明記。MySQL は現行システムおよび移行元/検証比較元としてのみ扱う表現へ補強した。
+
+## 2026-06-18
+
+- Step 162: ダッシュボードの売上ランキングとやることリストを AI経営総評エリアの上へ移動し、見積一覧の金額列を「税込合計」から「税抜金額」へ変更する作業に着手。見積一覧の表示金額は保存済み `total_amount` から `tax_amount` を差し引き、保存値がない場合だけ明細小計へ fallback する方針にした。
+- ダッシュボードの2カードは既存の集計・承認操作ロジックを変えず表示位置のみ変更。見積一覧は列ラベルと表示金額を税抜へ変更し、UI表示バージョンを `v1.0.24` に更新、更新履歴と ReleaseNoteTest の期待値も同期した。
+- Step 163: 利用者依頼により、ダッシュボードと見積一覧の表示調整差分を丁寧な日本語コミットメッセージで commit / push する作業に着手。push 前に `git diff --check` と Vite production build を確認し、PHP 実行環境がないため Laravel Feature test は未実施として記録する。

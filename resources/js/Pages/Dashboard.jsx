@@ -690,6 +690,85 @@ export default function Dashboard({
                     </div>
                 </div>
 
+                <div className="grid gap-6 md:grid-cols-2">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center"><BarChart3 className="mr-2 h-5 w-5" />売上ランキング</CardTitle>
+                            <CardDescription>当月の受注（納期ベース）トップ5</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {hasSalesRanking ? (
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead className="w-[50px]">順位</TableHead>
+                                            <TableHead>得意先</TableHead>
+                                            <TableHead className="text-right">金額</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {salesRanking.map((item) => (
+                                            <TableRow key={item.rank}>
+                                                <TableCell className="font-medium">{item.rank}</TableCell>
+                                                <TableCell>{item.customer_name}</TableCell>
+                                                <TableCell className="text-right">{formatCurrency(item.amount)}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            ) : (
+                                <div className="text-sm text-slate-500">当月の受注データがありません。</div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle className="flex items-center"><ListChecks className="mr-2 h-5 w-5" />やることリスト</CardTitle>
+                                    <CardDescription>承認タスク（申請日降順）</CardDescription>
+                                </div>
+                                <ToggleGroup type="single" value={filter} onValueChange={(value) => value && setFilter(value)} className="gap-1">
+                                    <ToggleGroupItem value="all" aria-label="全て">全て</ToggleGroupItem>
+                                    <ToggleGroupItem value="mine" aria-label="自分のみ">自分のみ</ToggleGroupItem>
+                                </ToggleGroup>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="w-[120px]">申請日</TableHead>
+                                        <TableHead>件名</TableHead>
+                                        <TableHead className="w-[160px]">状態/操作</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredTasks.length === 0 && (
+                                        <TableRow>
+                                            <TableCell colSpan={3} className="text-slate-500">対象のタスクはありません。</TableCell>
+                                        </TableRow>
+                                    )}
+                                    {filteredTasks.map((task) => (
+                                        <TableRow key={task.id} className="hover:bg-slate-50">
+                                            <TableCell className="font-medium">{formatDate(task.issue_date)}</TableCell>
+                                            <TableCell className="max-w-[260px] truncate">{task.title}</TableCell>
+                                            <TableCell>
+                                                {task.status_for_dashboard === '確認して承認' ? (
+                                                    <Button size="sm" onClick={() => openDetail(task)}>確認して承認</Button>
+                                                ) : (
+                                                    <Badge variant="secondary">{task.status_for_dashboard}</Badge>
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+                </div>
+
                 <Card className="overflow-hidden border-slate-900 bg-slate-950 text-white shadow-lg">
                     <button
                         type="button"
@@ -1708,85 +1787,6 @@ export default function Dashboard({
                         )}
                     </CardContent>
                 </Card>
-
-                <div className="grid gap-6 md:grid-cols-2">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="flex items-center"><BarChart3 className="mr-2 h-5 w-5" />売上ランキング</CardTitle>
-                            <CardDescription>当月の受注（納期ベース）トップ5</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            {hasSalesRanking ? (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead className="w-[50px]">順位</TableHead>
-                                            <TableHead>得意先</TableHead>
-                                            <TableHead className="text-right">金額</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {salesRanking.map((item) => (
-                                            <TableRow key={item.rank}>
-                                                <TableCell className="font-medium">{item.rank}</TableCell>
-                                                <TableCell>{item.customer_name}</TableCell>
-                                                <TableCell className="text-right">{formatCurrency(item.amount)}</TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            ) : (
-                                <div className="text-sm text-slate-500">当月の受注データがありません。</div>
-                            )}
-                        </CardContent>
-                    </Card>
-
-                    <Card>
-                        <CardHeader>
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <CardTitle className="flex items-center"><ListChecks className="mr-2 h-5 w-5" />やることリスト</CardTitle>
-                                    <CardDescription>承認タスク（申請日降順）</CardDescription>
-                                </div>
-                                <ToggleGroup type="single" value={filter} onValueChange={(value) => value && setFilter(value)} className="gap-1">
-                                    <ToggleGroupItem value="all" aria-label="全て">全て</ToggleGroupItem>
-                                    <ToggleGroupItem value="mine" aria-label="自分のみ">自分のみ</ToggleGroupItem>
-                                </ToggleGroup>
-                            </div>
-                        </CardHeader>
-                        <CardContent>
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead className="w-[120px]">申請日</TableHead>
-                                        <TableHead>件名</TableHead>
-                                        <TableHead className="w-[160px]">状態/操作</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredTasks.length === 0 && (
-                                        <TableRow>
-                                            <TableCell colSpan={3} className="text-slate-500">対象のタスクはありません。</TableCell>
-                                        </TableRow>
-                                    )}
-                                    {filteredTasks.map((task) => (
-                                        <TableRow key={task.id} className="hover:bg-slate-50">
-                                            <TableCell className="font-medium">{formatDate(task.issue_date)}</TableCell>
-                                            <TableCell className="max-w-[260px] truncate">{task.title}</TableCell>
-                                            <TableCell>
-                                                {task.status_for_dashboard === '確認して承認' ? (
-                                                    <Button size="sm" onClick={() => openDetail(task)}>確認して承認</Button>
-                                                ) : (
-                                                    <Badge variant="secondary">{task.status_for_dashboard}</Badge>
-                                                )}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                        </CardContent>
-                    </Card>
-                </div>
 
                 <EstimateDetailSheet
                     estimate={selectedEstimate}

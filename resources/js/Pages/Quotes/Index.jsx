@@ -505,6 +505,19 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
         0
     );
 
+    const calculateEstimateSubtotalExcludingTax = (estimate) => {
+        if (estimate?.total_amount !== null && estimate?.total_amount !== undefined && estimate?.total_amount !== '') {
+            return toNumber(estimate.total_amount, 0) - toNumber(estimate?.tax_amount, 0);
+        }
+
+        const itemSubtotal = getEstimateItems(estimate).reduce(
+            (sum, item) => sum + calculateAmount(item),
+            0
+        );
+
+        return itemSubtotal > 0 ? itemSubtotal : null;
+    };
+
     const calculateEstimateGrossAmount = (estimate) => toNumber(estimate?.total_amount, 0) - calculateEstimateCostAmount(estimate);
 
     const calculateEstimateEffortPersonDays = (estimate) => getEstimateItems(estimate).reduce((sum, item) => (
@@ -1340,7 +1353,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                         <TableHead className="font-semibold">見積番号</TableHead>
                                         <TableHead className="font-semibold">件名</TableHead>
                                         <TableHead className="font-semibold">顧客名</TableHead>
-                                        <TableHead className="font-semibold">税込合計</TableHead>
+                                        <TableHead className="font-semibold">税抜金額</TableHead>
                                         <TableHead className="font-semibold">ステータス</TableHead>
                                         <TableHead className="font-semibold">自社担当者</TableHead>
                                         <TableHead className="font-semibold">工数注意</TableHead>
@@ -1356,6 +1369,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                             : null;
                                         const effortNotice = buildEffortNotice(estimate);
                                         const deadlineNotice = buildDeadlineNotice(estimate);
+                                        const subtotalExcludingTax = calculateEstimateSubtotalExcludingTax(estimate);
 
                                         return (
                                             <Fragment key={estimate.id}>
@@ -1404,7 +1418,7 @@ export default function QuoteIndex({ auth, estimates, moneyForwardConfig, syncSt
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="font-bold text-green-700">
-                                                        ¥{estimate.total_amount ? estimate.total_amount.toLocaleString() : 'N/A'}
+                                                        {subtotalExcludingTax === null ? 'N/A' : formatCurrency(subtotalExcludingTax)}
                                                     </TableCell>
                                                     <TableCell>
                                                         {getStatusBadge(estimate)}
